@@ -15,7 +15,7 @@ dialogue option, a lost branch) are fixed as always-on corrections; see
 
 ## Download
 
-Get the latest build from the [Releases page](https://github.com/louisvarley/ffe-rs-classic/releases/latest).
+Get the latest build from the [Releases page][(https://github.com/louisvarley/ffe-rs-classic/releases/latest)](https://github.com/louisvarley/ffers/releases).
 Every platform has a ready-to-run package; none contains game data.
 
 | Platform | File | Notes |
