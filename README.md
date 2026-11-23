@@ -1,22 +1,15 @@
 # ffe-rs
 
-A native Rust reimplementation of **Frontier: First Encounters** (Elite 3). The gameplay
-reference is **JJFFE 2.8a7**; the aim is a like-for-like **Classic** game, drawn the original's
-way (320x200, the original palette, font, cockpit and software rasterisers) and run by a small
-launcher. You supply your own installed copy of the game; nothing from it is in this repository
-or in any download.
+A native Rust reimplementation of **Frontier: First Encounters** (Elite 3) that runs on modern
+Windows, Linux and macOS. It looks and plays like the original (320x200, the original palette,
+font and cockpit), with a small launcher, modern controls and a few optional improvements.
 
-**Status:** playable and close to the original, still experimental.
-[docs/STATUS.md](docs/STATUS.md) is the current state, [docs/BURNDOWN.md](docs/BURNDOWN.md) is
-what is left, and [CLAUDE.MD](CLAUDE.MD) records the owner's decisions and the working rules.
-Several missions the original shipped broken (an unreachable story step, wrong prices, a dead
-dialogue option, a lost branch) are fixed as always-on corrections; see
-[docs/notes/broken-missions.md](docs/notes/broken-missions.md).
+You need your own installed copy of the game. Nothing from it is in this repository or in any
+download.
 
 ## Download
 
 Get the latest build from the [Releases page](https://github.com/louisvarley/ffers/releases/latest).
-Every platform has a ready-to-run package; none contains game data.
 
 | Platform | File | Notes |
 |---|---|---|
@@ -24,99 +17,88 @@ Every platform has a ready-to-run package; none contains game data.
 | Linux x86_64 | `ffers-<tag>-x86_64.AppImage` | `chmod +x` it and run. Sound uses ALSA. |
 | macOS | `ffers-<tag>-macOS.zip` | Unsigned: right-click the app, choose Open. Sound uses CoreAudio. |
 
-The `MyRecomp-<tag>-...` files on the release are the same builds under the MyRecomp name.
-`SHA256SUMS.txt` lists the checksum of every file.
+`SHA256SUMS.txt` on each release lists the checksum of every file.
 
-### You need the game
+## What you need
 
-The port reads your installed game; it never changes it. Supported releases:
+Your installed game folder, the one holding `FIRSTENC.EXE`. Supported releases:
 
-- the floppy **English 1.02** (the default most players have),
-- the CD **English 1.01** (the CD's `DATA` folder also holds the optional game videos),
-- the Elite Club shareware 1.06 data also loads.
+- the floppy **English 1.02** (the version most players have),
+- the CD **English 1.01** (its `DATA` folder also holds the optional game videos),
+- the Elite Club shareware 1.06 data.
 
-[docs/GAME_FILES.md](docs/GAME_FILES.md) lists the recognised files and checksums. Put the
-installed folder (the one holding `FIRSTENC.EXE`) wherever you like and point the launcher at it, or
-name it `game` beside the program. A raw BIN/CUE image or a patch installer will not work: install
-the game first.
+[docs/GAME_FILES.md](docs/GAME_FILES.md) lists the recognised files and checksums. A raw BIN/CUE
+image or a patch installer will not work: install the game first. The game folder is only ever
+read, never changed.
 
-### Run it
+## Run it
 
-- **Windows:** unzip, then run `ffe-launcher.exe`. Put your game in a folder called `game` beside
-  it (or browse to it in the launcher).
-- **Linux:** `chmod +x ffers-<tag>-x86_64.AppImage && ./ffers-<tag>-x86_64.AppImage`. Keep the
-  `game` folder (or browse to it) and the launcher's `saves`, `recordings` and `music.bin` beside
-  the `.AppImage` file.
-- **macOS:** open `ffers.app` (first time: right-click, Open, Open). In the launcher, browse to your
-  game folder. Saves and the music pack go to `~/Library/Application Support/ffe-rs`, or beside
-  the app if that folder already has a `game` or `saves` folder. If macOS reports the app as
-  damaged: `xattr -dr com.apple.quarantine ffers.app`.
+- **Windows:** unzip, run `ffe-launcher.exe`, and browse to your game folder (or put it in a folder
+  called `game` beside the launcher).
+- **Linux:** `chmod +x ffers-<tag>-x86_64.AppImage && ./ffers-<tag>-x86_64.AppImage`, then browse to
+  your game folder.
+- **macOS:** open `ffers.app` (first time: right-click, Open, Open) and browse to your game folder.
+  If macOS says the app is damaged: `xattr -dr com.apple.quarantine ffers.app`.
 
-The first launch checks the game files and renders the music pack (`music.bin`, about 100 MB,
-made from the game's own music with a bundled sound bank). It is made once.
+The first launch checks your game files and renders the music (`music.bin`, about 100 MB, made
+from the game's own music with a bundled sound bank). This happens once.
 
 ## The launcher
 
-`ffe-launcher` is the front door. It checks your game folder, remembers your choices in
-`saves/launcher.cfg`, edits the game's own settings in `saves/config.cfg`, and starts the game.
+The launcher checks your game folder, remembers your choices and starts the game.
 
-- **Play.** The *game files* row shows the release it found (CD 1.01, floppy 1.02 or shareware)
-  and whether every file checks out; *Browse* picks another folder. The *game videos* row finds
-  the CD's `DATA` folder of AVI clips (optional) or a folder you choose. Then pick a **starting
-  location** (Gateway/Hope, Ross 154, Sol/Mars or Lave Station), tick **Skip intro** if you
-  like, and press **Launch**. Launch stays disabled until the files are verified.
-- **Settings.** *Display*: window size, full screen, the video filter (Nearest, Linear, xBRZ 2x,
-  Scale2x), scaling, pixel aspect and an optional CRT scanline effect. *Game options*: the control
-  scheme, other options and the galaxy map. *Enhancements*: the optional extras below. Settings are
-  locked while the game runs and reload when it closes.
-- **About.** The verification report, links to the saves folder and the last game log, the
-  **Updates** section, and the project's GitHub link.
-- **Recording.** Every run can record your keyboard and mouse to
-  `recordings/<date-time>.ffe-input`, so a problem can be replayed exactly (see Developer options).
+- **Play:** shows the release it found and whether every file checks out. Pick a starting
+  location (Gateway/Hope, Ross 154, Sol/Mars or Lave Station), optionally skip the intro, and press
+  **Launch**. If you have the CD, it also finds the optional game videos.
+- **Settings:** window size, full screen, video filter (Nearest, Linear, xBRZ 2x, Scale2x), pixel
+  aspect, an optional CRT scanline effect, the control scheme and the optional enhancements below.
+- **About:** the verification report, links to your saves folder and the last game log, and update
+  settings.
 
 More detail: [docs/notes/launcher.md](docs/notes/launcher.md).
 
 ### Updates
 
-On the Windows package the launcher checks GitHub for a newer release when it opens (switch this
-off in About). When one exists, an **Update to vX.Y.Z - click to install** button appears in the
-footer. It downloads the Windows zip, checks every file against the checksum list inside it,
-replaces the programs and documents, and restarts the launcher. Your `game`, `saves`,
-`recordings`, `FMVs` folders and the music pack are never touched, and a failed update is undone.
-On Linux and macOS the same button opens the release page. The check sends only the request
-itself to GitHub: no identifiers and no game information. It uses `curl` (built into Windows 10
-and later).
+On Windows the launcher checks GitHub for a newer release when it opens (switch this off in
+About). When one exists, an **Update to vX.Y.Z - click to install** button appears. It downloads the
+release, verifies every file against its checksum list, replaces the programs and restarts. Your
+game folder, saves, recordings and music pack are never touched, and a failed update is undone. On
+Linux and macOS the button opens the release page instead. The check sends nothing but the request
+itself: no identifiers and no game information.
+
+## Controls
+
+Two presets, chosen in the launcher or on the in-game Advanced Options page:
+
+- **Modern** (default): W/S and the arrow keys.
+- **Classic**: the original's keys. Hold the right mouse button to steer; Enter and right Shift set
+  the speed.
+
+The full key tables are in [docs/CONTROLS.md](docs/CONTROLS.md).
 
 ## Enhancements
 
-Every enhancement is off by default, so the game plays like the original until you opt in under **Settings > Enhancements** (stored as `enhancement.<name>=on`
-lines in `saves/config.cfg`). They never change your saves, and the 320x200 picture changes only
-where an indicator is added.
+Every enhancement is off by default, so the game plays like the original until you turn one on
+under **Settings > Enhancements**. They never change your saves.
 
 | Group | Enhancement | What it does |
 |---|---|---|
 | Combat & missiles | Turrets turn while time is paused | Turrets keep tracking their target while time is paused. |
-| | Missiles ignore their launcher on launch | A missile's collision ray ignores the ship that fired it. |
-| | Missiles use swept collision | A missile's whole path is tested each frame, so a fast missile cannot step past a thin target. |
+| | Missiles ignore their launcher on launch | A missile no longer hits the ship that fired it. |
+| | Missiles use swept collision | A fast missile cannot step past a thin target. |
 | | ECM can disable NN500 missiles | The ECM stops NN500-series missiles as well as the standard models. |
 | Autopilot | Autopilot offsets its waypoint | Adds a waypoint when the direct path would hit a nearby body. |
-| | Autopilot braking uses retro thrust and gravity | Braking is calculated from the weaker retro thrust less gravity, so approaches do not crash. |
+| | Autopilot braking uses retro thrust and gravity | Approaches no longer crash. |
 | | Autopilot avoids every nearby body | Collisions are tested against every body in range. |
-| Mission fixes | Mission fixes | Assassination kill credit, hitch-hiker completion, early medals, the hidden Alioth deadline, blocked docking bays, and dialogues under accelerated time. |
-| Combat display | NPC relative speed | The selected ship's hull and shield readout also shows its speed relative to you. |
-| | Combat Targeting Computer | A dashboard button (in the escape capsule's slot) lists every ship within 50 km in the navigation computer's style, coloured red for hostile, blue for police and green for the rest. Click one to target it; it gets a red target square. |
-| | Edge target indicator | An arrow at the screen edge points to the selected target when it is out of view. |
+| Missions | Mission fixes | Assassination kill credit, hitch-hiker completion, early medals, the hidden Alioth deadline, blocked docking bays, and dialogues under accelerated time. |
+| Combat display | NPC relative speed | The selected ship's readout also shows its speed relative to you. |
+| | Combat Targeting Computer | A dashboard button listing every ship within 50 km; click one to target it. |
+| | Edge target indicator | An arrow at the screen edge points to an off-screen target. |
 
-The full definitions are in [docs/notes/enhancements.md](docs/notes/enhancements.md); the other
-deliberate differences from the original are recorded in [docs/DEVIATIONS.md](docs/DEVIATIONS.md).
-
-## Controls
-
-Two control presets, chosen in the launcher or on the Escape pages' Advanced Options page:
-**Modern** (W/S and the arrows, the default) and the original's **Classic** keys (hold the right
-mouse button to steer; Enter and right Shift set the speed). The full tables are in
-[docs/CONTROLS.md](docs/CONTROLS.md). The window size, fit, filter and pixel aspect never change
-the 320x200 frame ([docs/notes/display.md](docs/notes/display.md)).
+The full definitions are in [docs/notes/enhancements.md](docs/notes/enhancements.md). Several
+missions the original shipped broken are always fixed; see
+[docs/notes/broken-missions.md](docs/notes/broken-missions.md) and
+[docs/DEVIATIONS.md](docs/DEVIATIONS.md).
 
 ## Where your files go
 
@@ -126,9 +108,8 @@ the 320x200 frame ([docs/notes/display.md](docs/notes/display.md)).
 | Recorded sessions | `recordings/` |
 | The rendered music pack | `music.bin` |
 
-`saves/`, `recordings/` and `music.bin` sit beside the program (Windows), beside the `.AppImage`
-(Linux) or in `~/Library/Application Support/ffe-rs` (macOS). Delete `music.bin` to have it
-rendered again. Original saves can be imported read-only; the game writes its own versioned saves.
+These sit beside the program on Windows, beside the `.AppImage` on Linux, and in
+`~/Library/Application Support/ffe-rs` on macOS. Delete `music.bin` to have it rendered again.
 
 ## Building from source
 
@@ -137,60 +118,22 @@ You need the [Rust toolchain](https://rustup.rs) (1.85 or later) and your instal
 
 | How | What it does |
 |---|---|
-| `play.bat` | Builds the release game and starts it on `.\game` (Windows). Errors stay on screen. |
 | `launcher.bat` | Builds and opens the launcher (Windows). |
+| `play.bat` | Builds the game and starts it on `.\game` (Windows). Errors stay on screen. |
 | `cargo build --release --locked -p ffe-rs -p ffe-launcher` | Builds both programs into `target/release/` on any platform. Run `ffe-launcher`. |
-| `target\release\ffe-rs.exe --root .` | The game directly. `--game <folder>` picks another game folder. |
+| `target\release\ffe-rs.exe --root .` | Runs the game directly. `--game <folder>` picks another game folder. |
 
-### Packages and releases
-
-| Script | Produces |
-|---|---|
-| `tools\package.ps1 [-Name N]` | The Windows zip: both programs, documents, licence texts and a checksum list. |
-| `tools/package-appimage.sh <name>` | The Linux AppImage. |
-| `tools/package-macos.sh <name>` | The macOS app, zipped. |
-
-Releases are automatic. Every push to `main` that changes the program runs the **Release**
-workflow ([.github/workflows/release.yml](.github/workflows/release.yml)): it picks the next
-version, commits it (`Release vX.Y.Z`), builds every package on its own platform, smoke-tests the
-game and publishes the GitHub release with all downloads and a checksum list.
-
-- **Version rule** (`tools/next-version.py`): the first release is the Cargo version as it is
-  (`0.9.0`); after that the latest tag gets a patch bump (`0.9.0` to `0.9.1`). Put `#minor` or
-  `#major` in the commit message for a larger bump, or raise `version` in both
-  `crates/ffe-rs/Cargo.toml` and `crates/ffe-launcher/Cargo.toml` by hand to release exactly that.
-- Pushes that only change documents, the dashboard or licence files do not release.
-- **Run workflow** (Actions tab) builds all packages as downloadable run artifacts without
-  releasing; tick *publish* to release from there, or choose the bump. A `v*` tag pushed by hand is
-  released as it is.
-- Releasing commits to `main`, so if `main` is protected let `github-actions` push to it.
-
-The **CI** workflow checks formatting, clippy, the tests on Windows, Linux and macOS, the version
-rules, `recomplauncher.json` against its schema, and that no forbidden file is tracked.
-
-## RecompLauncher
-
-[recomplauncher.json](recomplauncher.json) describes ffe-rs to
-[RecompLauncher](https://recomplauncher.com): it asks the player for their installed game folder
-(checked for `FIRSTENC.EXE`), renders the music pack once (`ffe-rs --prepare-music`), and starts
-`ffe-rs` with `--game <that folder> --root <the launcher's data folder>`. Starting location, skip
-intro, controls, display and every enhancement are settings it can change. It uses the
-`MyRecomp-<tag>-...` downloads, whose zips keep their files at the top level (`ffe-rs.exe`,
-`ffers.app`) and whose AppImage runs the game itself when given `--` arguments.
-
-## Developer options
-
-`--dev` (or `FFE_DEV=1`) enables Ctrl+F11 (a screenshot of the presented frame), Ctrl+F12 (the
-model viewer), Ctrl+Shift+F12 (the station model lab) and O (the synthetic prototype flight
-model). `replay.bat recordings\FILE` (or `ffe-rs --replay FILE [--replay-exit]`) plays a recording
-back exactly; `FFE_TRACE=1` prints the flight state while it runs.
+Command-line options:
 
 ```
 ffe-rs [--game DIR] [--root DIR] [--start 0..5|sol] [--skip-intro] [--load SAVE.json]
-       [--smoke-frames N] [--capture* DIR] [--record FILE] [--replay FILE [--replay-exit]]
-       [--prepare-music]                   (render music.bin in the root and exit)
-ffe-rs --help | --version            (answered without game files; --version is the build ID)
+       [--record FILE] [--replay FILE [--replay-exit]] [--prepare-music]
+ffe-rs --help | --version
 ```
+
+`--dev` (or `FFE_DEV=1`) enables developer keys: Ctrl+F11 screenshot, Ctrl+F12 model viewer,
+Ctrl+Shift+F12 station model lab. Every run can record input to `recordings/`, and
+`replay.bat recordings\FILE` plays one back exactly.
 
 `ffe-tools` inspects and converts a game installation without changing it:
 
@@ -203,10 +146,7 @@ ffe-tools inspect-data   --data FILE           verify a content cache
 ffe-tools model-census   [--game DIR]          which model programs the port executes
 ```
 
-`tools\clean-machine-check.ps1` checks the first-run import from a fresh folder;
-`python tools/third-party.py` lists the linked crates' licences ([docs/THIRD_PARTY.md](docs/THIRD_PARTY.md)).
-
-## Tests
+### Tests
 
 ```powershell
 cargo test --workspace --locked
@@ -215,12 +155,33 @@ cargo fmt --all -- --check
 ```
 
 Tests that need the original content are `#[ignore]`d and read a local cache: build one with
-`ffe-tools build-data --game game --out .cache\w.bin`, then run them with
-`FFE_WORLD_CACHE=.cache\w.bin cargo test -p ffe-rs -- --ignored`. The differential checks against
-the executed original JJFFE are in [tools/reference/README.md](tools/reference/README.md), and
-[docs/REFERENCE_HARNESS.md](docs/REFERENCE_HARNESS.md) is the recipe for adding one.
+`ffe-tools build-data --game game --out .cache\w.bin`, then run
+`FFE_WORLD_CACHE=.cache\w.bin cargo test -p ffe-rs -- --ignored`.
 
-## Repository layout
+### Packages and releases
+
+| Script | Produces |
+|---|---|
+| `tools\package.ps1 [-Name N]` | The Windows zip: both programs, documents, licence texts and a checksum list. |
+| `tools/package-appimage.sh <name>` | The Linux AppImage. |
+| `tools/package-macos.sh <name>` | The macOS app, zipped. |
+
+Releases are automatic. Every push to `main` that changes the program runs the **Release**
+workflow ([.github/workflows/release.yml](.github/workflows/release.yml)): it picks the next
+version, builds every package on its own platform, smoke-tests the game and publishes a GitHub
+release with all downloads and a checksum list.
+
+- **Version rule** (`tools/next-version.py`): the first release uses the Cargo version as it is;
+  after that the latest tag gets a patch bump. Put `#minor` or `#major` in the commit message for a
+  larger bump.
+- Pushes that only change documents, the dashboard or licence files do not release.
+- **Run workflow** (Actions tab) builds all packages as downloadable artifacts without releasing;
+  tick *publish* to release from there.
+- Releasing commits to `main`, so if `main` is protected let `github-actions` push to it.
+
+The **CI** workflow checks formatting, clippy and the tests on Windows, Linux and macOS.
+
+### Repository layout
 
 ```
 crates/ffe-core/      deterministic simulation: RNG, physics, models, galaxy, traffic, markets, missions
@@ -230,18 +191,13 @@ crates/ffe-convert/   bounds-checked decoders for the executable and the asset f
 crates/ffe-audio/     HMP music and effect playback
 crates/ffe-launcher/  the launcher, with its update check
 crates/ffe-tools/     the command-line tools above
-tools/                packaging scripts and local oracles against the executed JJFFE reference
-dashboard/            the burndown page (open index.html); data in burndown.js
+tools/                packaging scripts and reference oracles
 docs/                 status, decisions, formats and per-subsystem notes (see docs/README.md)
 .github/workflows/    CI and the release packaging
 ```
 
-## Never committed
-
-`game\`, `jjffe-master\`, `ffed3d-master\`, the supplied `Frontier-First-Encounters*` release and
-patch folders, generated caches, extracted art, captures, screenshots, recordings and saves stay
-local. `ci/check_forbidden.py` fails CI if a forbidden path is tracked. Never use an
-indiscriminate `git add .`.
+[docs/STATUS.md](docs/STATUS.md) is the current state and [docs/BURNDOWN.md](docs/BURNDOWN.md) is
+what is left.
 
 ## Legal
 
