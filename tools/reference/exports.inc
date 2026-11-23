@@ -1,0 +1,721 @@
+; Adapter-only symbol aliases. Preincluded by NASM, never patched into legacy files.
+GLOBAL _ref_state
+GLOBAL _ref_laser_fire
+GLOBAL _ref_rng
+GLOBAL _ref_timer_advance
+GLOBAL _ref_system_counter
+GLOBAL _ref_accel_counter
+GLOBAL _ref_time_accel
+GLOBAL _ref_timer_last
+GLOBAL _ref_timer_next
+GLOBAL _ref_timer_min
+GLOBAL _ref_framebuffer
+GLOBAL _ref_draw_char
+GLOBAL _ref_char_width
+GLOBAL _ref_blit_index
+GLOBAL _ref_model
+GLOBAL _ref_vertex
+GLOBAL _ref_vertex_buffer
+GLOBAL _ref_command_math
+GLOBAL _ref_command_clear
+GLOBAL _ref_command_set
+GLOBAL _ref_command_alive
+GLOBAL _ref_material
+GLOBAL _ref_triangle
+GLOBAL _ref_mirror_triangle
+GLOBAL _ref_quad
+GLOBAL _ref_mirror_quad
+GLOBAL _ref_normal
+GLOBAL _ref_normal_init
+GLOBAL _ref_normal_buffer
+GLOBAL _ref_sin32
+GLOBAL _ref_rotate
+GLOBAL _ref_angle
+GLOBAL _ref_rotate_command
+GLOBAL _ref_transform_command
+GLOBAL _ref_face3
+GLOBAL _ref_face4
+GLOBAL _ref_jitter_a
+GLOBAL _ref_jitter_b
+GLOBAL _ref_cull
+GLOBAL _ref_nested_push
+GLOBAL _ref_nested_pop
+GLOBAL _ref_visibility
+GLOBAL _ref_visibility_branch
+GLOBAL _ref_visibility_inverse
+GLOBAL _ref_detail_primary
+GLOBAL _ref_detail_secondary
+GLOBAL _ref_execute
+GLOBAL _ref_depth_key
+GLOBAL _ref_depth_command
+GLOBAL _ref_order_base
+GLOBAL _ref_order_cursor
+GLOBAL _ref_order_active
+GLOBAL _ref_order_state
+GLOBAL _ref_order_init
+GLOBAL _ref_order_group
+GLOBAL _ref_order_allocate
+GLOBAL _ref_order_flush
+GLOBAL _ref_view_vertex
+GLOBAL _ref_project_vertex
+GLOBAL _ref_project_point
+GLOBAL _ref_poly_start
+GLOBAL _ref_poly_edge
+GLOBAL _ref_poly_to
+GLOBAL _ref_poly_curve
+GLOBAL _ref_poly_fill
+GLOBAL _ref_table_root
+GLOBAL _ref_near_point
+GLOBAL _ref_circle_point
+GLOBAL _ref_circle
+GLOBAL _ref_curve
+GLOBAL _ref_tex_triangle
+GLOBAL _ref_draw_line
+GLOBAL _ref_draw_curve
+GLOBAL _ref_fill_triangle
+GLOBAL _ref_fill_quad
+GLOBAL _ref_span_reset
+GLOBAL _ref_span_edge
+GLOBAL _ref_span_draw
+GLOBAL _ref_thrust_request
+GLOBAL _ref_thrust_clamp
+GLOBAL _ref_thrust_scale
+GLOBAL _ref_accelerate
+GLOBAL _ref_accelerate_uncapped
+GLOBAL _ref_orient
+GLOBAL _ref_player_craft
+GLOBAL _ref_scanner
+GLOBAL _ref_pl_frame_tics
+GLOBAL _ref_pl_object_list
+GLOBAL _ref_pl_altitude
+GLOBAL _ref_pl_mode
+GLOBAL _ref_pl_flags
+GLOBAL _ref_pl_set_speed
+GLOBAL _ref_pl_combat
+GLOBAL _ref_pl_combat_velocity
+GLOBAL _ref_pl_keys
+GLOBAL _ref_player_orient
+GLOBAL _ref_advance
+GLOBAL _ref_gravity
+GLOBAL _ref_sysgen
+GLOBAL _ref_worldgen
+GLOBAL _ref_worldgen_counter
+GLOBAL _ref_hit
+GLOBAL _ref_name
+GLOBAL _ref_c_more
+GLOBAL _ref_c_object
+GLOBAL _ref_c_chunk
+GLOBAL _ref_c_altitude
+GLOBAL _ref_c_planet
+GLOBAL _ref_tr_reset
+GLOBAL _ref_tr_init
+GLOBAL _ref_tr_node
+GLOBAL _ref_tr_edge
+GLOBAL _ref_tr_midtab
+GLOBAL _ref_tr_fn
+GLOBAL _ref_tr_level_base
+GLOBAL _ref_tr_layers
+GLOBAL _ref_tr_nodes_used
+GLOBAL _ref_tr_edges_used
+GLOBAL _ref_tr_map0
+GLOBAL _ref_tr_map1
+GLOBAL _ref_tr_pool
+GLOBAL _ref_tr_edge_pool
+GLOBAL _ref_terrain
+GLOBAL _ref_detail
+GLOBAL _ref_tr_raw
+GLOBAL _ref_tr_f1831
+GLOBAL _ref_tr_f1832
+GLOBAL _ref_tr_f1848
+GLOBAL _ref_sg_index_table
+GLOBAL _ref_handcoded_init
+GLOBAL _ref_handcoded_base
+GLOBAL _ref_sg_a
+GLOBAL _ref_sg_b
+GLOBAL _ref_sg_ports
+GLOBAL _ref_sg_stations
+GLOBAL _ref_sg_seed_a
+GLOBAL _ref_sg_seed_b
+GLOBAL _ref_sg_government
+GLOBAL _ref_sg_population
+GLOBAL _ref_galaxy_index
+GLOBAL _ref_galaxy_details
+GLOBAL _ref_galaxy_market
+GLOBAL _ref_galaxy_control
+GLOBAL _ref_galaxy_stock
+GLOBAL _ref_galaxy_table
+GLOBAL _ref_galaxy_special
+GLOBAL _ref_galaxy_rank_a
+GLOBAL _ref_galaxy_rank_b
+GLOBAL _ref_collide
+GLOBAL _ref_coll_flags
+GLOBAL _ref_coll_distance
+GLOBAL _ref_coll_distance_high
+GLOBAL _ref_frame_distance
+GLOBAL _ref_frame_enter_parent
+GLOBAL _ref_frame_enter
+GLOBAL _ref_frame_select
+GLOBAL _ref_list_pointer
+GLOBAL _ref_frame_stamp
+GLOBAL _ref_gravity_x
+GLOBAL _ref_gravity_y
+GLOBAL _ref_gravity_z
+GLOBAL _ref_st_active
+GLOBAL _ref_st_accum
+GLOBAL _ref_st_keys_on
+GLOBAL _ref_st_time
+GLOBAL _ref_st_boost
+GLOBAL _ref_st_mouse
+GLOBAL _ref_player_struct
+GLOBAL _ref_steer
+GLOBAL _ref_tex_quad
+GLOBAL _ref_tex_slots
+GLOBAL _ref_tex_draw_triangle
+GLOBAL _ref_tex_draw_quad
+GLOBAL _ref_flat_draw_triangle
+GLOBAL _ref_flat_draw_quad
+GLOBAL _ref_face_colour
+
+_ref_state equ DATA_008804
+_ref_rng equ FUNC_001530
+_ref_timer_advance equ FUNC_001418_TimerAdvance
+_ref_system_counter equ DATA_009157
+_ref_accel_counter equ DATA_009156
+_ref_time_accel equ DATA_007706
+_ref_timer_last equ tmLastTime
+_ref_timer_next equ tmNext50Hz
+_ref_timer_min equ tmMinFrame
+_ref_framebuffer equ DATA_007773
+_ref_draw_char equ FUNC_001598_DrawChar
+_ref_char_width equ FUNC_001597_CharAdvanceWidth
+_ref_blit_index equ FUNC_001623_BlitIndex
+_ref_model equ FUNC_001538
+_ref_vertex equ FUNC_001472
+_ref_vertex_buffer equ DATA_009200
+_ref_command_math equ FUNC_001758
+_ref_command_clear equ FUNC_001756
+_ref_command_set equ FUNC_001757
+_ref_command_alive equ DATA_007824
+_ref_material equ FUNC_001692
+_ref_triangle equ FUNC_001707
+_ref_mirror_triangle equ FUNC_001706
+_ref_quad equ FUNC_001711
+_ref_mirror_quad equ FUNC_001710
+_ref_normal equ FUNC_001481
+_ref_normal_init equ FUNC_001480
+_ref_normal_buffer equ DATA_009201
+_ref_sin32 equ FUNC_001914_Sin32
+_ref_rotate equ FUNC_001744
+_ref_angle equ FUNC_001474
+_ref_rotate_command equ FUNC_001742
+_ref_transform_command equ FUNC_001741
+_ref_face3 equ FUNC_001708
+_ref_face4 equ FUNC_001712
+_ref_jitter_a equ DATA_008818
+_ref_jitter_b equ DATA_008820
+_ref_cull equ FUNC_001687
+_ref_nested_push equ FUNC_001781
+_ref_nested_pop equ FUNC_001782
+_ref_visibility equ FUNC_001751
+_ref_visibility_branch equ FUNC_001752
+_ref_visibility_inverse equ FUNC_001755
+_ref_detail_primary equ DATA_008812
+_ref_detail_secondary equ DATA_008813
+_ref_execute equ FUNC_001772
+_ref_depth_key equ FUNC_001777
+_ref_depth_command equ FUNC_001696
+_ref_order_base equ DATA_007829
+_ref_order_cursor equ DATA_007830
+_ref_order_active equ DATA_007833
+_ref_order_state equ DATA_007834
+_ref_order_init equ FUNC_001785
+_ref_order_group equ FUNC_001780
+_ref_order_allocate equ FUNC_001778
+_ref_order_flush equ FUNC_001789
+_ref_view_vertex equ FUNC_001470
+_ref_project_vertex equ FUNC_001471
+_ref_project_point equ FUNC_001479
+_ref_poly_start equ FUNC_001794
+_ref_poly_edge equ FUNC_001795
+_ref_poly_to equ FUNC_001796
+_ref_poly_curve equ FUNC_001797
+_ref_poly_fill equ FUNC_001799
+_ref_table_root equ FUNC_001467
+_ref_near_point equ FUNC_001564
+_ref_circle_point equ FUNC_001557
+_ref_circle equ FUNC_001554
+_ref_curve equ FUNC_001547
+_ref_tex_triangle equ FUNC_001644_DrawTexTriangle
+_ref_draw_line equ FUNC_001616_DrawLine
+_ref_draw_curve equ FUNC_001546
+_ref_fill_triangle equ FUNC_001604_DrawTriangle
+_ref_fill_quad equ FUNC_001607_DrawQuad
+_ref_span_reset equ FUNC_001468
+_ref_span_edge equ FUNC_001560
+_ref_span_draw equ FUNC_001613_DrawSpans
+_ref_thrust_request equ FUNC_000598
+_ref_thrust_clamp equ FUNC_000599
+_ref_thrust_scale equ FUNC_000600
+_ref_accelerate equ FUNC_000601
+_ref_accelerate_uncapped equ FUNC_000602
+_ref_orient equ FUNC_000585
+_ref_player_craft equ DATA_008857
+_ref_scanner equ DATA_008933
+_ref_pl_frame_tics equ DATA_009155
+_ref_pl_object_list equ DATA_009133
+_ref_laser_fire equ FUNC_000931
+_ref_pl_altitude equ DATA_008867
+_ref_pl_mode equ DATA_008870
+_ref_pl_flags equ DATA_008871
+_ref_pl_set_speed equ DATA_008918
+_ref_pl_combat equ DATA_009046
+_ref_pl_combat_velocity equ DATA_008839
+_ref_pl_keys equ DATA_007691
+_ref_player_orient equ FUNC_001041
+_ref_advance equ FUNC_001512
+_ref_gravity equ FUNC_000603
+_ref_sysgen equ FUNC_000878
+_ref_worldgen equ FUNC_000880
+_ref_worldgen_counter equ DATA_008834
+_ref_sg_index_table equ DATA_007133
+_ref_handcoded_init equ FUNC_000875
+_ref_handcoded_base equ DATA_008792
+_ref_sg_a equ DATA_008843
+_ref_sg_b equ DATA_008844
+_ref_sg_ports equ DATA_008855
+_ref_sg_stations equ DATA_008856
+_ref_sg_seed_a equ DATA_007126
+_ref_sg_seed_b equ DATA_007127
+_ref_sg_government equ DATA_007128
+_ref_sg_population equ DATA_008854
+_ref_galaxy_index equ FUNC_000868
+_ref_tr_reset equ FUNC_001817
+_ref_tr_init equ FUNC_001816
+_ref_tr_node equ FUNC_001818
+_ref_tr_edge equ FUNC_001820
+_ref_tr_midtab equ DATA_007844
+_ref_tr_fn equ DATA_009278
+_ref_tr_level_base equ DATA_009269
+_ref_tr_layers equ DATA_009260
+_ref_tr_nodes_used equ DATA_009273
+_ref_tr_edges_used equ DATA_009276
+_ref_tr_map0 equ DATA_007637
+_ref_tr_map1 equ DATA_007638
+_ref_tr_pool equ DATA_009274
+_ref_tr_edge_pool equ DATA_009277
+_ref_terrain equ FUNC_001876
+_ref_detail equ DATA_008812
+_ref_tr_raw equ DATA_009283
+_ref_tr_f1831 equ FUNC_001831
+_ref_tr_f1832 equ FUNC_001832
+_ref_tr_f1848 equ FUNC_001848
+_ref_galaxy_details equ FUNC_000869
+_ref_galaxy_market equ FUNC_000870
+_ref_galaxy_control equ FUNC_000871
+_ref_galaxy_stock equ DATA_008790
+_ref_galaxy_table equ DATA_007110
+_ref_galaxy_special equ DATA_007116
+_ref_galaxy_rank_a equ DATA_008912
+_ref_galaxy_rank_b equ DATA_008913
+_ref_collide equ FUNC_000569
+_ref_coll_flags equ DATA_008696
+_ref_hit equ FUNC_000576
+_ref_name equ FUNC_000791
+_ref_c_more equ DATA_008697
+_ref_c_object equ DATA_008698
+_ref_c_chunk equ DATA_008701
+_ref_c_altitude equ DATA_008705
+_ref_c_planet equ DATA_008707
+_ref_coll_distance equ DATA_008703
+_ref_coll_distance_high equ DATA_008704
+_ref_frame_distance equ FUNC_000590
+_ref_frame_enter_parent equ FUNC_000604
+_ref_frame_enter equ FUNC_000605
+_ref_frame_select equ FUNC_000606
+_ref_list_pointer equ DATA_007758
+_ref_frame_stamp equ DATA_008811
+_ref_gravity_x equ DATA_008708
+_ref_gravity_y equ DATA_008709
+_ref_gravity_z equ DATA_008710
+_ref_st_active equ DATA_008630
+_ref_st_accum equ DATA_KeyAccumTable
+_ref_st_keys_on equ DATA_007706
+_ref_st_time equ DATA_009122
+_ref_st_boost equ DATA_007690
+_ref_st_mouse equ DATA_009188
+_ref_player_struct equ DATA_008804
+_ref_steer equ FUNC_001037
+_ref_tex_quad equ FUNC_001647_DrawTexQuad
+_ref_tex_slots equ DATA_009252
+_ref_tex_draw_triangle equ FUNC_001807
+_ref_tex_draw_quad equ FUNC_001805
+_ref_flat_draw_triangle equ FUNC_001804
+_ref_flat_draw_quad equ FUNC_001809
+_ref_face_colour equ FUNC_001691
+; Child-model oracle (--child-model): real F1740/F1773 and the globals they read.
+GLOBAL _ref_child_frame
+GLOBAL _ref_child_run
+GLOBAL _ref_shades
+GLOBAL _ref_arena_index
+_ref_child_frame equ FUNC_001740
+_ref_child_run equ FUNC_001773
+_ref_shades equ DATA_008831
+_ref_arena_index equ DATA_007823
+; Thruster oracle (--thruster-cases): F1738 itself and its narrow-line queueing.
+GLOBAL _ref_thruster
+GLOBAL _ref_line_queue
+_ref_thruster equ FUNC_001738
+_ref_line_queue equ FUNC_001704
+; Animation oracles (--animation, --object-instance): orbital update, MatBuildYZT,
+; the F1537 frame loop, F1683 and the light/frame-time globals they read.
+GLOBAL _ref_mat_build_yzt
+GLOBAL _ref_orbital_update
+GLOBAL _ref_frame_time
+GLOBAL _ref_object_frame
+GLOBAL _ref_display_object
+GLOBAL _ref_light
+GLOBAL _ref_star_light
+GLOBAL _ref_light_timer
+_ref_mat_build_yzt equ FUNC_001675_MatBuildYZT
+_ref_orbital_update equ FUNC_000866
+_ref_frame_time equ DATA_009155
+_ref_object_frame equ FUNC_001537
+_ref_display_object equ FUNC_001683
+_ref_light equ DATA_008821
+_ref_star_light equ DATA_008827
+_ref_light_timer equ DATA_008830
+
+; Flight-object name labels (--labels): F989's walk and F1108's text write.
+GLOBAL _ref_labels_989
+GLOBAL _ref_labels_1108
+_ref_labels_989 equ FUNC_000989
+_ref_labels_1108 equ FUNC_001108
+
+GLOBAL _ref_surface_cmd
+_ref_surface_cmd equ FUNC_001874
+GLOBAL _ref_surface
+_ref_surface equ FUNC_001876
+GLOBAL _ref_order_head
+GLOBAL _ref_group_open
+GLOBAL _ref_group_close
+GLOBAL _ref_ring_quad
+GLOBAL _ref_haze_flag
+GLOBAL _ref_haze_distance
+GLOBAL _ref_haze_colour
+GLOBAL _ref_haze_scale
+GLOBAL _ref_sky_flag
+GLOBAL _ref_sky
+GLOBAL _ref_emit
+GLOBAL _ref_emit_level
+GLOBAL _ref_det_a
+GLOBAL _ref_det_b
+GLOBAL _ref_surface_sign
+_ref_surface_sign equ FUNC_001875
+_ref_order_head equ DATA_009255
+_ref_group_open equ FUNC_001792
+_ref_group_close equ FUNC_001793
+_ref_ring_quad equ FUNC_001810
+_ref_haze_flag equ DATA_009262
+_ref_haze_distance equ DATA_009263
+_ref_haze_colour equ DATA_009265
+_ref_haze_scale equ DATA_009267
+_ref_sky_flag equ DATA_008814
+_ref_sky equ DATA_008815
+_ref_emit equ DATA_009270
+_ref_emit_level equ DATA_009286
+_ref_det_a equ FUNC_001806
+_ref_det_b equ FUNC_001808
+GLOBAL _ref_surface_mix
+_ref_surface_mix equ FUNC_001824
+GLOBAL _ref_surface_vector_msb
+_ref_surface_vector_msb equ FUNC_001825
+
+; Traffic control oracle (--traffic): F650-F655, F657 (station bays, clearance), F867's
+; clearance countdown, and the player index F650 and F655 compare against.
+GLOBAL _ref_traffic_alloc
+GLOBAL _ref_traffic_release
+GLOBAL _ref_traffic_touch
+GLOBAL _ref_traffic_reset
+GLOBAL _ref_traffic_request
+GLOBAL _ref_traffic_dock
+GLOBAL _ref_traffic_docking
+GLOBAL _ref_traffic_elapse
+GLOBAL _ref_player_index
+_ref_traffic_alloc equ FUNC_000650
+_ref_traffic_release equ FUNC_000651
+_ref_traffic_touch equ FUNC_000652
+_ref_traffic_reset equ FUNC_000653
+_ref_traffic_request equ FUNC_000654
+_ref_traffic_dock equ FUNC_000655
+_ref_traffic_docking equ FUNC_000657
+_ref_traffic_elapse equ FUNC_000867
+_ref_player_index equ DATA_008857
+
+; Market oracle (--market): F619 (price), F620 (stock) and the goods table they read.
+GLOBAL _ref_market_price
+GLOBAL _ref_market_stock
+GLOBAL _ref_market_goods
+_ref_market_price equ FUNC_000619
+_ref_market_stock equ FUNC_000620
+_ref_market_goods equ DATA_006169
+
+; Lift scene oracle (--lift): the stage functions F1069-F1087 and F1086, the draw hook F1070
+; calls (DATA_007807), and the globals they read.
+GLOBAL _ref_lift_1069
+_ref_lift_1069 equ FUNC_001069
+GLOBAL _ref_lift_1074
+_ref_lift_1074 equ FUNC_001074
+GLOBAL _ref_lift_1075
+_ref_lift_1075 equ FUNC_001075
+GLOBAL _ref_lift_1076
+_ref_lift_1076 equ FUNC_001076
+GLOBAL _ref_lift_1078
+_ref_lift_1078 equ FUNC_001078
+GLOBAL _ref_lift_1081
+_ref_lift_1081 equ FUNC_001081
+GLOBAL _ref_lift_1082
+_ref_lift_1082 equ FUNC_001082
+GLOBAL _ref_lift_1083
+_ref_lift_1083 equ FUNC_001083
+GLOBAL _ref_lift_1084
+_ref_lift_1084 equ FUNC_001084
+GLOBAL _ref_lift_1085
+_ref_lift_1085 equ FUNC_001085
+GLOBAL _ref_lift_1087
+_ref_lift_1087 equ FUNC_001087
+GLOBAL _ref_lift_leave
+_ref_lift_leave equ FUNC_001086
+GLOBAL _ref_draw_hook
+_ref_draw_hook equ DATA_007807
+GLOBAL _ref_stage_state
+_ref_stage_state equ DATA_008870
+GLOBAL _ref_stage_timeout
+_ref_stage_timeout equ DATA_008884
+GLOBAL _ref_scene_flag
+_ref_scene_flag equ DATA_008630
+GLOBAL _ref_station_object
+_ref_station_object equ DATA_008862
+
+; Galaxy sector oracle (--sectors): the star generator F841 (with F861), the star count F853,
+; the star position F856 and the distance F833.
+GLOBAL _ref_sector_stars
+GLOBAL _ref_sector_count
+GLOBAL _ref_star_position
+GLOBAL _ref_star_distance
+_ref_sector_stars equ FUNC_000841
+_ref_sector_count equ FUNC_000853
+_ref_star_position equ FUNC_000856
+_ref_star_distance equ FUNC_000833
+GLOBAL _ref_special_sectors
+_ref_special_sectors equ DATA_006799
+
+; Hyperdrive oracle (--hyperspace): F903 and the player's fuel, cargo and flag words it touches.
+GLOBAL _ref_hyper
+GLOBAL _ref_hydrogen
+GLOBAL _ref_military_fuel
+GLOBAL _ref_radioactives
+GLOBAL _ref_cargo_used
+GLOBAL _ref_free_hold
+GLOBAL _ref_new_ship
+GLOBAL _ref_player_flags
+_ref_hyper equ FUNC_000903
+_ref_hydrogen equ DATA_008901
+_ref_military_fuel equ DATA_008902
+_ref_radioactives equ DATA_008903
+_ref_cargo_used equ DATA_008891
+_ref_free_hold equ DATA_008889
+_ref_new_ship equ FUNC_000996
+_ref_player_flags equ DATA_008860
+
+; System name oracle (--system-names): F830.
+GLOBAL _ref_system_name
+_ref_system_name equ FUNC_000830
+GLOBAL _ref_special_index
+_ref_special_index equ DATA_006800
+
+; Dot oracles (--particle, --dots): F1610 and F1699.
+GLOBAL _ref_draw_particle
+_ref_draw_particle equ FUNC_001610_DrawParticleClipped
+GLOBAL _ref_point
+_ref_point equ FUNC_001699
+
+; Intro oracle (--intro): the real F961/F962 with the text draw (DATA_007644) and
+; the model draw (DATA_007807, already aliased as _ref_draw_hook) captured, the
+; display set-up the splash used, the real string expansion and the GUI action
+; the version key travels through.
+GLOBAL _ref_intro_961
+GLOBAL _ref_intro_962
+GLOBAL _ref_intro_text_hook
+GLOBAL _ref_intro_animation
+GLOBAL _ref_expand_string
+GLOBAL _ref_expand_brackets
+GLOBAL _ref_pair_a
+GLOBAL _ref_pair_b
+GLOBAL _ref_sys_init
+GLOBAL _ref_palette
+GLOBAL _ref_display_mode
+GLOBAL _ref_clear_buffer
+GLOBAL _ref_gui_get_last_action
+GLOBAL _ref_gui_set_last_action
+_ref_intro_961 equ FUNC_000961
+_ref_intro_962 equ FUNC_000962
+_ref_intro_text_hook equ DATA_007644
+_ref_intro_animation equ DATA_009129
+_ref_expand_string equ FUNC_001343_StringExpandFFCodeInternal
+_ref_expand_brackets equ FUNC_000077_ExpandBracketCodes
+_ref_pair_a equ DATA_008818
+_ref_pair_b equ DATA_008820
+_ref_sys_init equ FUNC_001527_SysInit
+_ref_palette equ FUNC_001575
+_ref_display_mode equ FUNC_001573
+_ref_clear_buffer equ FUNC_001577_ClearBuf
+_ref_gui_get_last_action equ FUNC_001414_GuiGetLastAction
+_ref_gui_set_last_action equ FUNC_001415_GuiSetLastAction
+
+; Missile launch (F1096 -> F941), for the --missile-probe adapter mode.
+GLOBAL _ref_launch_missile
+_ref_launch_missile equ FUNC_001096
+
+; Missile encounter (--missile-encounter): F935's ECM key and F1098's escape.
+GLOBAL _ref_ecm
+GLOBAL _ref_escape
+_ref_ecm equ FUNC_000935
+_ref_escape equ FUNC_001098
+
+; Legal probe (--legal-probe): F931/F941's illegal-fire flag DATA_008860,
+; DATA_008646/47's wanted/alert state, the per-starport fine ledger
+; DATA_009095 (six dwords), the current starport DATA_008996, the system danger
+; DATA_009010, credits DATA_008888 and F271's ten-record message log.
+GLOBAL _ref_illegal_fire
+GLOBAL _ref_wanted
+GLOBAL _ref_alert
+GLOBAL _ref_fines
+GLOBAL _ref_starport
+GLOBAL _ref_danger
+GLOBAL _ref_cash
+GLOBAL _ref_msglog
+GLOBAL _ref_msgindex
+_ref_illegal_fire equ DATA_008860
+_ref_wanted equ DATA_008646
+_ref_alert equ DATA_008647
+_ref_fines equ DATA_009095
+_ref_starport equ DATA_008996
+_ref_danger equ DATA_009010
+_ref_cash equ DATA_008888
+_ref_msglog equ DATA_008681
+_ref_msgindex equ DATA_005099
+
+; Game-over probe: F953's damage routine.
+GLOBAL _ref_damage
+_ref_damage equ FUNC_000953
+GLOBAL _ref_launch_request
+_ref_launch_request equ FUNC_000381
+GLOBAL _ref_autopilot
+_ref_autopilot equ FUNC_001020
+
+; Source autopilot arithmetic oracle (no gameplay or rendering overrides).
+GLOBAL _ref_autopilot_request
+GLOBAL _ref_autopilot_turn
+GLOBAL _ref_time_accel_index
+_ref_autopilot_request equ FUNC_000597
+_ref_autopilot_turn equ FUNC_000587
+_ref_time_accel_index equ DATA_009013
+
+GLOBAL _ref_autopilot_match
+_ref_autopilot_match equ FUNC_000589
+
+; F938/F929 whole-second reserve and recharge oracle.
+GLOBAL _ref_recharge
+_ref_recharge equ FUNC_000938
+
+GLOBAL _ref_body_update
+_ref_body_update equ FUNC_000866
+
+; Mis-jump probe (--misjump): F909 (the jump's arrival), the randomiser
+; pointer F909/F910 call through, and F910's outcome table.
+GLOBAL _ref_hyper_arrive
+GLOBAL _ref_random_func
+GLOBAL _ref_misjump_table
+_ref_hyper_arrive equ FUNC_000909
+_ref_random_func equ DATA_007752
+_ref_misjump_table equ DATA_007190
+
+; F922 (RND) pointer: the adapter wraps it to log every bounded draw (FFE_RNG_TRACE).
+GLOBAL _ref_rnd_func
+_ref_rnd_func equ DATA_007217
+
+; Existing-backlog event and subsystem acceptance probes.
+GLOBAL _ref_service
+GLOBAL _ref_subsystem_gate
+GLOBAL _ref_subsystem_roll
+_ref_service equ FUNC_000934
+_ref_subsystem_gate equ FUNC_000952
+_ref_subsystem_roll equ FUNC_000950
+GLOBAL _ref_map_objects
+GLOBAL _ref_map_camera
+GLOBAL _ref_map_focus
+GLOBAL _ref_map_turn
+GLOBAL _ref_map_zoom
+_ref_map_objects equ DATA_008801
+_ref_map_camera equ DATA_008968
+_ref_map_focus equ DATA_008979
+_ref_map_turn equ DATA_008980
+_ref_map_zoom equ DATA_008984
+
+; Legacy (DOS-era) commander file oracle (--legacy-save): the real F70 (loose
+; globals), F66 (F65 stream) and F171 (unscramble/uncompress into the game
+; blocks) on the supplied original file. `_ref_player_block` is DATA_008804,
+; where F171 writes the 0x556a-byte player block; `_ref_object_list` is
+; DATA_009133, the expanded 0x984a-byte object array.
+GLOBAL _ref_legacy_read_loose
+GLOBAL _ref_legacy_read_stream
+GLOBAL _ref_legacy_unmangle
+GLOBAL _ref_object_list
+GLOBAL _ref_scramble_add
+_ref_legacy_read_loose equ FUNC_000070
+_ref_legacy_read_stream equ FUNC_000066
+_ref_legacy_unmangle equ FUNC_000171_CdrFileUnmangleData
+_ref_object_list equ DATA_009133
+_ref_scramble_add equ DATA_008669
+
+; Whole-frame scene oracle (--scene-frame): F1537's object loop, F1330's
+; palette build and F1789's order flush (already exported above).
+GLOBAL _ref_palette_build
+GLOBAL _ref_palette_set
+GLOBAL _ref_set_whole_palette
+GLOBAL _ref_object_frame_full
+_ref_palette_build equ FUNC_001330_DPalBuild
+_ref_palette_set equ FUNC_001331_DPalSet
+_ref_set_whole_palette equ FUNC_001641_SetWholePalette
+_ref_object_frame_full equ FUNC_001537
+
+; Playthrough checkpoints (--trade, --save-roundtrip, --jump).
+;   --trade: F555 (one or more tonnes bought) and F556 (sold) on the player
+;   block, plus the market record they read through `player+0x48f8`.
+;   --save-roundtrip: F214 (zero unused objects), F170 (mangle F175's body),
+;   F174 (F69 + F65 + the body), F176 (F70 + F66 + the body) and F171 (unmangle),
+;   with the save buffer size and the loaded body size.
+;   --jump: F908 (the selected destination's gates, F901's plan, mode 4 and
+;   F909) and the GUI dialog slot F34/F35 answer through.
+GLOBAL _ref_trade_buy
+GLOBAL _ref_trade_sell
+_ref_trade_buy equ FUNC_000555
+_ref_trade_sell equ FUNC_000556
+GLOBAL _ref_zero_unused
+_ref_zero_unused equ FUNC_000214_SysMenuZeroUnusedObjects
+GLOBAL _ref_save_mangle
+GLOBAL _ref_save
+GLOBAL _ref_load
+GLOBAL _ref_save_unmangle
+_ref_save_mangle equ FUNC_000170_CdrFileMangleData
+_ref_save equ FUNC_000174_CdrFileSaveInternal
+_ref_load equ FUNC_000176_CdrFileLoadInternal
+_ref_save_unmangle equ FUNC_000171_CdrFileUnmangleData
+GLOBAL _ref_save_size
+GLOBAL _ref_save_data_size
+_ref_save_size equ DATA_008670
+_ref_save_data_size equ DATA_008660
+GLOBAL _ref_jump_start
+_ref_jump_start equ FUNC_000908
+GLOBAL _ref_dialog_values
+_ref_dialog_values equ DATA_008548

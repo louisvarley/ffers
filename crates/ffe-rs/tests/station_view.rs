@@ -1,0 +1,1936 @@
+//! The docked screens drawn from the real cache, checked against the layout
+//! read from the DOS release's screens (`docs/notes/station.md`). Local-only:
+//! needs `FFE_WORLD_CACHE`; set `FFE_SHOT_DIR` to keep the frames.
+use ffe_core::equipment::Loadout;
+use ffe_rs::camera::ViewState;
+use ffe_rs::combat::Combat;
+use ffe_rs::flight::{Flight, Mode};
+use ffe_rs::navigation::Navigator;
+use ffe_rs::outfitting::{self, Limits};
+use ffe_rs::screen::{MarketRow, MarketView, Screen};
+use ffe_rs::station::{self, DockRow, DockView, Screen as StationScreen};
+use ffe_rs::trade;
+
+fn cache() -> ffe_content::VerifiedCache {
+    ffe_content::read(&std::fs::read(std::env::var_os("FFE_WORLD_CACHE").unwrap()).unwrap())
+        .unwrap()
+}
+
+fn save(screen: &Screen, name: &str) {
+    if let Some(dir) = std::env::var_os("FFE_SHOT_DIR") {
+        let mut ppm = b"P6\n320 200\n255\n".to_vec();
+        for pixel in screen.logical_pixels() {
+            ppm.extend([(pixel >> 16) as u8, (pixel >> 8) as u8, *pixel as u8]);
+        }
+        std::fs::write(std::path::Path::new(&dir).join(name), ppm).unwrap();
+    }
+}
+
+fn draw(screen: &mut Screen, dock: Option<DockView>, market: Option<MarketView>, message: &str) {
+    screen.dock = dock;
+    screen.market = market;
+    let state = Flight {
+        mode: Mode::Docked,
+        ..Flight::default()
+    };
+    screen.draw(&state, ViewState::default(), None, true, message);
+}
+
+/// The Upgrades DockView F327/F329 draw from F383's rows.
+fn upgrade_view(
+    station: &str,
+    rows: &[station::UpgradeRow],
+    status: station::Status,
+    scroll: usize,
+) -> DockView {
+    let visible = station::layout(StationScreen::Upgrades).visible();
+    let first = scroll.min(rows.len().saturating_sub(visible));
+    DockView {
+        screen: StationScreen::Upgrades,
+        title: station::title(StationScreen::Upgrades, station),
+        rows: rows
+            .iter()
+            .skip(first)
+            .take(visible)
+            .map(|row| DockRow {
+                main: row.name.to_owned(),
+                detail: None,
+                columns: vec![
+                    (station::UPGRADE_PRICE_X, format!("{}", row.price), 0x7d),
+                    (station::UPGRADE_REMOVAL_X, format!("{}", row.removal), 0x7d),
+                    (station::UPGRADE_MASS_X, format!("{}t", row.mass), 0x7d),
+                ],
+                fitted: row.fitted,
+            })
+            .collect(),
+        status,
+        scroll: first,
+        selected: 0,
+        total: rows.len(),
+    }
+}
+
+/// The services root, shipyard, bulletin board and market at the first station
+/// draw at the original's positions and save a frame for the owner.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn docked_screens_draw_at_the_original_layout() {
+    let cache = cache();
+    let mut nav = Navigator::new(&cache).unwrap();
+    // The reference list's Pt.Exchg column is the new game's Eagle (model 23,
+    // +0xa 38, so 950 * 38 = 36100); the sandbox station's own stock may hold
+    // cheaper hulls, which is why the row values can be negative here.
+    let player_ship = 23;
+    let station = nav.docked.expect("docked at the start");
+    let mut screen = Screen::new(&cache).unwrap();
+    screen.system = nav.system_name().to_owned();
+    let name = nav.bodies[station].name.clone();
+    let rows = trade::listing(&mut nav, &cache, station, &Flight::default()).unwrap();
+    let hold = nav.cargo_space(&cache, player_ship);
+    let status = station::Status {
+        cargo_used: 0,
+        cargo_capacity: hold,
+        cash: 1000,
+        ..station::Status::default()
+    };
+
+    for (id, title) in [
+        (
+            StationScreen::Services,
+            station::title(StationScreen::Services, &name),
+        ),
+        (
+            StationScreen::Shipyard,
+            station::title(StationScreen::Shipyard, &name),
+        ),
+    ] {
+        let entries: &[station::Entry] = match id {
+            StationScreen::Services => &station::SERVICES,
+            StationScreen::Shipyard => &station::SHIPYARD,
+            _ => &[],
+        };
+        let rows = entries
+            .iter()
+            .map(|entry| DockRow {
+                main: entry.title.to_owned(),
+                detail: entry.detail.map(str::to_owned),
+                columns: Vec::new(),
+                fitted: false,
+            })
+            .collect();
+        let view = DockView {
+            screen: id,
+            title,
+            rows,
+            status,
+            scroll: 0,
+            selected: 0,
+            total: entries.len(),
+        };
+        let before = screen.logical_pixels().to_vec();
+        draw(&mut screen, Some(view), None, station::hint(id, 0, 0));
+        // The title and entry text differ from the untouched cabin at the same
+        // coordinates (x 4..140, y 15..148).
+        assert_ne!(
+            &before[6 * 320 + 4..6 * 320 + 120],
+            &screen.logical_pixels()[6 * 320 + 4..6 * 320 + 120],
+            "{id:?} title"
+        );
+        if id == StationScreen::Services {
+            // The first row's button (124, 15), its text (140, 16) and the
+            // status label (1, 138) leave the untouched cabin.
+            for (start, end, what) in [
+                (15 * 320 + 124, 15 * 320 + 132, "row button"),
+                (16 * 320 + 140, 16 * 320 + 220, "row text"),
+                (138 * 320 + 1, 138 * 320 + 20, "status"),
+            ] {
+                assert_ne!(
+                    &before[start..end],
+                    &screen.logical_pixels()[start..end],
+                    "{what}"
+                );
+            }
+        }
+        save(&screen, &format!("{id:?}-ours.ppm"));
+    }
+
+    // The stockmarket's header at y 2, rows from y 16, price at x 214.
+    let market = MarketView {
+        station: name.clone(),
+        system: nav.system_name().to_owned(),
+        rows: rows
+            .iter()
+            .map(|row| MarketRow {
+                name: row.name.clone(),
+                price: row.price,
+                stock: row.stock,
+                held: row.held,
+            })
+            .collect(),
+        scroll: 0,
+        selected: 0,
+        cash: 1000,
+        used: 0,
+        capacity: hold,
+        black_market: false,
+    };
+    let before = screen.logical_pixels().to_vec();
+    draw(&mut screen, None, Some(market), station::MARKET_HINT);
+    assert_ne!(
+        &before[2 * 320 + 120..2 * 320 + 200],
+        &screen.logical_pixels()[2 * 320 + 120..2 * 320 + 200],
+        "market header"
+    );
+    assert_ne!(
+        screen.logical_pixels()[16 * 320 + 152],
+        screen.logical_pixels()[2 * 320 + 120],
+        "row text and header differ"
+    );
+    save(&screen, "Market-ours.ppm");
+
+    // F622/F633's BBS: posts generated from DATA_006170 and the 0x981a..0x982d
+    // templates, four 33-pixel rows a page and the original "More..." arrow.
+    let (posts, hulls) = {
+        let offers = nav
+            .station_offers(&cache, station)
+            .expect("F622's BBS and hull stock");
+        (offers.posts.clone(), offers.rows(player_ship, None))
+    };
+    assert!(
+        posts.len() > 1,
+        "the generated BBS is populated ({} posts)",
+        posts.len()
+    );
+    assert!(
+        posts.iter().all(|post| !post.text.is_empty()),
+        "every post has the original template's text"
+    );
+    assert!(
+        posts.iter().all(|post| !post.text.contains('[')),
+        "every 0xff code in the templates expanded (no [0x....] fallbacks)"
+    );
+    assert!(
+        posts.iter().any(|post| post.code == 0x9829
+            || post.code == 0x9827
+            || post.code == 0x981a
+            || post.code == 0x981b),
+        "the reference frame's goods, military and ship-job notices"
+    );
+    let bulletin_rows: Vec<DockRow> = posts
+        .iter()
+        .map(|post| DockRow {
+            main: post.text.clone(),
+            detail: None,
+            columns: Vec::new(),
+            fitted: false,
+        })
+        .collect();
+    let bulletin = DockView {
+        screen: StationScreen::Bulletin,
+        title: station::title(StationScreen::Bulletin, &name),
+        rows: bulletin_rows.clone(),
+        status,
+        scroll: 0,
+        selected: 0,
+        total: bulletin_rows.len(),
+    };
+    draw(
+        &mut screen,
+        Some(bulletin),
+        None,
+        station::hint(StationScreen::Bulletin, posts.len(), hulls.len()),
+    );
+    assert_eq!(
+        station::hint(StationScreen::Bulletin, 0, 0),
+        "Sorry, no advertisements have been placed."
+    );
+    assert_ne!(
+        screen.logical_pixels()[16 * 320 + 140],
+        screen.logical_pixels()[2 * 320 + 120],
+        "BBS post text differs from the header"
+    );
+    // Force the goods/company path with the real name table: DATA_006171's
+    // companion post is "GOODS BOUGHT AND SOLD: At <company>..." and the
+    // company is F791's name generator, not invented text.
+    {
+        use ffe_core::bulletin::{self, World};
+        use ffe_core::names::Names;
+        use ffe_core::npc::Random;
+        let names = Names::new(cache.asset("base:text/names").unwrap()).unwrap();
+        let world = World {
+            code: 1,
+            name: nav.system_name(),
+            population: 9,
+            danger: 0,
+            allegiance: 2,
+            station_name: &name,
+            destinations: &[],
+            names: Some(&names),
+        };
+        let mut rng = Random::new(0x9876, 0x5432);
+        let generated = bulletin::generate(&mut rng, &world, 0);
+        assert!(
+            generated.iter().any(|post| post.code == 0x9829),
+            "the goods generator runs over a Federal board"
+        );
+        assert!(
+            generated.iter().all(|post| !post.text.contains('[')),
+            "the company/passage expansion handles every code"
+        );
+    }
+    save(&screen, "Bulletin-ours.ppm");
+
+    // F869/F622's starport tech level: Ross 154's record byte +5 is 0xfd, the
+    // value the reference Sirocco frame's Upgrades list reflects (record 0's
+    // 0xff is above the station, so XB74 Proximity Mine is the first row).
+    let tech_level = nav.tech_level(&cache).expect("system tables (cache v15)");
+    assert_eq!(tech_level, 0xfd, "DATA_008995");
+    let mut loadout = Loadout::new_game();
+    let mut combat = Combat::new_game();
+    let rows = station::upgrades(tech_level, &loadout, &combat.lasers);
+    assert_eq!(rows[0].name, "XB74 Proximity Mine");
+    assert_eq!(rows.len(), 51, "the records at or below tech 0xfd");
+    let view = upgrade_view(&name, &rows, status, 0);
+    let before = screen.logical_pixels().to_vec();
+    draw(&mut screen, Some(view), None, station::UPGRADES_HINT);
+    assert_ne!(
+        &before[16 * 320 + 152..16 * 320 + 240],
+        &screen.logical_pixels()[16 * 320 + 152..16 * 320 + 240],
+        "upgrades row"
+    );
+    assert_ne!(
+        &before[16 * 320 + 242..16 * 320 + 260],
+        &screen.logical_pixels()[16 * 320 + 242..16 * 320 + 260],
+        "upgrades price column"
+    );
+    save(&screen, "Upgrades-ours.ppm");
+
+    // F386's Fit/Remove on the Upgrades row: remove the new game's front 1MW
+    // pulse laser, then buy the 5MW one; the frame shows the new fitted flag
+    // (the Remove button on that row) and the Fitting console line.
+    let five_mw = rows
+        .iter()
+        .find(|row| row.name == "5MW Pulse Laser")
+        .copied()
+        .expect("the reference frame lists the 5MW pulse laser");
+    let mut credits = 1_000_000u32;
+    let limits = Limits {
+        mounts: 1,
+        pylons: 2,
+        free_space: hold,
+        fuel_scoop_mounting: true,
+        drive_removable: true,
+        mount: None,
+        price_multiplier: None,
+    };
+    outfitting::remove(
+        21,
+        tech_level,
+        &mut loadout,
+        &mut combat,
+        &mut credits,
+        limits,
+    )
+    .unwrap();
+    let message = outfitting::fit(
+        five_mw.index,
+        tech_level,
+        &mut loadout,
+        &mut combat,
+        &mut credits,
+        limits,
+    )
+    .unwrap();
+    assert!(message.starts_with("Fitting 5MW Pulse Laser"));
+    let rows = station::upgrades(tech_level, &loadout, &combat.lasers);
+    assert!(
+        rows.iter()
+            .find(|row| row.name == "5MW Pulse Laser")
+            .unwrap()
+            .fitted
+    );
+    assert!(
+        !rows
+            .iter()
+            .find(|row| row.name == "1MW Pulse Laser")
+            .unwrap()
+            .fitted
+    );
+    let fitted_at = rows
+        .iter()
+        .position(|row| row.name == "5MW Pulse Laser")
+        .expect("the bought row is still offered");
+    draw(
+        &mut screen,
+        Some(upgrade_view(
+            &name,
+            &rows,
+            status,
+            fitted_at.saturating_sub(6),
+        )),
+        None,
+        &message,
+    );
+    save(&screen, "Upgrades-buy-laser.ppm");
+
+    // Fitting evidence: the drive, mining-machine and cabin rows F383 offers at
+    // Ross 154's tech level. The Saker's F998 drive is Class 1 (code 2), so its
+    // row starts fitted; the mining rows share DATA_009104's list.
+    for (row_name, record, mass) in [
+        ("Interplanetary drive", 31usize, 4u32),
+        ("MB4 Mining Machine", 32, 30),
+        ("Extra Passenger Cabin", 25, 5),
+    ] {
+        let row = rows
+            .iter()
+            .find(|row| row.name == row_name)
+            .unwrap_or_else(|| panic!("the reference list has {row_name}"));
+        assert_eq!(row.index, record, "{row_name}");
+        assert_eq!(row.mass, mass, "{row_name} Wt column");
+    }
+    assert!(
+        rows.iter()
+            .find(|row| row.name == "Class 1 Hyperdrive")
+            .unwrap()
+            .fitted,
+        "F998 fits drive class 2"
+    );
+    for (row_name, shot) in [
+        ("Interplanetary drive", "Upgrades-drive.ppm"),
+        ("MB4 Mining Machine", "Upgrades-mining.ppm"),
+        ("Extra Passenger Cabin", "Upgrades-cabin.ppm"),
+    ] {
+        let at = rows.iter().position(|row| row.name == row_name).unwrap();
+        draw(
+            &mut screen,
+            Some(upgrade_view(&name, &rows, status, at.saturating_sub(6))),
+            None,
+            station::UPGRADES_HINT,
+        );
+        save(&screen, shot);
+        assert!(
+            screen.logical_pixels().iter().any(|pixel| *pixel != 0),
+            "{shot} drew"
+        );
+    }
+    // A scripted fit -> effect -> remove: F410 takes the delivered drive and its
+    // energy pool, F409 fits the Class 2 Hyperdrive (ship+0xd0 = 3), and the
+    // energy gauge scale follows the class before the drive is put back.
+    let sequence = Limits {
+        free_space: 1_000,
+        ..limits
+    };
+    let class_one = rows
+        .iter()
+        .find(|row| row.name == "Class 1 Hyperdrive")
+        .unwrap()
+        .index;
+    let class_two = rows
+        .iter()
+        .find(|row| row.name == "Class 2 Hyperdrive")
+        .unwrap()
+        .index;
+    combat.energy = 0x2000_0000;
+    let old_gauge = ffe_core::laser::energy_gauge(combat.energy, 2);
+    let mut log = Vec::new();
+    log.push((
+        "remove Class 1",
+        outfitting::remove(
+            class_one,
+            tech_level,
+            &mut loadout,
+            &mut combat,
+            &mut credits,
+            sequence,
+        )
+        .unwrap(),
+    ));
+    assert_eq!(combat.drive, 0);
+    assert_eq!(combat.energy, 0, "F410 clears ship+0x11e");
+    log.push((
+        "fit Class 2",
+        outfitting::fit(
+            class_two,
+            tech_level,
+            &mut loadout,
+            &mut combat,
+            &mut credits,
+            sequence,
+        )
+        .unwrap(),
+    ));
+    assert_eq!(loadout.drive, 3);
+    assert_eq!(combat.drive, 3);
+    let new_gauge = ffe_core::laser::energy_gauge(0x2000_0000, 3);
+    assert_ne!(new_gauge, old_gauge, "F270 scales the gauge by drive class");
+    combat.energy = 0x2000_0000;
+    log.push((
+        "remove Class 2",
+        outfitting::remove(
+            class_two,
+            tech_level,
+            &mut loadout,
+            &mut combat,
+            &mut credits,
+            sequence,
+        )
+        .unwrap(),
+    ));
+    log.push((
+        "fit Class 1 again",
+        outfitting::fit(
+            class_one,
+            tech_level,
+            &mut loadout,
+            &mut combat,
+            &mut credits,
+            sequence,
+        )
+        .unwrap(),
+    ));
+    assert_eq!(loadout.drive, 2);
+    assert_eq!(combat.drive, 2);
+    for (step, message) in &log {
+        println!("{step}: {message}");
+    }
+
+    // F437's New and Reconditioned Ships list: the generated hull stock with
+    // Cost, Pt.Exchg and Cap. The reference Sirocco frame's Federal shipyard
+    // hulls (Spar 71000/34900/37t, Hawk 48000/11900/7t, ...) come from the same
+    // table; the port's random stock names differ but the prices/capacities do
+    // not.
+    assert!(
+        !hulls.is_empty(),
+        "F622's hull stock is populated ({} hulls)",
+        hulls.len()
+    );
+    assert!(
+        hulls.len() <= ffe_core::shipyard::MAX_HULLS,
+        "F634's thirteen-hull cap"
+    );
+    let ships_rows: Vec<DockRow> = hulls
+        .iter()
+        .map(|hull| DockRow {
+            main: hull.name.to_owned(),
+            detail: None,
+            columns: vec![
+                (station::SHIP_COST_X, format!("${}", hull.price), 0x7d),
+                (
+                    station::SHIP_EXCHANGE_X,
+                    if hull.net < 0 {
+                        format!("-${}", -hull.net)
+                    } else {
+                        format!("${}", hull.net)
+                    },
+                    0x7d,
+                ),
+                (station::SHIP_CAPACITY_X, format!("{}t", hull.cargo), 0x7d),
+            ],
+            fitted: false,
+        })
+        .collect();
+    let ships = DockView {
+        screen: StationScreen::Ships,
+        title: station::title(StationScreen::Ships, &name),
+        rows: ships_rows.clone(),
+        status,
+        scroll: 0,
+        selected: 0,
+        total: ships_rows.len(),
+    };
+    let before = screen.logical_pixels().to_vec();
+    draw(
+        &mut screen,
+        Some(ships),
+        None,
+        station::hint(StationScreen::Ships, posts.len(), hulls.len()),
+    );
+    assert_ne!(
+        &before[2 * 320 + 120..2 * 320 + 200],
+        &screen.logical_pixels()[2 * 320 + 120..2 * 320 + 200],
+        "ships header"
+    );
+    assert_ne!(
+        screen.logical_pixels()[16 * 320 + 228],
+        screen.logical_pixels()[2 * 320 + 120],
+        "the cost column differs from the header"
+    );
+    assert_eq!(
+        station::hint(StationScreen::Ships, 0, 0),
+        station::SHIPS_EMPTY
+    );
+    save(&screen, "Ships-ours.ppm");
+
+    // F438/F442: buy the first hull with the new game's Eagle part-exchanged.
+    // The purchase charges ten times the whole-credit net price, installs the
+    // model, clears the fitted items and replaces the row with the old hull.
+    let target = hulls[0];
+    let cash_before = 1_000_000i64;
+    let purchase = {
+        let offers = nav.station_offers(&cache, station).unwrap();
+        offers.buy(0, player_ship, cash_before).unwrap()
+    };
+    assert_eq!(purchase.old_model, player_ship);
+    assert_eq!(purchase.model, target.model);
+    assert_eq!(
+        purchase.cash_tenths,
+        cash_before - target.net * 10,
+        "ten times the net whole-credit price"
+    );
+    let after_hulls = nav
+        .station_offers(&cache, station)
+        .unwrap()
+        .rows(player_ship, None);
+    assert_eq!(
+        after_hulls[0].model, player_ship,
+        "the bought row now holds the player's old hull"
+    );
+    let after_rows: Vec<DockRow> = after_hulls
+        .iter()
+        .map(|hull| DockRow {
+            main: hull.name.to_owned(),
+            detail: None,
+            columns: vec![
+                (station::SHIP_COST_X, format!("${}", hull.price), 0x7d),
+                (station::SHIP_EXCHANGE_X, format!("${}", hull.net), 0x7d),
+                (station::SHIP_CAPACITY_X, format!("{}t", hull.cargo), 0x7d),
+            ],
+            fitted: false,
+        })
+        .collect();
+    let after = DockView {
+        screen: StationScreen::Ships,
+        title: station::title(StationScreen::Ships, &name),
+        rows: after_rows,
+        status: station::Status {
+            cash: i32::try_from(purchase.cash_tenths).unwrap(),
+            ..status
+        },
+        scroll: 0,
+        selected: 0,
+        total: after_hulls.len(),
+    };
+    draw(
+        &mut screen,
+        Some(after),
+        None,
+        "Congratulations on your purchase. Call our upgrade department for the latest in additional equipment.",
+    );
+    save(&screen, "Ships-buy.ppm");
+
+    // F444's three service rows for an undamaged, drive-fitted ship: the
+    // reference frame's Sirocco costs (mass 38 -> 3040/1900/1900) and dates.
+    let repairs = station::repairs(38, true, "1-Jan-3250", "1-Jan-3250");
+    assert_eq!(
+        repairs.iter().map(|row| row.cost).collect::<Vec<_>>(),
+        [3040, 1900, 1900]
+    );
+    let tiles = DockView {
+        screen: StationScreen::Repairs,
+        title: station::title(StationScreen::Repairs, &name),
+        rows: repairs
+            .iter()
+            .map(|row| DockRow {
+                main: row.title.clone(),
+                detail: None,
+                columns: vec![(station::REPAIR_COST_X, format!("${}", row.cost), 0x7d)],
+                fitted: false,
+            })
+            .collect(),
+        status,
+        scroll: 0,
+        selected: 0,
+        total: repairs.len(),
+    };
+    let before = screen.logical_pixels().to_vec();
+    draw(&mut screen, Some(tiles), None, station::REPAIRS_HINT);
+    assert_ne!(
+        &before[16 * 320 + 140..16 * 320 + 300],
+        &screen.logical_pixels()[16 * 320 + 140..16 * 320 + 300],
+        "repairs first service row"
+    );
+    assert_ne!(
+        &before[16 * 320 + 292..16 * 320 + 315],
+        &screen.logical_pixels()[16 * 320 + 292..16 * 320 + 315],
+        "repairs cost column"
+    );
+    assert_eq!(
+        station::hint(StationScreen::Repairs, 0, 0),
+        station::REPAIRS_HINT
+    );
+    save(&screen, "Repairs-ours.ppm");
+}
+
+/// The repairs list with damage and after a full repair (the slice's frame
+/// evidence): the two hull rows, the destroyed Main thruster and the damaged
+/// Fuel Scoop appear from real damage state, then disappear.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn repair_rows_show_damage_and_clear_after_repair() {
+    let cache = cache();
+    let name = "Sirocco Station";
+    let status = station::Status {
+        cargo_used: 0,
+        cargo_capacity: 2,
+        cash: 100_000,
+        cabins_used: 0,
+        cabins_total: 0,
+    };
+    let mut screen = Screen::new(&cache).unwrap();
+    for (label, hull, equipment, thrusters) in [
+        (
+            "Repairs-damaged.ppm",
+            [140, 152],
+            1 << 20,
+            [false, false, false, false, true, false],
+        ),
+        ("Repairs-repaired.ppm", [152, 152], 0, [false; 6]),
+    ] {
+        let repairs = station::repairs_for(
+            38,
+            true,
+            hull,
+            equipment,
+            thrusters,
+            "1-Jan-3250",
+            "1-Jan-3250",
+        );
+        let tiles = DockView {
+            screen: StationScreen::Repairs,
+            title: station::title(StationScreen::Repairs, name),
+            rows: repairs
+                .iter()
+                .map(|row| DockRow {
+                    main: row.title.clone(),
+                    detail: None,
+                    columns: vec![(station::REPAIR_COST_X, format!("${}", row.cost), 0x7d)],
+                    fitted: false,
+                })
+                .collect(),
+            status,
+            scroll: 0,
+            selected: 0,
+            total: repairs.len(),
+        };
+        draw(&mut screen, Some(tiles), None, station::REPAIRS_HINT);
+        save(&screen, label);
+    }
+}
+
+/// A generated mission offer, the journal after accepting it, and the comms
+/// page it wrote. Local-only: needs the content cache; set `FFE_SHOT_DIR` to
+/// keep `MissionOffer-ours.ppm`, `Journal-ours.ppm` and `Comms-ours.ppm`.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn mission_offer_journal_and_comms_frames() {
+    use ffe_core::missions::{self, Kind};
+
+    let cache = cache();
+    let mut nav = Navigator::new(&cache).unwrap();
+    let station = nav.docked.expect("docked at the start");
+    let name = nav.bodies[station].name.clone();
+    let posts = nav
+        .station_offers(&cache, station)
+        .expect("F622's BBS")
+        .posts
+        .clone();
+    let (row, post) = posts
+        .iter()
+        .enumerate()
+        .find(|(_, post)| matches!(post.code, 0x981a | 0x981b | 0x981f..=0x9822))
+        .map(|(index, post)| (index, post.clone()))
+        .expect("the generated board has a contract offer");
+    assert!(
+        matches!(post.code, 0x981a | 0x981b | 0x981f..=0x9822),
+        "{:#06x}",
+        post.code
+    );
+    let offer = nav
+        .mission_offer(&cache, station, row)
+        .unwrap()
+        .expect("a contract offer");
+    assert!(offer.reward > 0);
+    assert!(!offer.destination_name.is_empty());
+
+    let mut screen = Screen::new(&cache).unwrap();
+    screen.system = nav.system_name().to_owned();
+    let status = station::Status {
+        cargo_used: 0,
+        cargo_capacity: 1,
+        cash: 1000,
+        ..station::Status::default()
+    };
+    let offer_view = DockView {
+        screen: StationScreen::Bulletin,
+        title: station::title(StationScreen::Bulletin, &name),
+        rows: vec![DockRow {
+            main: post.text.clone(),
+            detail: None,
+            columns: Vec::new(),
+            fitted: false,
+        }],
+        status,
+        scroll: 0,
+        selected: 0,
+        total: 1,
+    };
+    let before = screen.logical_pixels().to_vec();
+    let mut state = Flight {
+        mode: Mode::Docked,
+        ..Flight::default()
+    };
+    screen.dock = Some(offer_view);
+    screen.draw(&state, ViewState::default(), None, false, &post.text);
+    // The offer's text starts at (140, 16), under the title at (4,6).
+    assert_ne!(
+        &before[16 * 320 + 140..16 * 320 + 300],
+        &screen.logical_pixels()[16 * 320 + 140..16 * 320 + 300],
+        "mission offer text"
+    );
+    save(&screen, "MissionOffer-ours.ppm");
+
+    let accepted = state
+        .missions
+        .accept(
+            &offer,
+            nav.day(),
+            nav.current_system_code(),
+            nav.system_name(),
+        )
+        .unwrap();
+    assert_eq!(
+        state.missions.missions[0].kind, offer.kind,
+        "the contract keeps the offer's type"
+    );
+    let journal = state.missions.journal.last().unwrap().clone();
+    let journal_view = DockView {
+        screen: StationScreen::Journal,
+        title: station::title(StationScreen::Journal, &name),
+        rows: vec![DockRow {
+            main: journal.text.clone(),
+            detail: None,
+            columns: Vec::new(),
+            fitted: false,
+        }],
+        status,
+        scroll: 0,
+        selected: 0,
+        total: 1,
+    };
+    let before = screen.logical_pixels().to_vec();
+    screen.dock = Some(journal_view);
+    screen.draw(
+        &state,
+        ViewState::default(),
+        None,
+        false,
+        station::hint(StationScreen::Journal, 0, 0),
+    );
+    assert_ne!(
+        &before[6 * 320 + 4..6 * 320 + 160],
+        &screen.logical_pixels()[6 * 320 + 4..6 * 320 + 160],
+        "journal title"
+    );
+    assert_ne!(
+        &before[16 * 320 + 4..16 * 320 + 316],
+        &screen.logical_pixels()[16 * 320 + 4..16 * 320 + 316],
+        "journal entry"
+    );
+    save(&screen, "Journal-ours.ppm");
+
+    let page = state.missions.pages.last().unwrap().clone();
+    let comms_view = DockView {
+        screen: StationScreen::Comms,
+        title: station::title(StationScreen::Comms, &name),
+        rows: vec![DockRow {
+            main: page.text.clone(),
+            detail: None,
+            columns: Vec::new(),
+            fitted: false,
+        }],
+        status,
+        scroll: 0,
+        selected: 0,
+        total: 1,
+    };
+    let before = screen.logical_pixels().to_vec();
+    screen.dock = Some(comms_view);
+    screen.draw(
+        &state,
+        ViewState::default(),
+        None,
+        false,
+        station::hint(StationScreen::Comms, 0, 0),
+    );
+    assert_ne!(
+        &before[6 * 320 + 4..6 * 320 + 160],
+        &screen.logical_pixels()[6 * 320 + 4..6 * 320 + 160],
+        "comms title"
+    );
+    // The acceptance page is the same source text the journal just drew, so
+    // the row pixels are expected to match; the title above is the change the
+    // screen makes.
+    assert!(!page.text.is_empty());
+    save(&screen, "Comms-ours.ppm");
+
+    // The acceptance page is 0x992a's source text and names the destination.
+    assert!(accepted.text.contains(&offer.destination_name));
+    assert_eq!(page.kind, missions::PageKind::Message);
+    assert_eq!(state.missions.missions[0].status, missions::Status::Active);
+    assert_eq!(Kind::Passenger, offer.kind);
+
+    // F493's military list (the 0x9827/0x9828 ad's target page). The tier-0
+    // row is F632's 0x9854 description.
+    let offers = nav
+        .military_offers(&cache, station, 0)
+        .expect("F493's list");
+    assert_eq!(offers.len(), 1);
+    let military = DockView {
+        screen: StationScreen::Military,
+        title: station::title(StationScreen::Military, &name),
+        rows: offers
+            .iter()
+            .map(|offer| DockRow {
+                main: offer.text.clone(),
+                detail: None,
+                columns: Vec::new(),
+                fitted: false,
+            })
+            .collect(),
+        status,
+        scroll: 0,
+        selected: 0,
+        total: offers.len(),
+    };
+    let before = screen.logical_pixels().to_vec();
+    draw(
+        &mut screen,
+        Some(military),
+        None,
+        station::hint(StationScreen::Military, offers.len(), 0),
+    );
+    assert_ne!(
+        &before[16 * 320 + 140..16 * 320 + 310],
+        &screen.logical_pixels()[16 * 320 + 140..16 * 320 + 310],
+        "military mission text"
+    );
+    save(&screen, "Military-ours.ppm");
+
+    // F306's rank page after a military package delivery: 0x9c39's source text
+    // with the new rank name (the medal page is skipped because F509's package
+    // basic_data has no medal code).
+    let military_offer = offers[0].clone();
+    let accepted = state
+        .missions
+        .accept(
+            &military_offer,
+            nav.day(),
+            nav.current_system_code(),
+            nav.system_name(),
+        )
+        .unwrap();
+    let outcome = state
+        .missions
+        .settle(accepted.id, nav.day() + 1, military_offer.destination)
+        .unwrap();
+    assert_eq!(outcome.status, missions::Status::Complete);
+    let rank = state
+        .missions
+        .pages
+        .iter()
+        .find(|page| page.kind == missions::PageKind::Rank)
+        .expect("F306's rank page")
+        .clone();
+    let comms_rank = DockView {
+        screen: StationScreen::Comms,
+        title: station::title(StationScreen::Comms, &name),
+        rows: vec![DockRow {
+            main: rank.text.clone(),
+            detail: None,
+            columns: Vec::new(),
+            fitted: false,
+        }],
+        status,
+        scroll: 0,
+        selected: 0,
+        total: 1,
+    };
+    let before = screen.logical_pixels().to_vec();
+    screen.dock = Some(comms_rank);
+    screen.draw(
+        &state,
+        ViewState::default(),
+        None,
+        false,
+        station::hint(StationScreen::Comms, 0, 0),
+    );
+    assert_ne!(
+        &before[16 * 320 + 4..16 * 320 + 316],
+        &screen.logical_pixels()[16 * 320 + 4..16 * 320 + 316],
+        "rank page text"
+    );
+    save(&screen, "Comms-rank.ppm");
+}
+
+/// The default DOS start (Gateway/Hope, record 0) is landed at Old Blackelk in
+/// state `0x30`. F4 at the pad is F343: the services board is the same screen
+/// as a docked station's, titled with the starport. The reference capture
+/// `docs/evidence/start-flow/original-services.png` is the executed original's
+/// frame after `--game-frame 500 0x3e`.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn default_start_services_board_is_old_blackelk() {
+    let cache = cache();
+    let nav = Navigator::new_game(&cache, 0).unwrap();
+    let station = nav.docked.expect("landed at the default start's starport");
+    let name = nav.bodies[station].name.clone();
+    assert_eq!(name, "Old Blackelk");
+    assert_eq!(
+        station::title(StationScreen::Services, &name),
+        "Old Blackelk Services"
+    );
+    let state = nav.new_game.expect("a new game state");
+    assert_eq!(state.player_state, 0x30, "F994's landed state");
+    let status = station::Status {
+        cargo_used: 1,
+        cargo_capacity: nav.hold(&cache, state.ship),
+        cash: state.cash,
+        ..station::Status::default()
+    };
+    // F558 at the start: 1 t used (F998's hydrogen) of a 7 t hold.
+    assert_eq!(status.cargo_capacity, 7, "F998's Saker hold");
+    let rows = station::SERVICES
+        .iter()
+        .map(|entry| DockRow {
+            main: entry.title.to_owned(),
+            detail: entry.detail.map(str::to_owned),
+            columns: Vec::new(),
+            fitted: false,
+        })
+        .collect();
+    let view = DockView {
+        screen: StationScreen::Services,
+        title: station::title(StationScreen::Services, &name),
+        rows,
+        status,
+        scroll: 0,
+        selected: 0,
+        total: station::SERVICES.len(),
+    };
+    let mut screen = Screen::new(&cache).unwrap();
+    screen.system = nav.system_name().to_owned();
+    draw(&mut screen, Some(view), None, station::SERVICES_HINT);
+    assert!(
+        screen.console.is_visible(0x0e),
+        "services must retain the F1 return-to-ship icon"
+    );
+    assert_eq!(
+        screen.console.image(0x0b),
+        Some(164),
+        "station/comms screen is selected"
+    );
+    assert_eq!(
+        Screen::console_click(68, 180),
+        Some(ffe_rs::console::Click::CycleView)
+    );
+    save(&screen, "start-services-ours.ppm");
+}
+
+/// The scripts on the station screens: the new game's bulletin board with
+/// the scripts' adverts after the station's, then the journal subscription
+/// conversation they open (`script-board.ppm`, `script-conversation.ppm`).
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn script_adverts_and_conversation_frames() {
+    let cache = cache();
+    let assets = ffe_rs::scripts::Assets::load(&cache).expect("cache v33");
+    let messages =
+        ffe_core::message_strings::Messages::new(cache.asset("base:text/messages").unwrap())
+            .unwrap();
+    let mut nav = Navigator::new_game(&cache, 0).unwrap();
+    let station = nav.docked.expect("the new game starts docked");
+    let mut state = Flight {
+        mode: Mode::Docked,
+        credits: 1_000_000,
+        ..Flight::default()
+    };
+    let posts: Vec<String> = nav
+        .station_offers(&cache, station)
+        .unwrap()
+        .posts
+        .iter()
+        .map(|post| post.text.clone())
+        .collect();
+    ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, hooks, _| {
+        *scripts = Some(ffe_rs::scripts::new_game(&assets, hooks, true).unwrap());
+    });
+    ffe_rs::scripts::with_hooks(&mut state, &mut nav, &cache, |scripts, hooks, today| {
+        scripts.open_screen(&assets.image, hooks, today, 2)
+    })
+    .unwrap()
+    .0
+    .unwrap();
+    let texts = |state: &Flight, nav: &Navigator| -> Vec<String> {
+        let scripts = state.scripts.as_ref().unwrap();
+        nav.with_world(&cache, station, |world| {
+            scripts
+                .engine
+                .menu
+                .entries
+                .iter()
+                .map(|entry| ffe_rs::scripts::entry_text(&messages, world, entry))
+                .collect()
+        })
+        .unwrap()
+    };
+    let script_rows = texts(&state, &nav);
+    println!(
+        "station posts {}, script adverts {script_rows:?}",
+        posts.len()
+    );
+    let offer_row = script_rows
+        .iter()
+        .position(|text| text.contains("subscription offer"))
+        .expect("a journal subscription advert");
+    let name = nav.bodies[station].name.clone();
+    let mut screen = Screen::new(&cache).unwrap();
+    screen.system = nav.system_name().to_owned();
+    let all: Vec<String> = posts
+        .iter()
+        .cloned()
+        .chain(script_rows.iter().cloned())
+        .collect();
+    let rows = |texts: &[String]| -> Vec<DockRow> {
+        texts
+            .iter()
+            .map(|text| DockRow {
+                main: text.clone(),
+                detail: None,
+                columns: Vec::new(),
+                fitted: false,
+            })
+            .collect()
+    };
+    // Scroll to the scripts' adverts.
+    let visible = station::layout(StationScreen::Bulletin).visible();
+    let scroll = posts.len().min(all.len().saturating_sub(visible));
+    draw(
+        &mut screen,
+        Some(DockView {
+            screen: StationScreen::Bulletin,
+            title: station::title(StationScreen::Bulletin, &name),
+            rows: rows(&all[scroll..]),
+            status: station::Status::default(),
+            scroll,
+            selected: posts.len(),
+            total: all.len(),
+        }),
+        None,
+        "",
+    );
+    save(&screen, "script-board.ppm");
+    // Choose the subscription offer: the scripts open their conversation.
+    let offer = state.scripts.as_ref().unwrap().engine.menu.entries[offer_row];
+    ffe_rs::scripts::with_hooks(&mut state, &mut nav, &cache, |scripts, hooks, today| {
+        scripts.select(&assets.image, hooks, today, offer)
+    })
+    .unwrap()
+    .0
+    .unwrap();
+    let menu = state.scripts.as_ref().unwrap().engine.menu.clone();
+    assert!(menu.active);
+    assert_eq!(menu.screen, 1);
+    let title = nav
+        .with_world(&cache, station, |world| {
+            ffe_rs::scripts::entry_text(
+                &messages,
+                world,
+                &ffe_core::script::menu::Entry {
+                    code: menu.title,
+                    words: menu.words,
+                    ..Default::default()
+                },
+            )
+        })
+        .unwrap();
+    let responses = texts(&state, &nav);
+    let line = nav
+        .with_world(&cache, station, |world| {
+            ffe_rs::scripts::entry_text(&messages, world, &menu.lines.last().unwrap().entry)
+        })
+        .unwrap();
+    println!("title {title:?} responses {responses:?} line {line:?}");
+    assert_eq!(responses.len(), 5);
+    draw(
+        &mut screen,
+        Some(DockView {
+            screen: StationScreen::Script,
+            title,
+            rows: rows(&responses),
+            status: station::Status::default(),
+            scroll: 0,
+            selected: 0,
+            total: responses.len(),
+        }),
+        None,
+        &line,
+    );
+    save(&screen, "script-conversation.ppm");
+}
+
+/// The scripts' adverts with `[Mi...(name)` macros: F76 asks the scripts
+/// (F64) and their answer replaces the macro.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn script_advert_macros_ask_the_scripts() {
+    let cache = cache();
+    let assets = ffe_rs::scripts::Assets::load(&cache).expect("cache v34");
+    let messages =
+        ffe_core::message_strings::Messages::new(cache.asset("base:text/messages").unwrap())
+            .unwrap();
+    let mut nav = Navigator::new_game(&cache, 0).unwrap();
+    let station = nav.docked.unwrap();
+    let mut state = Flight {
+        mode: Mode::Docked,
+        credits: 1_000_000,
+        ..Flight::default()
+    };
+    ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, hooks, _| {
+        *scripts = Some(ffe_rs::scripts::new_game(&assets, hooks, true).unwrap());
+    });
+    let mut found = Vec::new();
+    for day in 0..500u32 {
+        nav.clock += 86_400.0;
+        let today = ffe_rs::scripts::absolute_day(nav.clock);
+        ffe_rs::scripts::with_hooks(&mut state, &mut nav, &cache, |scripts, hooks, _| {
+            scripts
+                .daily(&assets.image, &assets.stories, hooks, today, true)
+                .unwrap();
+            scripts.open_screen(&assets.image, hooks, today, 2).unwrap();
+        });
+        let entries = state.scripts.as_ref().unwrap().engine.menu.entries.clone();
+        let raw: Vec<bool> = entries
+            .iter()
+            .map(|entry| {
+                messages
+                    .get(entry.code as u16)
+                    .is_some_and(|text| text.contains(&b'['))
+            })
+            .collect();
+        if raw.iter().any(|has| *has) {
+            let texts = ffe_rs::scripts::expand_all(
+                &mut state, &mut nav, &cache, station, &assets, &messages, "Jameson", &entries,
+            );
+            for (text, has) in texts.into_iter().zip(raw) {
+                if has && !found.contains(&text) {
+                    println!("day {day}: {text}");
+                    found.push(text);
+                }
+            }
+        }
+        if found.len() >= 3 {
+            break;
+        }
+    }
+    assert!(!found.is_empty(), "no advert with a macro");
+    assert!(found.iter().all(|text| !text.contains("[Mi")), "{found:?}");
+}
+
+/// F669 for a script: statement 41's attacker is made from F772's type list,
+/// hostile, and put on F702's orbit of 0x5000:0x31 (about 2.3 AU) round the
+/// system's root with F1507's velocity words; F669 then draws its approach
+/// words and reports the ship for event 0x17.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn a_script_attacker_joins_the_system() {
+    let cache = cache();
+    let mut nav = Navigator::new_game(&cache, 0).unwrap();
+    let mut state = Flight::default();
+    let before = nav.ships.len();
+    let id = ffe_rs::scripts::next_ship_id(&mut nav, &[]);
+    let near = [1_000_000_000_i64, 0, 0];
+    let model = ffe_core::npc::SHIP_TYPES[0xc][0];
+    state
+        .script_actions
+        .push(ffe_rs::scripts::Action::Attacker {
+            ship: id,
+            model,
+            target: ffe_rs::scripts::PLAYER_ID,
+            word: 0,
+        });
+    let random = nav.random;
+    let made = ffe_rs::scripts::apply(&mut state, &mut nav, &cache, near);
+    assert_eq!(made, [id as i32 + ffe_rs::scripts::SHIP_IDS]);
+    assert_eq!(nav.ships.len(), before + 1);
+    let ship = nav.ships.last().unwrap();
+    assert_eq!(ship.id, id);
+    assert!(ship.hostile);
+    assert_eq!(ship.ai_state(), 9);
+    assert!(ffe_core::npc::SHIP_TYPES[0xc].contains(&ship.model));
+    let range: f64 = ship
+        .position
+        .iter()
+        .map(|v| (*v as f64).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    let orbit = ffe_rs::scripts::packed_distance(ffe_rs::scripts::ATTACKER_ORBIT);
+    assert!((range - orbit).abs() < orbit * 1e-4, "{range} {orbit}");
+    assert!((orbit / 1.495_978_707e14 - 2.35).abs() < 0.05, "{orbit}");
+    // F1507's `+0x8c` words: the step between two 0x10-unit orbit angles.
+    let step = 2.0 * std::f64::consts::PI * 16.0 / 65_536.0 * 2_147_483_648.0;
+    let speed = ship
+        .motion
+        .velocity
+        .iter()
+        .map(|v| f64::from(*v).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    assert!((speed - step).abs() < step * 0.01, "{speed} {step}");
+    // F772's F703, F702's F1530 and F669's own F1530 for the approach words,
+    // after what the ship's set-up draws.
+    let mut check = random;
+    let _ = ffe_core::npc::script_attacker(
+        &ffe_rs::ships::npc_spec(&cache, ship.model).unwrap(),
+        id,
+        [0; 3],
+        &mut check,
+    );
+    for _ in 0..3 {
+        check.advance();
+    }
+    assert_eq!(nav.random, check);
+    // F770: still far off, it keeps closing; within distance class 0xa it
+    // attacks and hails the player.
+    assert!(ffe_rs::scripts::approaches(&mut nav, near).is_empty());
+    let ship = nav.ships.last_mut().unwrap();
+    ship.position = [near[0] + 1_000_000, near[1], near[2]];
+    let seed = ship.seed;
+    let hails = ffe_rs::scripts::approaches(&mut nav, near);
+    assert_eq!(hails, [(id as i32 + ffe_rs::scripts::SHIP_IDS, seed, true)]);
+    assert_eq!(nav.ships.last().unwrap().ai_state(), 1);
+    assert!(ffe_rs::scripts::approaches(&mut nav, near).is_empty());
+}
+
+/// The mission ships' statements carried out in a real system: a ship made
+/// (19) and placed 8.4 km from the player (54) with F1507's velocity, a
+/// second flying in its formation (60), a canister (52), a building on
+/// Hope's terrain (48, F879) and an object on an orbit round it (50, F40,
+/// moved by F866), then the script's damage destroying the first ship (21)
+/// and the objects leaving the game.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn mission_ships_are_made_placed_steered_and_destroyed() {
+    use ffe_rs::scripts::{Action, Place, PLAYER_ID, SHIP_IDS, TAG_IDS};
+    let cache = cache();
+    let mut nav = Navigator::new_game(&cache, 0).unwrap();
+    let mut state = Flight::default();
+    let player = [2_000_000_000_i64, 0, 0];
+    let first = ffe_rs::scripts::next_ship_id(&mut nav, &[]);
+    let model = ffe_core::npc::SHIP_TYPES[0x11][0];
+    let planet = nav
+        .bodies
+        .iter()
+        .position(|body| body.name == "Hope")
+        .unwrap();
+    let leader = first as i32 + SHIP_IDS;
+    let wingman = leader + 1;
+    let building = leader + 2;
+    let satellite = leader + 3;
+    // F40's orbit: 0x6000 at exponent 0x22 (about 12,900 km), at a rate
+    // that turns it 2048 of F1506's 65,536 angle units a day.
+    let orbit_radius = 0x0022_6000;
+    state.script_actions = vec![
+        Action::Create {
+            ship: first,
+            kind: 0x11,
+            model,
+        },
+        Action::Create {
+            ship: first + 1,
+            kind: 0x11,
+            model,
+        },
+        Action::Place {
+            object: leader,
+            parent: PLAYER_ID,
+            distance: 0x0017_7fff,
+        },
+        Action::Formation {
+            object: wingman,
+            leader,
+            slot: 0,
+        },
+        Action::Canister {
+            tag: TAG_IDS,
+            cargo: 0x1f,
+            near: leader,
+        },
+        Action::Object {
+            ship: first + 2,
+            model: 0x66,
+            body: ffe_rs::scripts::BODY_IDS + planet as i32,
+            seed: 7,
+            place: Place::Surface {
+                latitude: 0x4000,
+                longitude: 0,
+            },
+        },
+        Action::Object {
+            ship: first + 3,
+            model: 0x66,
+            body: ffe_rs::scripts::BODY_IDS + planet as i32,
+            seed: 9,
+            place: Place::Orbit {
+                radius: orbit_radius,
+                offset: 0x10,
+                rate: 0x0100_0000,
+                longitude: 0x1000,
+                spin: 0,
+                tilt: 0,
+            },
+        },
+    ];
+    ffe_rs::scripts::apply(&mut state, &mut nav, &cache, player);
+    let find = |nav: &Navigator, id: i32| {
+        nav.ships
+            .iter()
+            .find(|ship| ship.id as i32 + SHIP_IDS == id)
+            .cloned()
+    };
+    let lead = find(&nav, leader).expect("the leader exists");
+    let range: f64 = (0..3)
+        .map(|k| (lead.position[k] - player[k]) as f64)
+        .map(|d| d * d)
+        .sum::<f64>()
+        .sqrt();
+    // F1507's Q31 direction times the mantissa, to its rounding.
+    let expected = ffe_rs::scripts::packed_distance(0x0017_7fff);
+    assert!((range - expected).abs() < expected * 1e-4, "{range}");
+    // F1507's `+0x8c` words are the ship's velocity.
+    assert!(lead.motion.velocity.iter().any(|v| *v != 0));
+    let speed = lead.velocity.iter().map(|v| v * v).sum::<f64>().sqrt();
+    let words = lead
+        .motion
+        .velocity
+        .iter()
+        .map(|v| f64::from(*v).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    assert!((speed - words * ffe_core::npc::MM_PER_VELOCITY_UNIT).abs() < 1.0);
+    let wing = find(&nav, wingman).unwrap();
+    assert_eq!(wing.state, ffe_core::npc::State::Escort);
+    assert_eq!(wing.leader, Some(lead.id));
+    assert_eq!(wing.formation, [400_000, 0, -400_000]);
+    let canister = nav.effects.iter().find(|e| e.tag == Some(TAG_IDS)).unwrap();
+    assert_eq!(canister.position, lead.position);
+    assert_eq!(canister.cargo, Some(0x1f));
+    let base = find(&nav, building).expect("the building exists");
+    let body = &nav.bodies[planet];
+    let height: f64 = (0..3)
+        .map(|k| (base.position[k] - body.position[k]) as f64)
+        .map(|d| d * d)
+        .sum::<f64>()
+        .sqrt();
+    // F879's terrain point, turned with the planet's rows: between the
+    // planet's solid and outer radii.
+    let (local, _) = nav.surface_site(&cache, planet, 0x66, 0x4000, 0).unwrap();
+    let terrain = local
+        .iter()
+        .map(|v| (*v as f64).powi(2))
+        .sum::<f64>()
+        .sqrt();
+    assert!(
+        (height - terrain).abs() < terrain * 1e-6,
+        "{height} {terrain}"
+    );
+    assert!(
+        (body.inner_radius as f64) < height && height < body.radius as f64,
+        "{height} {} {}",
+        body.inner_radius,
+        body.radius
+    );
+    // F40's object on its orbit round the planet, F1507/F1508's place.
+    let moon = find(&nav, satellite).expect("the orbiting object exists");
+    let orbit_at = |nav: &Navigator, ship: &ffe_core::npc::NpcShip| -> [i64; 3] {
+        let body = &nav.bodies[planet];
+        std::array::from_fn(|k| ship.position[k] - body.position[k])
+    };
+    let length = |v: [i64; 3]| v.iter().map(|c| (*c as f64).powi(2)).sum::<f64>().sqrt();
+    let wanted = ffe_rs::scripts::packed_distance(orbit_radius);
+    let first_place = orbit_at(&nav, &moon);
+    assert!((length(first_place) - wanted).abs() < wanted * 1e-4);
+    let present = ffe_rs::scripts::present(&nav);
+    assert!([leader, wingman, building, satellite, TAG_IDS]
+        .iter()
+        .all(|id| present.contains(id)));
+    // A save keeps them: the ships with the fields the scripts set, the
+    // canister with its id and the building held to its planet.
+    let json = serde_json::to_string(&nav.save_state()).unwrap();
+    let mut nav = Navigator::from_save(&cache, &serde_json::from_str(&json).unwrap()).unwrap();
+    assert_eq!(ffe_rs::scripts::present(&nav), present);
+    let wing = find(&nav, wingman).unwrap();
+    assert_eq!((wing.ai_state(), wing.script_target), (0xb, leader));
+    assert_eq!(find(&nav, building).unwrap().seed, 7);
+    assert_eq!(nav.script_sites.len(), 2);
+    let random = nav.random;
+    state.script_actions.clear();
+    ffe_rs::scripts::apply(&mut state, &mut nav, &cache, player);
+    assert_eq!(nav.random, random, "holding a site draws nothing");
+    assert_eq!(find(&nav, building).unwrap().position, base.position);
+    assert_eq!(orbit_at(&nav, &find(&nav, satellite).unwrap()), first_place);
+    // F866: a day later the object has moved on round its orbit.
+    nav.transfer(&cache, 86_400.0);
+    state.script_actions.clear();
+    ffe_rs::scripts::apply(&mut state, &mut nav, &cache, player);
+    let later = orbit_at(&nav, &find(&nav, satellite).unwrap());
+    assert!((length(later) - wanted).abs() < wanted * 1e-4);
+    let moved = length(std::array::from_fn(|k| later[k] - first_place[k]));
+    assert!(moved > wanted * 0.01, "{moved}");
+    // F953's most damage (statement 21's -1) destroys the leader, and the
+    // canister goes with statement 51.
+    state.script_actions = vec![
+        Action::Damage {
+            object: leader,
+            amount: i32::MAX as u32,
+        },
+        Action::Explode { object: TAG_IDS },
+    ];
+    ffe_rs::scripts::apply(&mut state, &mut nav, &cache, player);
+    let present = ffe_rs::scripts::present(&nav);
+    assert!(!present.contains(&leader));
+    assert!(!present.contains(&TAG_IDS));
+    assert!(present.contains(&building));
+}
+
+/// The ship library (F81/F79): a new game's five journals and each one's
+/// first issue, its macros expanded.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn the_ship_library_shows_each_journals_first_issue() {
+    let cache = cache();
+    let assets = ffe_rs::scripts::Assets::load(&cache).expect("cache v33");
+    let messages =
+        ffe_core::message_strings::Messages::new(cache.asset("base:text/messages").unwrap())
+            .unwrap();
+    let mut nav = Navigator::new_game(&cache, 0).unwrap();
+    let station = nav.docked.expect("the new game starts docked");
+    let mut state = Flight {
+        mode: Mode::Docked,
+        ..Flight::default()
+    };
+    ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, hooks, _| {
+        *scripts = Some(ffe_rs::scripts::new_game(&assets, hooks, true).unwrap());
+    });
+    let journals = ffe_rs::scripts::journals(state.scripts.as_ref().unwrap());
+    let names: Vec<&str> = journals.iter().map(|(_, name)| name.as_str()).collect();
+    println!("{names:?}");
+    assert_eq!(journals.len(), 5);
+    assert!(names.contains(&"Imperial Herald"));
+    for (slot, name) in &journals {
+        let articles = ffe_rs::scripts::issue(
+            &mut state, &mut nav, &cache, station, &assets, &messages, "Jameson", *slot,
+        );
+        assert!(!articles.is_empty(), "{name} has no first issue");
+        for article in &articles {
+            assert!(
+                !article.headline.contains('[') && !article.body.contains('['),
+                "{name} has an unexpanded F76 macro in {:?} / {:?}",
+                article.headline,
+                article.body
+            );
+        }
+        let first = &articles[0];
+        println!("{name}: {} / {}", first.publication, first.headline);
+        assert!(!first.headline.trim().is_empty());
+    }
+
+    let archive = ffe_core::journal::Journal::new(&assets.archive).expect("journal archive");
+    let cs_article = (0..archive.len())
+        .find(|index| {
+            archive
+                .raw(*index)
+                .is_some_and(|raw| raw.windows(3).any(|window| window == b"[Cs"))
+        })
+        .expect("an archive article using Cs");
+    let current_system = nav.system_name().to_owned();
+    ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, _, _| {
+        let scripts = scripts.as_mut().expect("new game scripts");
+        scripts.library.journals[0].issue = Some(0);
+        scripts.library.records[0] = ffe_core::journal_library::Record {
+            article: cs_article as i32,
+            flags: ffe_core::journal_library::SHOWN,
+            ..Default::default()
+        };
+    });
+    let articles = ffe_rs::scripts::issue(
+        &mut state, &mut nav, &cache, station, &assets, &messages, "Jameson", 0,
+    );
+    let expanded = articles.first().expect("Cs article displayed");
+    assert!(
+        !expanded.headline.contains("[Cs") && !expanded.body.contains("[Cs"),
+        "current-system macro was not expanded: {:?} / {:?}",
+        expanded.headline,
+        expanded.body
+    );
+    assert!(
+        expanded.body.contains(&format!("{current_system}and")),
+        "Cs must use the current-system F860 name and consume its following source byte: {:?}",
+        expanded.body
+    );
+}
+
+/// F76's `Sy`/`Ci` over real archive articles: `Sy` names the system the
+/// argument filter picks and `Ci` names one of F878's objects (F461/F462/F463).
+/// The first `L`-seeded macros use slot word 0, so their systems are the first
+/// of their allegiance class and the expected names are computable.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn the_ship_library_expands_sy_and_ci_systems() {
+    let cache = cache();
+    let assets = ffe_rs::scripts::Assets::load(&cache).expect("cache v33");
+    let messages =
+        ffe_core::message_strings::Messages::new(cache.asset("base:text/messages").unwrap())
+            .unwrap();
+    let mut nav = Navigator::new_game(&cache, 0).unwrap();
+    let station = nav.docked.expect("the new game starts docked");
+    let mut state = Flight {
+        mode: Mode::Docked,
+        ..Flight::default()
+    };
+    ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, hooks, _| {
+        *scripts = Some(ffe_rs::scripts::new_game(&assets, hooks, true).unwrap());
+    });
+    let archive = ffe_core::journal::Journal::new(&assets.archive).expect("journal archive");
+    let sector =
+        ffe_core::sector::Tables::new(cache.asset("base:world/galaxy-tables").unwrap()).unwrap();
+    let systems =
+        ffe_core::galaxy::Tables::new(cache.asset("base:world/system-tables").unwrap()).unwrap();
+    let strings =
+        ffe_core::sector::Strings::new(cache.asset("base:text/system-strings").unwrap()).unwrap();
+
+    // Article 0's headline is `[SyL1(I)` (an Imperial system), article 13's
+    // body has `[CiL1(C)` (a station in a Confederacy system).
+    let cases: [(usize, &[u8], &str, &str, bool); 2] = [
+        (0, b"I", "[SyL1(I)", "Sy", true),
+        (13, b"C", "[CiL1(C)", "Ci", false),
+    ];
+    for (article, argument, prefix, code, system) in cases {
+        let raw = archive.raw(article).expect("article");
+        assert!(
+            raw.windows(prefix.len())
+                .any(|window| window == prefix.as_bytes()),
+            "article {article} no longer holds {prefix}"
+        );
+        let chosen = ffe_core::system_pick::resolve(&sector, &systems, 0, 0, None, argument);
+        let expected = if system {
+            ffe_core::system_pick::system_name(&sector, &strings, chosen)
+        } else {
+            let names = ffe_core::names::Names::new(cache.asset("base:text/names").unwrap())
+                .expect("names");
+            ffe_core::system_pick::object_name(&sector, &systems, &strings, Some(&names), 0, chosen)
+        };
+        let expected = String::from_utf8(expected).expect("name text");
+        assert!(!expected.is_empty(), "{code}: no expected name");
+        ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, _, _| {
+            let scripts = scripts.as_mut().expect("new game scripts");
+            scripts.library.journals[0].issue = Some(0);
+            scripts.library.records[0] = ffe_core::journal_library::Record {
+                article: article as i32,
+                flags: ffe_core::journal_library::SHOWN,
+                ..Default::default()
+            };
+        });
+        let articles = ffe_rs::scripts::issue(
+            &mut state, &mut nav, &cache, station, &assets, &messages, "Jameson", 0,
+        );
+        let expanded = articles.first().expect("article displayed");
+        assert!(
+            !expanded.headline.contains(prefix) && !expanded.body.contains(prefix),
+            "{code} was not expanded: {:?} / {:?}",
+            expanded.headline,
+            expanded.body
+        );
+        assert!(
+            expanded.headline.contains(&expected) || expanded.body.contains(&expected),
+            "{code} must use {expected:?}: {:?} / {:?}",
+            expanded.headline,
+            expanded.body
+        );
+    }
+}
+
+/// Every archive article that uses `Sy`/`Ci` expands without leaving a macro
+/// behind (the census counts 67 `Sy` and 10 `Ci` prefixes).
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn every_archive_sy_and_ci_macro_expands() {
+    let cache = cache();
+    let assets = ffe_rs::scripts::Assets::load(&cache).expect("cache v33");
+    let messages =
+        ffe_core::message_strings::Messages::new(cache.asset("base:text/messages").unwrap())
+            .unwrap();
+    let mut nav = Navigator::new_game(&cache, 0).unwrap();
+    let station = nav.docked.expect("the new game starts docked");
+    let mut state = Flight {
+        mode: Mode::Docked,
+        ..Flight::default()
+    };
+    ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, hooks, _| {
+        *scripts = Some(ffe_rs::scripts::new_game(&assets, hooks, true).unwrap());
+    });
+    let archive = ffe_core::journal::Journal::new(&assets.archive).expect("journal archive");
+    let mut articles_seen = 0;
+    for article in 0..archive.len() {
+        let raw = archive.raw(article).expect("article");
+        let uses = [b"[Sy".as_slice(), b"[Ci".as_slice(), b"[Pl".as_slice()]
+            .iter()
+            .any(|prefix| raw.windows(prefix.len()).any(|window| window == *prefix));
+        if !uses {
+            continue;
+        }
+        articles_seen += 1;
+        ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, _, _| {
+            let scripts = scripts.as_mut().expect("new game scripts");
+            scripts.library.journals[0].issue = Some(0);
+            scripts.library.records[0] = ffe_core::journal_library::Record {
+                article: article as i32,
+                flags: ffe_core::journal_library::SHOWN,
+                ..Default::default()
+            };
+        });
+        let expanded = ffe_rs::scripts::issue(
+            &mut state, &mut nav, &cache, station, &assets, &messages, "Jameson", 0,
+        );
+        let expanded = expanded.first().expect("article displayed");
+        let text = format!(
+            "{} {} {}",
+            expanded.headline,
+            expanded.body,
+            String::from_utf8_lossy(&expanded.source.text)
+        );
+        assert!(
+            !text.contains("[Sy") && !text.contains("[Ci") && !text.contains("[Pl"),
+            "article {article} left a Sy/Ci/Pl macro: {text:?}"
+        );
+    }
+    assert!(
+        articles_seen >= 20,
+        "only {articles_seen} articles use Sy/Ci"
+    );
+}
+
+/// Inventory F76 prefixes across the full imported journal archive before
+/// choosing the next source-backed macro implementation.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn journal_archive_macro_prefix_census() {
+    use std::collections::BTreeMap;
+
+    let cache = cache();
+    let assets = ffe_rs::scripts::Assets::load(&cache).expect("cache v33");
+    let archive = ffe_core::journal::Journal::new(&assets.archive).expect("journal archive");
+    let mut counts = BTreeMap::<[u8; 2], usize>::new();
+    let mut samples = BTreeMap::<[u8; 2], String>::new();
+    let mut total = 0usize;
+    for article in 0..archive.len() {
+        let text = archive.raw(article).expect("article");
+        for index in 0..text.len().saturating_sub(2) {
+            if text[index] == b'[' {
+                let prefix = [text[index + 1], text[index + 2]];
+                *counts.entry(prefix).or_default() += 1;
+                samples.entry(prefix).or_insert_with(|| {
+                    String::from_utf8_lossy(&text[index..text.len().min(index + 90)]).into_owned()
+                });
+                total += 1;
+            }
+        }
+    }
+    println!(
+        "{} articles; {total} bracket prefixes: {counts:?}; samples: {samples:?}",
+        archive.len()
+    );
+    assert_eq!(archive.len(), ffe_core::journal::ARTICLES);
+}
+
+/// F80/F79's issue page for each journal of a new game: F78's text with its
+/// centred upper-case headline and "By:" line, every line inside F1398's
+/// 300 pixels, the masthead, and F81 scrolling to the end of the issue and
+/// back. Saves `journal-issue-<slot>.ppm` and the scrolled page.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn the_ship_library_draws_and_scrolls_an_issue() {
+    use ffe_rs::journal_page::{self as page, Scroll};
+    let cache = cache();
+    let assets = ffe_rs::scripts::Assets::load(&cache).expect("cache v33");
+    let messages =
+        ffe_core::message_strings::Messages::new(cache.asset("base:text/messages").unwrap())
+            .unwrap();
+    let mut nav = Navigator::new_game(&cache, 0).unwrap();
+    let station = nav.docked.expect("the new game starts docked");
+    let mut state = Flight {
+        mode: Mode::Docked,
+        ..Flight::default()
+    };
+    ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, hooks, _| {
+        *scripts = Some(ffe_rs::scripts::new_game(&assets, hooks, true).unwrap());
+    });
+    let mut screen = Screen::new(&cache).unwrap();
+    let journals = ffe_rs::scripts::journals(state.scripts.as_ref().unwrap());
+    for (slot, name) in &journals {
+        let articles = ffe_rs::scripts::issue(
+            &mut state, &mut nav, &cache, station, &assets, &messages, "Jameson", *slot,
+        );
+        let text = page::issue_text(&articles, &messages, &cache, |code| {
+            screen.glyph_advance(code)
+        });
+        assert!(!text.is_empty(), "{name}");
+        // F78: the headline upper-cased after its centring code, the byline
+        // and the publication line, the body indented.
+        let first = &articles[0];
+        let headline: Vec<u8> = first
+            .headline
+            .bytes()
+            .map(|byte| byte.to_ascii_uppercase())
+            .collect();
+        assert_eq!(&text[..2], &[0x0d, 0x1e]);
+        assert!(
+            text.windows(headline.len())
+                .any(|w| w == headline.as_slice()),
+            "{name}: {}",
+            first.headline
+        );
+        let byline: Vec<u8> = [b"By:   ".as_slice(), first.source.publication.as_slice()].concat();
+        assert!(
+            text.windows(byline.len()).any(|w| w == byline.as_slice()),
+            "{name}"
+        );
+        assert!(
+            text.windows(6).any(|w| w == b"\x0d     "),
+            "{name}: no indent"
+        );
+        // Every glyph inside the screen, the first line one line down.
+        let advance = |code| screen.glyph_advance(code);
+        let top = page::layout(&text, page::TOP, advance);
+        assert_eq!(top.glyphs[0].y, page::TOP + page::LINE);
+        assert!(top.glyphs.iter().all(|glyph| glyph.x < 0x13c));
+        // F81: page down to the end, then back to the top.
+        let mut scroll = Scroll::open();
+        let mut calls = 0;
+        loop {
+            let more = page::layout(&text, scroll.y, advance).more_below;
+            if !more && !scroll.busy() {
+                break;
+            }
+            scroll.tick((!scroll.busy()).then_some(page::ACTION_PAGE_DOWN), more);
+            calls += 1;
+            assert!(calls < 100_000, "{name} never ends");
+        }
+        let bottom = scroll.y;
+        assert!(bottom < page::TOP || !top.more_below, "{name}");
+        let issue = |y| ffe_rs::screen::IssueView {
+            masthead: state.scripts.as_ref().unwrap().library.journals[*slot].masthead as u32,
+            text: text.clone(),
+            y,
+            more: messages.text(page::MORE.0).unwrap(),
+        };
+        screen.issue = Some(issue(page::TOP));
+        draw(&mut screen, None, None, "");
+        save(&screen, &format!("journal-issue-{slot}.ppm"));
+        screen.issue = Some(issue(bottom));
+        draw(&mut screen, None, None, "");
+        save(&screen, &format!("journal-issue-{slot}-end.ppm"));
+        for _ in 0..100_000 {
+            if scroll.y == page::TOP && !scroll.busy() {
+                break;
+            }
+            scroll.tick((!scroll.busy()).then_some(page::ACTION_PAGE_UP), true);
+        }
+        assert_eq!(scroll.y, page::TOP, "{name}");
+        println!("{name}: {} bytes, scrolls to y {bottom}", text.len());
+    }
+}
+
+/// F326's board: the station's adverts are the menu's own entries and the
+/// scripts' go among them (F345 at the end, F346 at F921's place, moving the
+/// advert there to the end), so the board keeps every station advert once
+/// with the scripts' added.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn the_board_lists_the_scripts_adverts_among_the_stations() {
+    let cache = cache();
+    let assets = ffe_rs::scripts::Assets::load(&cache).expect("cache v33");
+    let mut nav = Navigator::new_game(&cache, 0).unwrap();
+    let station = nav.docked.expect("the new game starts docked");
+    let mut state = Flight {
+        mode: Mode::Docked,
+        ..Flight::default()
+    };
+    ffe_rs::scripts::with_all(&mut state, &mut nav, &cache, |scripts, hooks, _| {
+        *scripts = Some(ffe_rs::scripts::new_game(&assets, hooks, true).unwrap());
+    });
+    let posts = nav.station_offers(&cache, station).unwrap().posts.clone();
+    let native: Vec<_> = posts
+        .iter()
+        .enumerate()
+        .map(|(index, post)| ffe_rs::scripts::native_entry(index, post.code))
+        .collect();
+    ffe_rs::scripts::with_hooks(&mut state, &mut nav, &cache, |scripts, hooks, today| {
+        hooks.native = native;
+        scripts.open_screen(&assets.image, hooks, today, 2)
+    })
+    .unwrap()
+    .0
+    .unwrap();
+    let entries = &state.scripts.as_ref().unwrap().engine.menu.entries;
+    let mut station_rows: Vec<usize> = entries
+        .iter()
+        .filter_map(ffe_rs::scripts::native_index)
+        .collect();
+    let moved = station_rows.windows(2).any(|pair| pair[0] > pair[1]);
+    station_rows.sort_unstable();
+    assert_eq!(station_rows, (0..posts.len()).collect::<Vec<_>>());
+    assert!(moved, "F346 moves the adverts it displaces to the end");
+    let scripted = entries.len() - posts.len();
+    println!("{} station adverts, {scripted} scripts'", posts.len());
+    assert!(scripted > 0, "a new game's scripts advertise");
+    for entry in entries {
+        if let Some(index) = ffe_rs::scripts::native_index(entry) {
+            assert_eq!(entry.code, i32::from(posts[index].code));
+        }
+    }
+}
+
+/// F428's "Select Mounting." menu: the Upgrades list is replaced by one row per candidate mounting
+/// (F342 clears the lists, F348 adds the entries), each with the single button, and the prompt is
+/// the console line. `FFE_SHOT_DIR` keeps the frame.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn the_mounting_menu_replaces_the_upgrades_list() {
+    let cache = cache();
+    let mut screen = Screen::new(&cache).unwrap();
+    let choice = station::Mounting {
+        row: 0,
+        remove: false,
+        mounts: [true, true, false, false],
+    };
+    let rows = choice.rows();
+    let view = DockView {
+        screen: StationScreen::Upgrades,
+        title: station::title(StationScreen::Upgrades, "Old Blackelk"),
+        total: rows.len(),
+        rows,
+        status: station::Status::default(),
+        scroll: 0,
+        selected: 0,
+    };
+    draw(&mut screen, Some(view), None, choice.prompt());
+    save(&screen, "upgrades-mounting-menu.ppm");
+    // The first row is at the list's top with the button at x 124 and the name at x 152.
+    let top = station::LIST_TOP as usize;
+    let blank = screen.logical_pixels()[(top + 30) * 320 + 152];
+    let name_row = &screen.logical_pixels()[(top + 1) * 320 + 152..(top + 8) * 320 + 230];
+    assert!(
+        name_row.iter().any(|p| *p != blank),
+        "the first mounting is written"
+    );
+}

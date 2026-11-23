@@ -1,0 +1,1768 @@
+// Whole-project burndown: from the first commit to a finished like-for-like
+// replacement port. Update this file whenever a build or commit changes progress:
+// set item statuses (give finished items a version label), add items when scope
+// is found, and APPEND one dated history point with the new remaining count.
+//
+// Remaining counts every task that is not "done" (in-progress counts as not
+// done). History is the only source for the chart's time axis: never rewrite old
+// points, except to correct a mistake (say so in the note).
+//
+// 2026-10-23 restatement: the earlier two points counted only the work still to
+// do (38 items). The backlog was widened to the whole project, finished work
+// included, and the history rebuilt from the dates each finished item landed.
+// Future items are planning-grade estimates and will be split or added as the
+// work is understood; a rise in the remaining count means scope was found, not
+// that work was lost.
+window.FFE_BURNDOWN = {
+  project: "ffe-rs",
+  unit: "work items",
+  updated: "2026-11-21",
+  milestones: [
+    {
+      id: "parity-audit",
+      title: "Source gameplay parity blockers — 2026-10-26 audit",
+      status: "planned",
+      tasks: [
+        {"id": "parity-01", "title": "[P0] Repair F938/F929 event units for fuel, shields and hull repair", "status": "done", "version": "accepted-95", "priority": "P0", "auditId": "PAR-01"},
+        {"id": "parity-02", "title": "[P0] Make reserve refuelling and cargo fuel bookkeeping match F929/F903", "status": "done", "version": "source-audit", "priority": "P0", "auditId": "PAR-02"},
+        {"id": "parity-03", "title": "[P0] Use one authoritative fitted-drive and failure state", "status": "done", "version": "source-audit", "priority": "P0", "auditId": "PAR-03"},
+        {"id": "parity-04", "title": "[P0] Translate the complete F1013 takeoff handler and same-frame mode order", "status": "done", "version": "accepted-95", "priority": "P0", "auditId": "PAR-04"},
+        {"id": "parity-05", "title": "[P0] Replace launch altitude substitution and collision grace with source frame/contact rules", "status": "done", "version": "accepted-90", "priority": "P0", "auditId": "PAR-05"},
+        {"id": "parity-06", "title": "[P0] Verify original set-speed controls, input gates and speed persistence end to end", "status": "done", "version": "source-audit", "priority": "P0", "auditId": "PAR-06"},
+        {"id": "parity-07", "title": "[P0] Match the original Hope starting state and cockpit view to the supplied image", "status": "done", "version": "accepted-95", "priority": "P0", "auditId": "PAR-07"},
+        {"id": "parity-08", "title": "[P0] Restore the complete third-person player explosion before GAME OVER", "status": "done", "version": "source-audit", "priority": "P0", "auditId": "PAR-08"},
+        {"id": "parity-09", "title": "[P1] Replace orbital docking corridor tests and harmless pushes with source contacts", "status": "done", "version": "accepted-95", "priority": "P1", "auditId": "PAR-09"},
+        {"id": "parity-10", "title": "[P1] Use original indoor departure placement and moving lift/door state", "status": "done", "version": "accepted-90", "priority": "P1", "auditId": "PAR-10"},
+        {"id": "parity-11", "title": "[P1] Complete source autopilot world and target adapters", "status": "done", "version": "accepted-90", "priority": "P1", "auditId": "PAR-11"},
+        {"id": "parity-12", "title": "[P1] Unify source event clocks, time acceleration and physical integration", "status": "done", "version": "accepted-90", "priority": "P1", "auditId": "PAR-12"},
+        {"id": "parity-13", "title": "[P1] Complete hyperjump initiation, transit, misjump and source arrival", "status": "done", "version": "accepted-95", "priority": "P1", "auditId": "PAR-13"},
+        {"id": "parity-14", "title": "[P1] Verify source fuel scooping gates and capacity changes", "status": "done", "version": "accepted-95", "priority": "P1", "auditId": "PAR-14"},
+        {"id": "parity-15", "title": "[P1] Replace NPC speed caps and simplified flight state transitions", "status": "done", "version": "accepted-80", "priority": "P1", "auditId": "PAR-15"},
+        {"id": "parity-16", "title": "[P1] Restore system-wide encounter, station traffic and police placement rules", "status": "done", "version": "source-audit", "priority": "P1", "auditId": "PAR-16"},
+        {"id": "parity-17", "title": "[P1] Restore source RNG state and call order for gameplay", "status": "done", "version": "accepted-90", "priority": "P1", "auditId": "PAR-17"},
+        {"id": "parity-18", "title": "[P1] Persist and restore the complete live simulation state", "status": "done", "version": "accepted-90", "priority": "P1", "auditId": "PAR-18"},
+        {"id": "parity-19", "title": "[P1] Remove the non-source 7-tonne starting hold and reconcile fitted capacity", "status": "done", "version": "source-audit", "priority": "P1", "auditId": "PAR-19"},
+        {"id": "parity-20", "title": "[P1] Replay market, shipyard, BBS and daily mission events using source state", "status": "done", "version": "accepted-90", "priority": "P1", "auditId": "PAR-20"},
+        {"id": "parity-21", "title": "[P1] Drive all explosion, debris and hit effects from source object states", "status": "done", "version": "source-audit", "priority": "P1", "auditId": "PAR-21"},
+        {"id": "parity-22", "title": "[P1] Replay missile, ECM, escape and legal outcomes in the complete event loop", "status": "done", "version": "accepted-90", "priority": "P1", "auditId": "PAR-22"},
+        {"id": "parity-23", "title": "[P1] Remove silent fallback to the synthetic playable from normal starts/loads", "status": "done", "version": "v0.9.0", "priority": "P1", "auditId": "PAR-23"},
+        {"id": "parity-24", "title": "[P1] Use the same source new-game setup after death and on every resume path", "status": "done", "version": "v0.9.0", "priority": "P1", "auditId": "PAR-24"}
+      ]
+    },
+    {
+      id: "foundation",
+      title: "Foundation, evidence and tooling (phases 0-2)",
+      status: "done",
+      tasks: [
+        { id: "foundation-1", title: "Inventory, rendering study, design proposal and repo hygiene", status: "done", version: "phase 0" },
+        { id: "foundation-2", title: "Local-input protection and forbidden-file CI check", status: "done", version: "phase 0" },
+        { id: "foundation-3", title: "ffe-tools: inspect, export and versioned cache (floppy 1.02 and CD 1.01 profiles)", status: "done", version: "v0.0" },
+        { id: "foundation-4", title: "Core primitives: RNG, timer and clock verified against the original", status: "done", version: "v0.0" },
+        { id: "foundation-5", title: "Reference harness: JJFFE adapter, Windows and Linux builds, trace tooling", status: "done", version: "v0.0-v0.1" },
+        { id: "foundation-6", title: "Original bitmap font and console image decoding", status: "done", version: "v0.2" },
+        { id: "foundation-7", title: "verify-all runner and CI", status: "done", version: "v0.38" },
+        { id: "foundation-8", title: "Deterministic reference gate: worldgen masking, platform SKIPs and the merged-stream oracles", status: "done", version: "v0.69" }
+      ]
+    },
+    {
+      id: "model-engine",
+      title: "Model engine, verified against the original (v0.3-v0.43)",
+      status: "done",
+      tasks: [
+        { id: "model-engine-1", title: "Vertex interpreter and normals", status: "done", version: "v0.3-v0.5" },
+        { id: "model-engine-2", title: "Command decoding and helpers", status: "done", version: "v0.4" },
+        { id: "model-engine-3", title: "Sine table, transforms, rotation operands and visibility", status: "done", version: "v0.6" },
+        { id: "model-engine-4", title: "Bounded executor and live vertex slots with projection", status: "done", version: "v0.7-v0.11" },
+        { id: "model-engine-5", title: "Depth keys, depth commands and render ordering", status: "done", version: "v0.8-v0.12" },
+        { id: "model-engine-6", title: "Point, line, text, child-call and colour operands", status: "done", version: "v0.13-v0.15" },
+        { id: "model-engine-7", title: "Base transforms: real stations run to completion", status: "done", version: "v0.16-v0.17" },
+        { id: "model-engine-8", title: "Face draw queue rule and whole-table model census", status: "done", version: "v0.18-v0.20" },
+        { id: "model-engine-9", title: "Complex polygons, jittered vertices and thruster operands", status: "done", version: "v0.21-v0.23" },
+        { id: "model-engine-10", title: "Coloured child calls, surface operands and nested depth blocks", status: "done", version: "v0.24-v0.26" },
+        { id: "model-engine-11", title: "Opcodes 17/24/25 and trailing declaration data", status: "done", version: "v0.27-v0.28" },
+        { id: "model-engine-12", title: "Curve, offset-curve and vertex-defined-basis vertex programs", status: "done", version: "v0.29-v0.33" },
+        { id: "model-engine-13", title: "Frame restore, curves, labels, light points and sound requests", status: "done", version: "v0.30-v0.36" },
+        { id: "model-engine-14", title: "Complex polygon segments and outlines", status: "done", version: "v0.38" },
+        { id: "model-engine-15", title: "Textured faces verified", status: "done", version: "v0.38" },
+        { id: "model-engine-16", title: "Child models with external vertices verified", status: "done", version: "v0.38" },
+        { id: "model-engine-17", title: "Screen-space midpoints, zero normals and the return record (census 449 of 466)", status: "done", version: "v0.42-v0.43" }
+      ]
+    },
+    {
+      id: "visible",
+      title: "Visible slice: models, ships and views (v0.37-v0.47)",
+      status: "done",
+      tasks: [
+        { id: "visible-1", title: "F6 model viewer over every decodable model", status: "done", version: "v0.37" },
+        { id: "visible-2", title: "The real station model in the flight view", status: "done", version: "v0.39" },
+        { id: "visible-3", title: "Original lighting tables and F1326 colour packing", status: "done", version: "v0.40" },
+        { id: "visible-4", title: "Child models drawn in the viewer and in flight", status: "done", version: "v0.41" },
+        { id: "visible-5", title: "Real ships by name (slots 14-70), Page Up/Down", status: "done", version: "v0.44" },
+        { id: "visible-6", title: "Original views: F1 cycle, F6/F7/F9, console icons, external camera", status: "done", version: "v0.44" },
+        { id: "visible-7", title: "Thruster glows (F1738/F1704/F1805)", status: "done", version: "v0.45" },
+        { id: "visible-8", title: "Animation inputs, station spin and rotating parts", status: "done", version: "v0.45" },
+        { id: "visible-9", title: "Ship statistics, cockpit eyes and turret views", status: "done", version: "v0.46" },
+        { id: "visible-10", title: "Clickable console view icons and flickering plumes", status: "done", version: "v0.47" },
+        { id: "visible-11", title: "Intro handedness, shape detail and median-cut palette fixes", status: "done", version: "v0.88" },
+        { id: "visible-12", title: "Intro text frames, merged surface depth and atmosphere ring", status: "done", version: "v0.89" },
+        { id: "visible-13", title: "Intro nebula behind the planet and F1766/F1814 star chains", status: "done", version: "v1.10" },
+        { id: "visible-14", title: "Opcode 17 beams (F1761 landing-gear legs) drawn", status: "done", version: "stash re-apply" },
+        { id: "visible-15", title: "Planetary rings: model 314 through F1680's key scale and the body seed", status: "done", version: "stash re-apply" }
+      ]
+    },
+    {
+      id: "v0.48",
+      title: "v0.48 - Every model fully drawn",
+      status: "in-progress",
+      tasks: [
+        { id: "v0.48-1", title: "Labels and the full 219-entry string table", status: "done", version: "v0.48a" },
+        { id: "v0.48-2", title: "3D text: glyph programs and F1747 placement", status: "done", version: "v0.48b" },
+        { id: "v0.48-3", title: "F1874 surface origin and axis resolution", status: "done", version: "v0.48c" },
+        { id: "v0.48-4", title: "Surface helpers F1875 / F1824 / F1825", status: "done", version: "v0.48d" },
+        { id: "v0.48-5", title: "F1823 entry map (replace the legacy hash arena)", status: "done", version: "v0.52a" },
+        { id: "v0.48-6", title: "F1833 flat/textured emitter dispatch", status: "done", version: "v0.74" },
+        { id: "v0.48-7", title: "F1834 / F1835 quad emission (with F1868-F1873)", status: "done", version: "source-dispatch" },
+        { id: "v0.48-8", title: "Surface quad oracle at a planet-scale distance", status: "done", version: "accepted-90" },
+        { id: "v0.48-9", title: "F1616 line rasteriser", status: "done", version: "v0.48f" },
+        { id: "v0.48-10", title: "F1811 curve rasteriser", status: "done", version: "v0.48g" },
+        { id: "v0.48-11", title: "F1604 / F1607 flat face rasterisers", status: "done", version: "v0.48h" },
+        { id: "v0.48-12", title: "Polygon spans (F1560/F1613) and F1714 off-view outlines", status: "done", version: "v0.48i" },
+        { id: "v0.48-13", title: "Fix the verify-assets and child-model oracles broken since v0.48b", status: "done", version: "v0.48j" },
+        { id: "v0.48-14", title: "Pixel-level whole-frame oracle (framebuffer mode, station and three ships)", status: "done", version: "frame-oracle" },
+        { id: "v0.48-15", title: "Upper runtime palette", status: "done", version: "v0.71" },
+        { id: "v0.48-16", title: "Sprites, particles and circles (F1609-F1612)", status: "done", version: "circle" },
+        { id: "v0.48-17", title: "Remaining 17 of 466 model slots and the CD 1.01 census", status: "done", version: "model-census" },
+        { id: "v0.48-18", title: "A planet in the flight scenario", status: "done", version: "v0.48j" },
+        { id: "v0.48-19", title: "Planet approach draws the whole surface (surface queue, EXP-009)", status: "done", version: "v0.48n" }
+      ]
+    },
+    {
+      id: "flight",
+      title: "Faithful flight core (phase 3)",
+      status: "planned",
+      tasks: [
+        { id: "flight-1", title: "Object system and agent records (cstruct, gmstruct)", status: "done" },
+        { id: "flight-2", title: "Original thrust vector and ship limits (F598/F600)", status: "done", version: "v0.49d" },
+        { id: "flight-3", title: "Physics: position and orientation update (cphys)", status: "done", version: "v0.49f" },
+        { id: "flight-4", title: "Flight integration decoupled from the frame; fixed 50 Hz step", status: "done", version: "accepted-90" },
+        { id: "flight-5", title: "Original input processing, key accumulation and remapping", status: "done", version: "v0.49i" },
+        { id: "flight-6", title: "Time acceleration and its RNG consumption", status: "done", version: "accepted-90" },
+        { id: "flight-7", title: "Collision detection and response (ccoll)", status: "done", version: "v0.48o" },
+        { id: "flight-8", title: "Player events and state machine (cplayer, plstate)", status: "done", version: "accepted-90" },
+        { id: "flight-9", title: "Entering and leaving the rotating station frame", status: "done", version: "accepted-90" },
+        { id: "flight-10", title: "Docking rules and station position/orientation", status: "done", version: "accepted-90" },
+        { id: "flight-11", title: "Launch sequence", status: "done", version: "accepted-90" },
+        { id: "flight-12", title: "Scripted flight scenarios traced against the reference", status: "done", version: "accepted-90" },
+        { id: "flight-13", title: "Open-air starport takeoff (F1013 0x24, F1031/F1032 bay release, F573 return)", status: "done", version: "accepted-90" },
+        { id: "flight-14", title: "Original autopilot: verified guidance, avoidance, rotating frames and full route replay", status: "done", version: "accepted-90" }
+      ]
+    },
+    {
+      id: "world",
+      title: "The galaxy and its systems",
+      status: "planned",
+      tasks: [
+        { id: "world-1", title: "Name generation (cname): types 1-0x14", status: "done", version: "v0.51g" },
+        { id: "world-2", title: "System generation: stars, planets and station placement (csysgen)", status: "done", version: "v0.51i" },
+        { id: "world-3", title: "System object types and orbits (csystem)", status: "done" },
+        { id: "world-4", title: "Galaxy generation and the RNG stream question (KNOWN_ISSUES F1476)", status: "done", version: "accepted-90" },
+        { id: "world-5", title: "Planet surfaces and landing approach", status: "done", version: "accepted-90" },
+        { id: "world-6", title: "Starports: services and events (cstarport)", status: "done", version: "accepted-90" },
+        { id: "world-7", title: "Hyperspace jumps and arrival (chyper)", status: "done", version: "accepted-90" },
+        { id: "world-8", title: "Navigation: system and galaxy maps", status: "done", version: "accepted-90" },
+        { id: "world-9", title: "Lighting by the local star (ships, stations, lift) and day/night", status: "done", version: "source-lighting" },
+        { id: "world-10", title: "Multiple systems replay against the reference", status: "done" },
+        { id: "world-11", title: "Terrain distance query and complex-shape collisions (F1876 mode 1, F576-F583), starports placed on planets", status: "done", version: "v0.51e" },
+        { id: "world-12", title: "Surface landing 0x32/0x34, F1050/F1054 landed view and L takeoff", status: "done", version: "v0.68" },
+        { id: "world-13", title: "Source model scale and near-surface radius/frame transitions", status: "done", version: "reopened-source-audit" }
+      ]
+    },
+    {
+      id: "gameplay",
+      title: "Gameplay systems (phase 4)",
+      status: "planned",
+      tasks: [
+        { id: "gameplay-dust", title: "Source space-dust spawning, lifetime and moving flight rendering", status: "done", version: "source-verified" },
+        { id: "gameplay-1", title: "Market and economy tables, pricing and cargo", status: "done", version: "accepted-90" },
+        { id: "gameplay-2", title: "Equipment and ship purchase (shipyard, outfitting)", status: "done", version: "accepted-90" },
+        { id: "gameplay-3", title: "Fuel, damage and repair", status: "done", version: "accepted-90" },
+        { id: "gameplay-4", title: "Lasers and hit detection (claser)", status: "done", version: "v0.57" },
+        { id: "gameplay-5", title: "Missiles and countermeasures", status: "done", version: "missiles" },
+        { id: "gameplay-6", title: "Agents: AI behaviour (cagent)", status: "done", version: "accepted-90" },
+        { id: "gameplay-7", title: "Police, pirates and other encounters", status: "done", version: "accepted-90" },
+        { id: "gameplay-8", title: "Combat scenario replay against the reference", status: "done", version: "accepted-90" },
+        { id: "gameplay-9", title: "Bulletin board and missions (cbbs)", status: "done", version: "source-audit" },
+        { id: "gameplay-10", title: "Journal and mission state", status: "done" },
+        { id: "gameplay-11", title: "Shuttles and station traffic (shuttle)", status: "done", version: "accepted-90" },
+        { id: "gameplay-12", title: "Communications and messages", status: "done" },
+        { id: "gameplay-13", title: "Player death and the escape capsule", status: "done", version: "accepted-90" },
+        { id: "gameplay-14", title: "Rank, reputation, legal status and the fines office", status: "done", version: "v1.04" },
+        { id: "gameplay-15", title: "Time-driven events over a long run (daily market/BBS/shipyard/deadline tick)", status: "done", version: "v0.99" },
+        { id: "gameplay-16", title: "NPC traffic: F688/F635 spawning, ship damage, lock and target readout", status: "done", version: "v0.60" },
+        { id: "gameplay-17", title: "Equipment table, fitted loadout, player shields/hull and F991/F1120 icon state", status: "done", version: "v0.62" },
+        { id: "gameplay-18", title: "NPC flight/combat AI (DATA_006258), ship fire, police/wanted and jump persistence", status: "done", version: "accepted-90" },
+        { id: "gameplay-19", title: "Player missiles, missile lock and F1120 pylon lamps", status: "done", version: "v0.67" },
+        { id: "gameplay-20", title: "Starport tech level, Upgrades Fit/Remove, fuel-scoop gate and repairs rows", status: "done", version: "v0.73" },
+        { id: "gameplay-21", title: "Laser muzzle origin, hit-box entry and 50/60 Hz tics", status: "done", version: "v0.80" },
+        { id: "gameplay-22", title: "F1100 fixed-point ranges, 4,096/6,144 km hand-offs and starport land_at_starport", status: "done", version: "v0.82" },
+        { id: "gameplay-23", title: "New-game pad spawn safety: SpawnOptions, no forced near-player pirate, landed freeze", status: "done", version: "v0.83" },
+        { id: "gameplay-24", title: "Unlawful-fire fines, witness jurisdiction, wanted/alert and F655 debt refusal", status: "done", version: "v0.84" },
+        { id: "gameplay-25", title: "F1104 death hold, F1098 escape craft, capsule launch and GAME OVER strings", status: "done", version: "accepted-90" },
+        { id: "gameplay-26", title: "Saker Mk III default arm, F2 loadout and start records", status: "done", version: "source-start-reviewed" },
+        { id: "gameplay-27", title: "Escape F224 order, F4 pad services, three-body pad and 120-frame grace", status: "done", version: "v0.91" },
+        { id: "gameplay-28", title: "Mission-gated Thargoid traffic, DATA_006197 models and F774 lasers", status: "done", version: "v0.92" },
+        { id: "gameplay-29", title: "Persistent hyperspace destination, H jump and F908/F909 gates", status: "done", version: "v0.93" },
+        { id: "gameplay-30", title: "Shipyard stock, part-exchange and the 20-template bulletin board", status: "done", version: "v0.94" },
+        { id: "gameplay-31", title: "ECM/naval ECM, F719 effect, decoys and the F10 missile view", status: "done", version: "v0.95" },
+        { id: "gameplay-32", title: "Seven-category fitting, capacity/drive sync and old-save drive migration", status: "done", version: "v1.01" },
+        { id: "gameplay-33", title: "Black market, F640 trap, F233 smuggling scan and F236 recording", status: "done", version: "v1.02" },
+        { id: "gameplay-34", title: "Subsystem damage, F938/F929 repair rows and crash damage", status: "done", version: "accepted-90" },
+        { id: "gameplay-35", title: "Mission state, BBS accept/complete/expire, journal/comms/military pages", status: "done", version: "v1.05" },
+        { id: "gameplay-36", title: "F691 station-bay shuttles, bay release and MAX_SHIPS=9/MAX_BAY_SHIPS=3", status: "done", version: "v1.06" },
+        { id: "gameplay-37", title: "NPC missile launches, chaff/ECM evasion and NPC pylon fit", status: "done", version: "v1.07" },
+        { id: "gameplay-38", title: "Runtime module clock, source F3/F4 and landed/flight event routing", status: "done", version: "v1.11" },
+        { id: "gameplay-39", title: "Source autopilot runtime: retire intercept/slot substitutes and verify cancel", status: "done", version: "accepted-90" },
+        { id: "gameplay-40", title: "Starport pad descent F741-F746/F652 with 0x59 geometry import", status: "done", version: "runtime-source-tested" },
+        { id: "gameplay-41", title: "Mission-script engine (F41/F31): script import, journals and scripted missions", status: "done", version: "accepted-90" },
+        { id: "gameplay-42", title: "Fix the source-verified broken missions as always-on bug fixes", status: "done", version: "mission-fixes" },
+        { id: "gameplay-crash", title: "F575 crash damage via F953 and source bounce flags", status: "done", version: "v1.14" }
+      ]
+    },
+    {
+      id: "ui",
+      title: "Interface and presentation (phase 5)",
+      status: "planned",
+      tasks: [
+        { id: "ui-0", title: "Console buttons: time acceleration meter and screen buttons", status: "done", version: "v0.49i" },
+        { id: "ui-1", title: "Cockpit instruments: scanner, gauges and status lights", status: "done", version: "v0.65" },
+        { id: "ui-2", title: "Crosshair, targeting and the HUD overlay", status: "done", version: "v0.58" },
+        { id: "ui-3", title: "Missile, combat and external camera views", status: "done" },
+        { id: "ui-4", title: "In-station screens: market, shipyard, bulletin board, status", status: "done", version: "v0.56" },
+        { id: "ui-5", title: "Menu and text rendering for every screen", status: "done", version: "accepted-90" },
+        { id: "ui-6", title: "Galaxy and system map screens", status: "done", version: "v0.48n" },
+        { id: "ui-7", title: "Intro and new-game flow", status: "done", version: "owner-qa-2026-11-17" },
+        { id: "ui-8", title: "Mouse and joystick input", status: "done", version: "gamepad" },
+        { id: "ui-9", title: "Options, key bindings screen", status: "done", version: "v0.48p" },
+        { id: "ui-10", title: "Original palette effects and screen transitions", status: "done", version: "accepted-90" },
+        { id: "ui-11", title: "Far and near transitions, clipping and planet approach fidelity", status: "done", version: "v0.68" },
+        { id: "ui-12", title: "Hit particles, explosions and debris (F939/F942/F926)", status: "done", version: "reopened-source-audit" },
+        { id: "ui-13", title: "Ship labels at F1108's pen with F1584/F1598 top clipping", status: "done", version: "v0.75" },
+        { id: "ui-14", title: "Navigation list geometry, markers, names and autopilot input", status: "done", version: "v0.77" },
+        { id: "ui-15", title: "Message log layout, dated entries, scroll and km/h speed lines", status: "done", version: "v0.78" },
+        { id: "ui-16", title: "Target range colours, two-decimal formats, arrows and cursor", status: "done", version: "v0.79" },
+        { id: "ui-17", title: "Classic/Modern presets, RMB steer and controls.cfg persistence", status: "done", version: "v0.81" },
+        { id: "ui-18", title: "Presentation display scaling, Display Options and Alt+Enter fullscreen", status: "done", version: "v0.87" },
+        { id: "ui-19", title: "F917 tombstone screen, obituary and timed return to the front end", status: "done", version: "v0.96" },
+        { id: "ui-20", title: "Source-tagged event log, F271 replace/NULL-clear/ring semantics", status: "done", version: "v0.97" },
+        { id: "ui-21", title: "Remove port-only help/scenarios/debug keys; dev-gated tools and source F1/F11/F12", status: "done", version: "v0.98" },
+        { id: "ui-22", title: "Native versioned save/load, quick/numbered files and intro L", status: "done", version: "v1.08" },
+        { id: "ui-23", title: "F834/F840 galaxy map console page and map-local F5-F12 keys", status: "done", version: "v1.09" },
+        { id: "ui-24", title: "Pixel-art upscaling filters (xBRZ, Scale2x) and optional CRT scanlines", status: "done", version: "filters-v1" },
+        { id: "ui-25", title: "Galaxy map F7 description page: F850/F851 body diagram, F830/F1347 string templates, F842 text", status: "done", version: "map-pages" },
+        { id: "ui-26", title: "Galaxy map F9/F10 economy (imports/exports) and people (government, population) pages (F843)", status: "done", version: "map-pages" },
+        { id: "ui-27", title: "Galaxy map body click info: name, mass, temperature, starports, orbital period and radius (F843 0x80-0xbc)", status: "done", version: "map-pages" },
+        { id: "ui-28", title: "Galaxy map F8 picture mode: the star-name sky (F844-F849)", status: "done", version: "map-pages" },
+        { id: "ui-29", title: "3D system map page (module 5: F963-F982, F985): orbit curves, body labels, 'Time point' line, mouse turn and zoom, F5-F12 into the galaxy pages", status: "done", version: "accepted-90" },
+        { id: "ui-30", title: "System map object click (F983/F986): target or autopilot destination for a clicked planet, moon or station", status: "done", version: "verified" }
+      ]
+    },
+    {
+      id: "persist",
+      title: "Saves and persistence",
+      status: "planned",
+      tasks: [
+        { id: "persist-1", title: "Legacy commander import (read-only)", status: "done", version: "legacy-import" },
+        { id: "persist-2", title: "Native versioned save format", status: "done", version: "audit" },
+        { id: "persist-3", title: "Save, load and quick-save in the game", status: "done", version: "audit" },
+        { id: "persist-4", title: "Imported saves replayed against the reference", status: "done", version: "legacy-replay" },
+        { id: "persist-5", title: "Config and input-remap persistence", status: "done", version: "remap" },
+        { id: "persist-6", title: "Native resume preserves career points and medals", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-7", title: "Native resume preserves live missiles, guidance and next missile id", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-8", title: "Native resume preserves chaff objects and next decoy id", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-9", title: "Native resume preserves effects, cargo pods and cloud timers", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-10", title: "Native resume preserves the ship autopilot target", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-11", title: "Native resume preserves launch permission", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-12", title: "Native resume preserves the landing-warning latch", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-13", title: "Native resume preserves fractional clearance time", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-14", title: "Native resume preserves mission-target spawn records", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-15", title: "Native resume preserves an initialized empty NPC population", status: "done", version: "native-resume-2026-11-15", parent: "parity-18" },
+        { id: "persist-16", title: "Native resume preserves mid-jump transit timing", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" },
+        { id: "persist-17", title: "Native resume preserves jump pursuers and player anchor", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" },
+        { id: "persist-18", title: "Native resume preserves changed shipyard stock and daily RNG", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" },
+        { id: "persist-19", title: "Native resume preserves changed bulletin posts and daily RNG", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" },
+        { id: "persist-20", title: "Native resume preserves unvisited generated boards and entry marker", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" },
+        { id: "persist-21", title: "Native resume preserves BBS job list and destination memory", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" },
+        { id: "persist-22", title: "Native resume preserves daily marker and undelivered day events", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" },
+        { id: "persist-23", title: "Native resume preserves pending and queued mission deadlines", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" },
+        { id: "persist-24", title: "Native resume preserves autopilot history and clearance retry timing", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" },
+        { id: "persist-25", title: "Native resume preserves the selected navigation frame", status: "done", version: "native-continuation-2026-11-15", parent: "parity-18" }
+      ]
+    },
+    {
+      id: "audio",
+      title: "Audio",
+      status: "planned",
+      tasks: [
+        { id: "audio-1", title: "Sound effects: the 23 effects and sound requests", status: "done", version: "v0.70" },
+        { id: "audio-2", title: "HMP to MIDI parsing", status: "done", version: "v0.48q" },
+        { id: "audio-3", title: "MIDI synthesis and music playback", status: "done", version: "v0.48q" },
+        { id: "audio-4", title: "Positional volume and mixing", status: "done", version: "v0.70" },
+        { id: "audio-5", title: "Software mixer, WinMM waveOut sink and the intro song", status: "done", version: "v0.70" }
+      ]
+    },
+    {
+      id: "content",
+      title: "Complete content import (phase 2)",
+      status: "planned",
+      tasks: [
+        { id: "content-1", title: "Gameplay tables (ships, equipment, economy)", status: "done", version: "source-tables" },
+        { id: "content-2", title: "Message strings, journal and remaining fonts", status: "done", version: "verified" },
+        { id: "content-3", title: "Music data (HMP) cached losslessly (17 songs, cache v29)", status: "done", version: "v0.86" },
+        { id: "content-4", title: "Optional CD media inventory and lossless packaging (videos and stills)", status: "done", version: "cd-media" },
+        { id: "content-5", title: "Import verification on CD 1.01 as well as floppy 1.02", status: "done" },
+        { id: "content-7", title: "Wire original CD FMVs into game events: AVI decoding, audio sync, timing, skip and still/floppy fallback", status: "done" },
+        { id: "content-6", title: "Statistics +0xe name codes resolved through DATA_004682 (58 hulls, LAST_SHIP)", status: "done", version: "v1.00" }
+      ]
+    },
+    {
+      id: "classic-split",
+      title: "Classic-only port: Modern engine, FFED3D integration and launcher removed",
+      status: "done",
+      tasks: [
+        { id: "classic-split-1", title: "Remove the Modern GPU engine, FFED3D art/models, assets.bin packs, the launcher and the Classic/Modern graphics switch", status: "done", version: "classic" },
+        { id: "classic-split-2", title: "Strip the Modern-only side data the executor and viewer still record (Solid/Shell/plume/surface views, core terrain radial-detail hooks)", status: "done", version: "classic" }
+      ]
+    },
+    {
+      id: "release",
+      title: "Release hardening and parity sign-off (phase 8)",
+      status: "planned",
+      tasks: [
+        { id: "release-1", title: "Full playthrough checkpoints against the reference", status: "done", version: "playthrough-9-stages" },
+        { id: "release-2", title: "Linux and macOS builds", status: "done" },
+        { id: "release-3", title: "Save and config migration", status: "done" },
+        { id: "release-4", title: "Packaging and distribution audit", status: "done", version: "audit-scripted" },
+        { id: "release-5", title: "Clean-machine player-data import", status: "done", version: "script-verified" },
+        { id: "release-6", title: "Choose the Rust code licence", status: "done", version: "mit" },
+        { id: "release-7", title: "Like-for-like parity sign-off by the owner", status: "done" }
+      ]
+    },
+    {
+      id: "enhancements",
+      title: "Optional enhancements (launcher toggles)",
+      status: "planned",
+      tasks: [
+        { id: "enhancement-1", title: "Turrets turn while time is paused", status: "done" },
+        { id: "enhancement-2", title: "Missiles ignore their launcher's collision on launch", status: "done" },
+        { id: "enhancement-3", title: "Autopilot: offset waypoint around intervening bodies", status: "done" },
+        { id: "enhancement-4", title: "Autopilot: braking accounts for retro thrust + gravity (step-independent)", status: "done" },
+        { id: "enhancement-5", title: "Autopilot: collision test against every body in range", status: "done" },
+        { id: "enhancement-6", title: "Missiles: swept (continuous) collision detection", status: "done" },
+        { id: "enhancement-7", title: "Mission fixes (assassination credits, hitchhiker, medals, Alioth deadline, docking bays, dialogue input, mission-NPC slots)", status: "done" },
+        { id: "enhancement-8", title: "ECM can disable NN500 missiles", status: "done" },
+        { id: "enhancement-9", title: "NPC relative speed (selected NPC shows relative speed + hull + shield)", status: "done" },
+        { id: "enhancement-10", title: "Combat Targeting Computer (dashboard button, list of local ships, auto target)", status: "done" },
+        { id: "enhancement-11", title: "Edge target indicator (arrow/bar for out-of-view target)", status: "done" }
+      ]
+    }
+  ],
+  history: [
+    {
+      date: "2026-10-20",
+      remaining: 128,
+      note: "Phase 0 evidence, tooling plan and local-input protection."
+    },
+    {
+      date: "2026-10-21",
+      remaining: 110,
+      note: "Tools, reference harness, verified model engine v0.3-v0.37 in one day."
+    },
+    {
+      date: "2026-10-22",
+      remaining: 96,
+      note: "Textured and child models, real ships and views, glows, animation, ship stats."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 88,
+      note: "v0.48a-i: labels, 3D text, surface resolution, line, curve, flat and polygon rasterisers."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 87,
+      note: "v0.48j: the verify-assets and child-model oracles repaired; all 31 local oracles pass."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 87,
+      note: "v0.49a: thrust limits F598/F599/F600 ported and verified (4096 cases); the thrust item is in progress until the in-game thrust uses them. RNG isolation decision recorded (SIM-010)."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 87,
+      note: "v0.49b: F601/F602 velocity from thrust ported and verified (4096 cases); physics item in progress."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 87,
+      note: "v0.49c: orientation update F585/F584/F611/F1520 ported and verified (4096 cases); physics still in progress (positions, frames, gravity)."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 87,
+      note: "v0.49d: the player's free-flight orientation and thrust request (F1041, F607, F1043) ported and verified (4096 cases)."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 87,
+      note: "v0.49e: position from velocity (F1512/F1511) ported and verified (4096 cases)."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.49f: a whole free-flight tick (F1041 + F601/F602 + F1512) verified end to end; the thrust and physics items are done for free space."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.49g: set-speed and heading input (F1037/F1038/F1121) ported and verified (4096 cases); input item in progress (key accumulation and remapping remain)."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.49h: the original flight model is playable (key O): verified physics driven by real time and the original keys; frames of reference, collisions and docking rules remain."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.49i: the console's time acceleration meter and screen buttons work (scope +1 item, done); time acceleration scales the original flight model."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.49j: gravity F603 and the ffp helpers ported and verified (4096 cases); frames of reference, auto-roll and collisions remain."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.49k: frames of reference (F590/F604/F605/F606, F1677/F1678) ported and verified (4096 cases); station frames, auto-roll and collisions remain."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.49l: auto-roll F609 and a whole tick in a world (gravity, frames, auto-roll) verified (4096 cases); the altitude/collision routines remain."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.49m: collision distance F569/F570 (F575, F577) and the rotating-frame switch F572/F573 ported and verified (3,103 contact-free cases); contact, landing and complex shapes remain."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.49n: the player's whole tick with the collision scan verified (3,476 contact-free ticks); collision (ccoll) and rotating-frame items now in progress."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.50a: cache v15 with the galaxy and system tables; F868-F871 (system index, details, market, control) verified (5,835 lookups); system generation in progress."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.50b: system generation F872-F897 ported and verified byte for byte (4,156 systems; names aside), with the ffp library; object creation (F879/F880) and names remain."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 85,
+      note: "v0.50c: physics objects from system objects (F927, F1533, F880, orbit helpers) verified on 1,024 systems; cache v16; starport placement waits for the terrain query (F1876 distance mode)."
+    },
+    {
+      date: "2026-10-23",
+      remaining: 83,
+      note: "v0.51i: terrain query, shape collisions, planets in the collision scan, names (F791) and names in system generation (cache v19) verified; system generation done."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "v0.52a: the planet surface subdivision (F1876 draw mode, F1868/F1869) verified on 461 patches (207,689 triangles); the emitter F1840, F1877 and the F1806/F1808 handlers remain."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "Navigation (not a routine port): system map, galaxy map and an autopilot to planets and stations for testing; see docs/NAVIGATION.md."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "Stations drawn at their generated places from their own models (F866 spin) and docking at them by ffe-rs rules (clearance, the +z slot, autopilot docks); flight-10 in progress until the original's traffic control and docking states are ported."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "Traffic control (F649-F657, F867) and the timed docking and launch stages (F1025, F1067-F1088) ported from the assembly and unit-tested; the record routines match the executed original (8,192 cases). flight-10 and flight-11 stay in progress: lift scenes, the pad hit in the collision stream and the crash branch remain."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "The galaxy's stars (F841, F853, F856, F861), system distances (F833) and the hyperdrive's range, fuel and jump time (F903) ported, cache v21; all match the executed original (16,049 and 8,192 cases). world-4 and world-7 in progress: the hyperspace sequence and misjumps, and the systems beyond the 16 on offer, remain."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "The lift scenes of docking and launching (F1070-F1087, F1092) ported and drawn in the playable; the stage placement matches the executed original on 8,192 cases. flight-10 and flight-11 stay in progress: the pad hit in the collision stream, the ship's motion with the rotating station and the crash branch remain."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "Station markets (F619, F620, F622, F633, F555, F556) and the market screen with the original's tables (cache v20, 1789 assets); the tables match JJFFE's declarations and the price and stock formulas match the executed original (8,192 cases). gameplay-1 and content-1 in progress: black market, mission cargo and equipment-changed holds remain."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "System names (F830) ported with the 267 system strings, cache v22 (1791 assets); 8,292 cases match the executed original. The reference harness can now capture the real game's frame for the galaxy map; world-4 stays in progress."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "The galaxy map's stars (F1769 light points: stalks, points, labels) run through the model executor with the star tables imported (cache v23, 1792 assets); 240 sectors match the executed original. The point pixels, scene assembly and the map screen remain."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "Owner-reported lift fixes: the posters (child model 0xeb text, per-station seed), text placed at the record's size with newlines (cache v24), and the launch lift drawn over the world instead of black. Not pixel-verified against the original."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "Click-to-target and autopilot buttons in the playable: click a body (or T) to lock it, AUTOPILOT (K) flies there and docks at stations, STOP (Backspace) ends it. Landing at open-air starports is not ported."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 82,
+      note: "The galaxy map as the original draws it: the dot rasteriser (F1611, F1699-F1701) matches the executed original pixel for pixel on 12,000 cases; the scene (grid, nine sectors of stars, sphere, marker, selection, text) matches its map frame in 8,249 of 8,270 overlay pixels (cache v25). The jump sequence itself is not drawn."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 81,
+      note: "A planet in the scenario: the player now starts docked at a station in a planet's orbit (Mars High, 1.61 Mars radii) instead of a deep-space station, so the launched view has Mars filling the sky. The local test checks the orbit distance and that the surface draws."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 81,
+      note: "Local-star lighting for ships, stations and lift objects (world-9 in progress): Screen::sun carries the direction toward the system's star and replaces the fixed default light; a local test shows the picture changes with the sun and differs between opposite suns. Planet day/night is verified (Earth's 955 triangles shade differently from opposite suns). The original's own object light tables remain."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 81,
+      note: "The black band in the station lift is fixed: the port's own status block (rows 119-157) was cleared after the lift had drawn; it is now skipped while a lift scene is shown, so the door fills the view. Regression assertion on the closing-door stage."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 81,
+      note: "Owner-reported black wedges on a planet approach: the original 50,000-word surface queue overflows at 3-2 radii (59,190-63,125 words) and the port drew only what was queued. The flight view now uses a 131,072-word surface queue (EXP-009); the oracles keep the original limit. New --capture-planet frames the approach, and a local regression test checks the disc has no unpainted pixels."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 80,
+      note: "F575's contact tail (soft landing, crash and bounce, F953's damage amount, flag 1) and F578's momentum response ported and verified: --collide and --world-tick match all 4,096 cases each, the 950 and 584 contacts included; flight-7 done. The same round imported F650's open-air pad tables (cache v26, --pads oracle) and fixed the planet approach's black wedges (surface queue limit, EXP-009). The playable's own station touch test still pushes the ship clear, so flight-10 keeps the pad hit."
+    },
+    {
+      date: "2026-10-24",
+      remaining: 79,
+      note: "The original new game starts by default and the intro timeline is ported; the system and galaxy map screens are done (ui-6), so one more item is complete."
+
+    },
+    {
+      date: "2026-10-25",
+      remaining: 79,
+      note: "Intro implementation plan merged (docs/archive/intro-todo.md): the remaining front-end, starport-takeoff, combat and mission work is now written down step by step. Documentation only, so no item changes."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 78,
+      note: "Planets merged (v0.54): the vanishing-planet fallback skips a shaded disc at or inside the eye, F1876 surfaces draw planets to the horizon, starports and buildings are placed on the surface, and F575's landing is wired to it (world-5 done). The approach and local frames are tested; the surface still has no whole-frame oracle."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 77,
+      note: "Launch lift merged (v0.55, EXP-011): F1088's seat and F1089's door word drive the launch, so the ship stays in the station until the outer door opens and the station's hull is skipped until it is clear; the lift view no longer shows the port's status block (flight-11 done). flight-9 and flight-10 keep the rotating frame and the pad hit."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 76,
+      note: "Station services merged (v0.56, EXP-014): the original's services, shipyard, stockmarket, upgrades and ships screens with the 0x2e buttons, arrows and F558 status line, over the existing market (ui-4 done). Equipment, hull and repair lists are empty shells until their tables and generators are imported."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 75,
+      note: "Escape preference pages merged (v0.48p, EXP-012/013): the original's five pages, hot areas and icons, a port Modern/Classic page and Quit; space colour and stars are applied. The default space colour is now the captured original entry 182 (#0c0c4c), Black stays #000000 with its stars, and the options screen is done (ui-9)."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 74,
+      note: "Crosshair and lasers merged (v0.57): the original bitmap 97 gunsight at (129,48) in the views whose mount has a laser, bitmap 98's velocity marker (corrected: not a target X), F270's three gauges, F1100's target range and F1111/F1100's view rules; Space fires the new-game Eagle's front 1MW pulse with F930/F931/F929/F730/F938 and F953's shields-then-hull damage (gameplay-4 done). ui-1 and ui-2 start: scanner contacts, player shields/hull, the message log and the combat targeter remain; no NPC ships, so the target readout and model-157 flash are implemented but unreachable."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 73,
+      note: "Original HUD merged (v0.58): ten-entry dated message log and clock, shields/hull/Set/Act/Alt and turret readouts, F1116 lamps and F1120's engines-off page (F2/record 0x0c), and the 82-record DATA_005100 console table with F261 draw order, F262 radio reset and F263/264 visibility. The port's top bar, SPEED line and 119..157 status/autopilot block are retired (ui-2 done). Still open: player damage and equipment words (so shields/hull read defaults and F991 0x10-0x14 stay hidden), scanner contacts, altitude/F1393 speed units, F3 key still on Modern/Classic, and the DOS F2 mapping is unverified."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 73,
+      note: "Open-air starport takeoff merged (v0.59): F994/F650's pad seat (with the ship's +0x140 radius along the up row), F381/F654 clearance, F1013's 0x24 climb, F1031's 0x20 region test and hand-off to 0x26, F1032/F651's bay release and F573/F1677's return to the system frame; the pad contact runs F575/F576 in a persistent two-body world, so the old 20 km teleport and the takeoff refusal are gone (EXP-010 keeps only the DATA_008867 climb fallback). The default new game now starts landed at Ross 154's Sirocco Station and takes off with L. One item added and completed (flight-13), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 73,
+      note: "NPC traffic merged (v0.60): F688/F635 spawns traders, shuttles, police and a pirate group on a station/player-based placement (the deliberate F702 deviation), with F922's bounded RNG, a three-state flight AI, F953/F942 damage, F1536's model-157 shield flash, F942's death marker, ship labels, click/lock/T cycling, F1100 range and F1099 hull/shield readout. The port's combat readout is now reachable in a real system; `--capture-traffic` saves the traffic, hit and kill frames. Full AI, police response, ship fire, missiles, F942's own explosion and persistence remain. One item added and completed (gameplay-16), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 71,
+      note: "Sound cues merged (v0.61): F1906/F1907/F1908's cue dispatch and per-sample gates, F1902-F1904's music rules, the cue-to-sample table and live wiring for prefs, messages, lock, lasers, shield/hull hits, explosions, siren, docking/launch, engine/station beds, camera, hyperspace and scene music; the Sound Effects toggles apply at boot and on change. Music plays through the existing WinMM player (audio-2/audio-3 done), but the effect mixer/device is still a null sink, so effect cues are recorded/no-op and song 0 stays unreachable until the intro draws. audio-1/audio-4 stay in progress."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 71,
+      note: "Equipment merged (v0.62): ffe-core::equipment carries the 66-record DATA_005289 table (DOS bytes verified; record 53 follows DOS), F393's general bits, F383's availability/prices and the Loadout (general bits, ten missile pylons, shields/cabins); Flight::loadout is saved with serde defaults and Flight::{ensure_damage, hit, destroyed} apply F953's shields-then-hull order. F991's view-row icons, F1120's missile icons and the lamps now read the real state, including the new-game's two 0x82 missiles. Still open: nothing fires at the player (the hit call site), F938 recharge/auto-repair, the death/capsule screens, and the station Upgrades rows, which need the starport tech level DATA_008995 from F869 (do not invent it). One item added and completed (gameplay-17), so the remaining count is unchanged; gameplay-2/gameplay-3 are in progress."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 71,
+      note: "shipai merged (v0.63): the encoded DATA_006258 AI table and the transit/hold/attack/escort/pass/flee/dead/escaped states, F585's turn limits and statistics-based speeds replace the constant-speed placeholder; pirates fire through F931/F930 and F953 damages the player through one reconciled Flight::take_damage/ensure_damage/hit API. Police and wanted status (Navigator::legal, player_attack, provoke, F697 bounties) and F674/F675/F680 jump persistence/F927 recycle are in. JJFFE disables AI laser damage; the port follows DOS FFE and fires. Remaining: full docking AI, missiles, police spawns/fines/HUD badge, Thargoids; owner decisions open on the 25% flee trigger vs F737, MAX_SHIPS=5 and the no-generator two-hit player. One item added and completed (gameplay-18), so the remaining count is unchanged; gameplay-6/gameplay-7 stay in progress."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 70,
+      note: "Intro merged (v0.64): the default boot plays F961/F962 (models 177/176, bitmap 0x42, the DOS credits with their FD/FE/01 layout codes and the 0x400 GameTics clock), the V version gate, keys 1-5 and --capture-intro; cache v27 adds base:text/intro-credits and base:text/char-widths (1796 assets) with old v26 caches still loading but the intro reporting missing assets. Remaining: the dynamic upper palette, model 176's stale-basis frames, an intro music backend (song 0 not played), start types 2-5/type 0 mapping and the first in-game frame hand-off (ui-7 done)."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 69,
+      note: "Scanner and targeter merged (v0.65): F275's contacts (bodies and live ships, parent frames, the 19-colour table, stalks and the 8-frame orientation overlay) and F1113/F1114's four-box tunnels, F1614 edges and F1612 circle with F1100's size rule are drawn, gated by the scanner `+0xca & 4` and the targeting-tunnel preference. Remaining: auto-targeter arming/equipment, F1100's per-target colours/arrows, and collapsing two simultaneous targets. ui-1 is done."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 69,
+      note: "Effects merged (v0.66): F939's model-158 hit particle at F817's hit point, F942's model-155 destruction object and F926's model-0x99 debris are in ffe-core::effects and drawn by Screen::SystemEffect; F942's +0xa4 gate is explained and the port deliberately passes EXPLOSION_MASS 0x4000 so the twelve fragments draw (wireframe until F1560/F1613 fills). --capture-traffic and the effect lifetimes follow the effect's own seconds; AI/police, scanner and HUD paths are unchanged. One item added and completed (ui-12), so the remaining count is unchanged. Owner decisions: effects lifetimes vs AI timers and the EXPLOSION_MASS deviation."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 69,
+      note: "Missiles merged (v0.67): ffe-core::missile (type/damage tables, F941's launch impulse, F758's 20-frame guidance and 60-update lifetime, the 131 m fuse, F718/F721 contact and F953 damage), ten pylon words in Combat, Navigator lock/launch/tick, M launch with Shift+T lock, missile objects drawn, F1114's circle and F1120 pylon lamps; --missile-probe calibrates 0.4 s guidance/24 s lifetime. Remaining: the missile view (F10), NPC launches, ECM, F1113 navigation box/lamps and the full F1116 targeter; owner decisions on Shift+T and the approximated lead/turn. One item added and completed (gameplay-19), so the remaining count is unchanged; gameplay-5 is in progress."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 69,
+      note: "Surface landing merged (v0.68): F1021's rough touch drives 0x32 -> F1047's 0x34, the starport 0x2e/0x30 states, Takeoff::from_landed and OriginalFlight::settle_landing; F1050/F1054 draw the landed view with F1877's haze sky (stars suppressed), and L climbs again through 0x24 -> 0x26 -> 0x00. verify-surface.py joins verify-all.py and reports sky_matches: true (header_close 0.9934, view coverage 0.589). One item added and completed (world-12); flight-8 and ui-11 are in progress. Owner decisions: the +0x138 collision vs +0x140 drawn-radius mismatch, pad landing from flight not routed to 0x2e/0x30, 0x30 services vs F1050's landed view (EXP-014), the landed state not saved, and surface object depth/fills."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 69,
+      note: "Deterministic oracle gate merged (v0.69): the Windows --worldgen repeatability failure is fixed by masking only the object-name ranges F877/F878 build from an uninitialised byte (raw first run kept for the Rust oracle); world/world-linux are split so Windows SKIPs --sysgen and --surface-draw. New combat, ship-types, npc, dashboard, takeoff and prefs oracles join the 55-entry suite (54 PASS, 1 SKIP, 0 FAIL); ship-types found and fixed F635 slot 0x3 (Ross 154 uses slot 5). One item added and completed (foundation-8), so the remaining count is unchanged. Remaining gaps: F688's spawn sequence, F635 population<4, pinned (not frame) HUD/NPC/takeoff/prefs, and galaxy-map as the only frame-level comparison."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 68,
+      note: "Software mixer merged (v0.70): ffe-audio decodes the cached WAVs, keeps the 40-entry sample table and 16 voices with F1908's reuse/fixed-voice/laser1-steal rules, bakes loops, pitch-resamples and applies F1907's centibel curve; a WinMM waveOut sink with a headless fallback makes every wired cue audible, and GameAudio::from_cache/system_with_effects connect it to the playable. The intro now plays song 0 (F919/F1904/leave_front_end, music_on respected) and cache v28 adds base:music/qqfront (1,797 assets / 1,798 ZIP entries) with a v27 fallback. One item added and completed (audio-5); audio-1 is done and audio-4 stays in progress. Remaining: continuous station/engine beds (F1910/F1908), positional audio (F1759 is unused by DOS), .mid overrides, caching the other 16 songs (owner decision) and a device picker."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 67,
+      note: "Runtime palette merged (v0.71): ffe_rs::palette implements F1326/F1327/F1328/F1329/F1330/F1331 (median-cut 64 boxes, odd representatives, two banks, fixed 128-entry low palette and map, bank toggle), textures/model_viewer register and resolve the entries, and the intro uses F1575's (0,0,0)/(0,0,4) starts (the executed switch frame's single (1,1,17) entry is reproduced). EXP-013 is preserved: drawn space stays #0c0c4c, Black #000000. palette_reference (5) and the intro/scanner/galaxy-map/planet suites pass on v28. One item completed (v0.48-15); ui-10 stays in progress. Remaining: terrain queue colours are not pre-registered, one build per model render, and the intro backdrop's slower ramp."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 66,
+      note: "NPC docking cycle merged (v0.72): the corrected DATA_006255 AI table and the Approach/Docked/Launch/Depart rows, DockRequest and tick_with_station, bay occupancy through the station record, F747's door-close wait and F733/F734/F735/F736/F761/F762; docked ships are hidden, traders get destinations and the npc_docking evidence frames cover approach/docked/launch. The AI item (gameplay-6) is done. Remaining owner decisions: the 2-3 day docked interval vs the shortened observation, the 30 s give-up/next-station vs endless retry, the cruise-speed floor and the despawn range."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 66,
+      note: "Station services merged (v0.73): F869/F622's starport tech level now reaches Navigators (Details/Tables::tech_level), the Upgrades screen builds real rows from equipment::outfitting with Fit/Remove across general/cabins/lasers/shields/missiles using F387/F388 prices and refunds, F394's fuel-scoop gate and F329's Remove button/hot area are in, and F444's repair rows show dates; shipyard and BBS keep their faithful empty states. One item added and completed (gameplay-20); gameplay-2/gameplay-3 and world-6 are in progress. Owner decisions: drive/mining rows visible-but-disabled vs hidden, ship price/BBS imports later, repairs actions before thruster damage, and the price-multiplier behaviour."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Textured fills merged (v0.74): Shape::TexturedUv (F1645/F1648 explicit per-vertex coordinates through the F1644/F1647 affine rasteriser), ModelViewer::rasterise_uv and terrain_texture (the real F1805/F1807/F1806/F1808 queue layouts and slot table), with Screen::draw_shapes support and frame evidence (27 background pixels of 27,516 inside the planet disc, a 50,191-pixel starport fill with a 320-pixel run). Colours resolve through the palette branch's runtime entries first and fall back to the fixed map only for not-yet-built words; EXP-013 space colour is untouched. v0.48-6 is done, v0.48-7 stays in progress. Remaining owner decisions: model-155 fragment placement/+0x7e (the blue cloud is model 153 debris lines), upper-palette approximation in fills, shading fidelity, no F1806/F1808 pixel oracle, EXPLOSION_MASS and effect lifetimes."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Ship-label pen and clipping merged (v0.75): labels now sit at F1108's projected point + (4,-4), with F1584/F1598 signed top clipping and F1587's 0x13c right limit through the shared clipped-text path; --labels/verify-labels (13 cases, trace b08a9b62...) pins the walk and pixels, and npc_view/console_view/views carry the cached assertions with docs/evidence/labels frames. One item added and completed (ui-13), so the remaining count is unchanged. Remaining owner decisions: registrations (AB-123) vs the port's model name + serial, 3D hull text/decal scaling, near-target suppression/overlap order/mission labels."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Terrain radius merged (v0.76): navigation::surface_radius uses the inner +0x140 base on approach and the outer +0x138 collision radius once landed; terrain_draw culls the far shell for an eye inside it and suppresses the haze/sky, and F575 lands on the drawn sphere. EXP-016 records the per-state radius and inside-shell culling; verify-surface.py stays green (coverage ~0.607). Owner decisions: per-state radius vs a single outer radius, no depth buffer for far-side starports, and the now-available textured fills. One item added and completed (world-13), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Places list merged (v0.77): F1099's list geometry (action 0x11, marker cells x10/230, names x25/245, 9 rows/column, 15-px rows, bitmap 0x31, colour 0x11, no panel), click targets and autopilot engagement, overlays gated to flight; Gateway evidence frame. Owner decisions: the Gateway start (Old Blackelk/Hope) is not reachable (start type 0), paging beyond 18 is port-only, 0x11 is always available, and Alt/Hope belongs to the dashboard stream. One item added and completed (ui-14), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Message log merged (v0.78): F271/F272/F273's 120/124 wrap, header plus newest undated and older dated lines, five top-anchored rows at x196/y159 with clip 158..200 and 0x18 scroll, messages_visible, F1393 km/h (km/s above threshold), separate Set/Act lines, no autopilot range spam, PgUp/PgDn; the list wins over the log when open. Owner decisions: header/entry colours approximate, the 0.342 km/h constant differs from the port unit by ~2%, and the log draws after the console per source. One item added and completed (ui-15), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Target range merged (v0.79): F1100's navigation green 0x11 and combat red 0x10, two-decimal AU/km (5.40AU), on-view (x-5,y+5), off-view arrows/Behind/Out-of-Range, F1111 cursor radius 6/colour 0x10, and combat tunnels only in the missile view. Owner decisions: green is the navigation target and red the combat target per F1099, target-computer arming and the +0x8a gate remain, and two simultaneous targets are collapsed. One item added and completed (ui-16), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Laser fixes merged (v0.80): F1776's raw muzzle origin with the front-view cull (no invented flash), interaction-box entry so boxes containing the gun no longer swallow shots, F930 laser1/laser2 bank by shot index, and the frame_tics guard (994 at 50 Hz, 828 at 60 Hz). Owner decisions: AABB vs target axes, NPC gun origin, source-accurate no-front-muzzle, missile view and upper palette unchanged. One item added and completed (gameplay-21), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Controls merged (v0.81): the Classic preset holds RMB to steer (F1038 in the original flight, 50-px stick in the prototype), Enter/Shift set speed, preset-specific turret/external routing with no leaks, immediate switching and saves/controls.cfg persistence; Modern behaviour unchanged. Owner decisions: a sensitivity option, prototype roll missing, Classic default vs Modern, and only controls persist. One item added and completed (ui-17), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Landing audit merged (v0.82): one F1100 range formatter (2 dp km below 17,592,186.04 km, 3 dp AU above; the raw fixed-point bug is fixed in the target HUD, messages and map), F741's 4,096 km station hand-off and 6,144 km starport hand-off, Navigator::land_at_starport's 0x2e->0x30 and F381/F654 launch, and station dock music is F1903's stop (the stale docking_music helper is now sequence_end_music). Owner decisions: the starport final pad descent needs F741/F742/F745/F746 + F599/F600, pad contact needs the F576 decode or F1019/F1021's 0x20/0x40, instant long-leg transfer vs F596/F606, crash/bounce fidelity, and the planet auto-land standoff. One item added and completed (gameplay-22), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Spawn safety merged (v0.83): the default new game no longer spawns a pirate beside the pad. npc::spawn takes SpawnOptions; a normal entry uses F688's counts and the anchor orbit, while the capture-only guarantee/near-player pirate framing moved to SpawnOptions::CAPTURE and respawn_traffic. Navigator::on_pad/landed_view name F994's 0x30 and F1021/F1047, and main skips the NPC AI/fire/missile step while landed (F1012/F1048). Owner decisions: the anchor-orbit stand-in vs F702's system-wide point, the port's per-kind count caps, and the landed freeze (the source's traffic still moves). One item added and completed (gameplay-23), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Legal merged (v0.84): the unlawful-discharge offence is DOS F236's row 3 - the executed original prints 'Unlawful discharge of weapon is not permitted here. Pay a $600 fine.' and adds 6000 CR to the starport ledger. The starport-witness roll (F234/F235, 0x13 exponential distance, no anarchy gate), wanted/alert, F783 clear, per-starport fines and F655's >=10,000 debt refusal are ported; the 4500 in the owner's memory is not in DATA_005039 (the only 4500 is the Saker's ship value). Owner decisions: 4500 vs 600 (the port keeps the DOS table; a 4500 override would be an explicit data option), the fines office/payment window and police spawns are not ported, and F2's LEGAL STATUS screen is absent. One item added and completed (gameplay-24), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 65,
+      note: "Death merged (v0.85): the starport-recovery substitute is gone. A lethal hit runs F1104's external view and 5.001 s hold, F1098's escape craft when fitted (capsule/Stowmaster, exact loadout reset, F12/F381 launch), the death cues and song stop, save rejection, and the status page's GAME OVER / COMMANDER DIED strings (the gameover stream later supplies the full screen). The landed guard still suppresses NPC fire, and the legal police path still works. Owner decisions: the commander name is a fixed placeholder, the derelict AI is not ported, and the 5 s timer's consumer/advance remains open. One item added and completed (gameplay-25), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Music catalogue merged (v0.86, cache v29): all 17 MUSIC/*.HMP songs are catalogued and cached (1,813 assets / 1,814 ZIP entries), F1902's contexts are wired (front-end F919 loop, combat 14/stop, hyperspace 15, docking/launch random and sequence stops, continuous F232, death stop), HMP parsing is validated and music_sequence logs each event. v28 caches still load. Owner decisions: the timbre/system synthesis and F306/F307 remain exposed but unwired. One existing item completed (content-3), so the remaining count falls by one."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Presentation resolution merged (v0.87): display::compose does the presentation-only 1x-6x pixel-perfect/fill scaling with nearest/linear, 4:3/square and fullscreen; the Display Options page, Alt+Enter, saves/display.cfg and --capture-display are wired; captures are byte-identical across runs. Owner decisions: the 640x480 capture format, Windows-first fullscreen, reopen-on-scale and the page itself are port-only. One item added and completed (ui-18), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Intro fixes merged (v0.88): F1740/F1747's first-row negation removes the mirrored GAME!TEK/PRESENTS/DAVID BRABEN'S text, the shape-detail patch uses DATA_008812's level and F1330/F1329's median-cut heap no longer leaves 31,31,31 boxes that speckle the planet. Owner decisions: model 456->321 and the asteroid cluster remain skipped, and the 16 palette representatives are still the port's. One item added and completed (visible-11), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Intro depth and atmosphere merged (v0.89): model_math::text_frame serves all intro texts, F1840/F1841 surface shapes merge into F1778's keyed depth list so the ship draws in front of the planet, and the F1879 atmosphere ring uses the F1805 texture path with registered slot colours (71 distinct colours, was 330). Owner decisions: the skipped subtrees and the remaining palette approximation are documented. One item added and completed (visible-12), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Saker default arm merged (v0.90): F998 type 0 is the Saker Mk III (0x1f), hull 112, 0/0 shields, front 0x88, two 0x82, drive 2, 10,000 CR, 1 t hold, general 0x40240020, player index 87; --start 0..5 and the Hope HUD parent are kept. Owner decisions: the type-1 hold is still 1 t vs the executed F2 page's 7 t, the model-name table shift and start types 2-5 remain. One item added and completed (gameplay-26), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Start flow merged (v0.91): Escape runs F224's Pause->Open->Close order (closing leaves paused), F4 opens services over the 0x30 pad and F1/Backspace return, the pad world has the ship, planet (F880 mass) and starport sibling so F603 gravity/F1033 altitude/fall-back work, with a 120-frame pad grace and Tab/L launch; --capture-start and the prefs/takeoff updates are in. Owner decisions: the manual pad takeoff, elevation-vs-AGL, the grace, Escape UX, Tab launch and altitude HUD remain. One item added and completed (gameplay-27), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Thargoids merged (v0.92): F690's mission-gated traffic draws RND(F35(0x16)) and spawns DATA_006197 models with their stats/hull/shields/drive; F774 selects the laser and the 0x11 role/0xd5 equipment record are wired. Reconciles with spawn-safety by keeping SpawnOptions for normal entries and adding the Thargoid count to the spawner. Owner decisions: the mission trigger is absent, starting laser energy is zero, the entry state is hostile, no ECM/missiles/surrender, and original model names. One item added and completed (gameplay-28), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Hyperspace merged (v0.93): a persistent map destination (nearest-star rule), H jumps anywhere with help moved to ?, console 0x0f, F908's altitude/fuel/range gates, F901's fuel burn, F909's full arrival reset and the Out of Range/Insufficient Fuel strings; navigation/galaxy-map tests and evidence. Owner decisions: the drawn jump/misjump sequence is not ported, only 16 systems can be entered, H vs help is now source-shaped, destination clearing and the altitude HUD remain. One item added and completed (gameplay-29), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Shipyard merged (v0.94): prices and part-exchange derive from statistics (+0xa x 1000, 950 x mass difference), the 58-model table, 13-row stock, buy/part-exchange and the BBS with 20 templates/18 posts/pagination, generated tables and station frames. Owner decisions: the model-name vs F437 name source and the +0xe shield/name confusion in ships.rs are documented without changing flight stats; the RNG stream, availability byte and negative part-exchange remain. One item added and completed (gameplay-30), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "ECM merged (v0.95): ECM/naval ECM (F935, F718 table 5/6 and naval 7/9/10), F719's effect, F1057 decoy retargeting, F989/F1061 auto-targeter arming, the F10 missile camera/HUD and console 0x14; ecm_view frames. Reconciled with lockon/lasers/missiles and the palette. Owner decisions: chaff ammo source, NPC launches absent, ECM visual/F719 rendering, T fallback, E/roll conflict and the target split remain. One item added and completed (gameplay-31), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Game-over merged (v0.96): the real F1104->F1107->F917 tombstone (model 172, rare 175), no menu, timed spin back to the front end, --capture-gameover and --death-probe; the death placeholders are removed. Owner decisions: commander name source, load UI, model 175 trigger and obituary text scale/face selection. One item added and completed (ui-19), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Events merged (v0.97): one source-tagged log writer (12 Source variants), port-only entries removed or rerouted (unported clicks, view names, pause/accel/HUD/save/takeoff notices), F271's replace/NULL-clear/ring/scroll semantics, message_log scan and messages_view evidence. Escape/pause messages stay off the log and the places list still wins. Owner decisions: the DOS start-line string inference, target-lock wording, unported-click feedback and DATA_008810/scroll actions remain. One item added and completed (ui-20), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 64,
+      note: "Cleanup merged (v0.98): the port-only full-screen help page and scenario selector/debug labels are gone, F11/F12/O moved behind --dev/FFE_DEV=1 (Ctrl+F11 screenshot, Ctrl+F12 viewer, Ctrl+Shift+F12 lab), and F1/F11/F12 are back to the source view cycle/combat-computer note/escape capsule. input::view_command/dev_command tests, views/playable coverage and cleanup evidence are in. Owner decisions: F3 still toggles Modern/Classic although source F3 is the map (candidate for Port Options), F5 snapshots remain, --start sol stays CLI-only, and tools/test-playable.ps1 still carries help/scenario assumptions. One item added and completed (ui-21), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 63,
+      note: "Timed events merged (v0.99): ffe_core::calendar::Calendar tracks DATA_008808's day marker; Navigator::tick_days runs F633's market drift, BBS replacement and shipyard stock once per crossed day through advance/transfer/hyperspace (direct jump adds no time), with per-station day markers and schedule_deadline/cancel_deadline/take_expired for the missions stream. Owner decisions: the clock/navigator are not in Flight (a save-format version bump is needed), the news buffer/script VM is missing, paused/docked time does not advance, and service reminders await the repairs actions. One existing item completed (gameplay-15), so the remaining count falls by one."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Ship names merged (v1.00): names resolve through the statistics +0xe name code into DATA_004682 (Saker 0x1f, Eagle 0x17, 58 hulls, LAST_SHIP 0x47); +0xc is the shield word and +0xe the name code. `tests/ship_names` covers 466 slots/58 hulls. Owner decisions: DEFAULT_SHIP/Eagle comment, cache v12 and Unknown names. One item added and completed (content-6), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Fitting merged (v1.01): all seven equipment categories fit/remove with the F409/F410/F413/F415/F423-F427/F394 rules, mass/capacity through trade::capacity, Combat.drive sync and old-save drive migration. Reconciled with shipnames' +0xc/+0xe and ShipStats::price_mass. Owner decisions: drive-service date, mining deployment, passenger cabins, bought-hull drive and shield clamp. One item added and completed (gameplay-32), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Market merged (v1.02): illegal-goods mask/black market, F640's fake-ad trap (offence 5, 500 CR), F233's smuggling scan, exact F555/F556 strings, generic F236 recording and the black-market keyboard/Enter path. Reconciled with the timed-events day tick (one daily-update path). Owner decisions: smuggling trigger/fine screen/RNG/mission cargo. One item added and completed (gameplay-33), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Repair merged (v1.03): damage +0xcc/six thruster words, F950/F952/F953 subsystem rolls, F938 recharge/auto-repair, F929 energy/fuel, F1033 fuel scoop, F444-F452 repair rows/actions/costs and crash damage. Reconciled with fitting's mass/capacity and the death/legal paths. Owner decisions: cargo split/afford wording/500-day roll/scoop heat. One item added and completed (gameplay-34), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Status merged (v1.04): rank/reputation/Elite/medals, F2 F6/F7 profile page, legal status bands and the DATA_008996 jurisdiction correction, the fines office (Contact Local Police, pay/refuse) and F942's rating. Reconciled with legal's fines and the F2 page. Owner decisions: police spawns/mission rewards/page-0 text/officer name. One existing item completed (gameplay-14), so the remaining count falls by one."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Missions merged (v1.05): mission state/kinds, BBS accept/complete/expire/abandon, passenger/parcel/removal/military packages, journal/comms/military pages, F306 song 7 and save round-trip. Reconciled with timed-events' schedule_deadline/take_expired and status's rank/reputation API. Owner decisions: F625-F628, removal combat, cabins, rank and journal archive. One item added and completed (gameplay-35), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Shuttles merged (v1.06): F691's station-bay ships (DATA_008997/8999, RND(4x places), F650 bay, state 0x24 countdown), bay release fixes, F699 Lynx hold, F751 escort hand-off and the F1530 timer split; MAX_SHIPS 9 and MAX_BAY_SHIPS 3. The station-traffic fixture now isolates its F691 ship from other F688 traffic holding the station's single docking record. Owner decisions: caps, F699, F686/F687, closed-bay tables and surface traffic. One item added and completed (gameplay-36), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "NPC missiles merged (v1.07): F754 launches with F773 pylon fit, F757/F935 ECM/evasion, player chaff (cargo 32), F1057 decoy retargeting, C chaff, HUD lamp and frames. Reconciled with shuttles/npc AI and ECM. Owner decisions: chaff consumption, F937/F935 visual, cadence, F773 budget. One item added and completed (gameplay-37), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Saves merged (v1.08): native versioned JSON v2, F5 quick/Ctrl+F5 numbered/Shift+F5 load, intro L, --load and --capture-save, full Flight+Navigator+legal+rank+missions state, atomic bounded writes and legacy read-only recognition; config migration. Old v1 documents and pre-drive-loadout saves migrate in memory. Owner decisions: legacy specimen, RNG, object array, mission/rank model, remap UI/dialog. One item added and completed (ui-22), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Galaxy console merged (v1.09): F834/F840 map page rebuilt against current main (F5 controls, F6 select, F7 details, F8 picture, F9 next, F10 previous, F11/F12 zoom), map-local key ownership only for the 3D map, row clicks routed to actions. Reconciled with cleanup dev keys, hyperspace H and places. Owner decisions: map-local keys, details/picture still unported. One item added and completed (ui-23), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 62,
+      note: "Intro nebula/star chains merged (v1.10, newer head than the earlier intro-fix2): all primitive keys preserved so the nebula draws behind the planet, F1766/F1814 star chains reach the frame/screen. The prior text/ship/ring fixes remain. The two global key-sort assertions were relaxed to landmark ordering because the port's F1840 surface merge is not part of verify-order's queue. Owner decisions: remaining chain-star density/cull branches. One item added and completed (visible-13), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 63,
+      note: "Takeover audit: fixed intro Space rearm, empty object-registration text, invented death log and PAUSED overlay; existing intro/boot/takeoff regressions pass. Added explicit missing space-dust lifecycle item; game-over fidelity remains partial. See docs/archive/TAKEOVER_ISSUES.md."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 63,
+      note: "Immediate boot death reproduced: recharge set uninitialised hull to [0,full] before ensure_damage. Fixed to [full,full]; new first-frame regression plus existing damaged/dead preservation test; 13 damage and 8 death tests pass. Regression fix, no milestone completion change."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 63,
+      note: "Fixed missing services console: common screen icons/time meter now draw in Docked mode and the F1 icon returns from the pad services board. Old Blackelk regression reproduced before fix; four station-view tests pass. No milestone completion change."
+    },
+    {
+      date: "2026-10-25",
+      remaining: 63,
+      note: "Launch investigation: fixed system/local position confusion and stale pad-world origin across the first orbital refresh (10.8 km jump reproduced at frame 50). Nearby autopilot and hand-off continuity checks pass. Empty Hope ground remains an unfinished ui-11/v0.48-14 case; existing tests counted buildings and did not prove terrain visibility. No milestone completion change."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 63,
+      note: "Runtime merged (v1.11): F3 is the source map again (preset only in Port Options), the port PAUSED overlay is gone, F4 services overlays the landed view without wiping the console/HUD, the clock advances in every module scaled by TIME_ACCELERATION, and pad/landed set-speed/thrust are live with Set only when a model exists. Owner decisions: pad-speed carry, 10000x pad rotation, P key, save clock. One item added and completed (gameplay-38), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 63,
+      note: "Autopilot merged (v1.12): intercept-time bisection (no circling), F741/F745/F746 slot law and hull detour, 4,096 km station / 6,144 km starport hand-off, arrival slop, starport final_leg, Backspace cancel applying F1018 set-speed 0 and 1x capture; evidence logs. The preserved takeover source-arithmetic autopilot remains backup only. Owner decisions: transfer model, Backspace cancel, 1x. One item added and completed (gameplay-39), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 63,
+      note: "Autoland merged (v1.13): F741/F742/F745/F746/F744/F652 starport descent with F599/F650 bay/F746 orientation, the independent 0x59 geometry import (cache v29 now 1,815 assets / 1,816 entries; 465 geometries/464 programs), step_starport_landing three-body frame and pad-contact tests. Lateral capture remains approximate. Owner decisions: lateral capture, F575 0x40 flags. One item added and completed (gameplay-40), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 63,
+      note: "Crash merged (v1.14): F575's contact tail applies F953 damage (shields-hull-F942/F1104), the invented crash message is gone, bounce only per source, and 0x40 landing vs 0x80 crash are separated; 28 non-lethal/181 lethal GAME OVER and launch traces. Reconciled with repair's damage API and death/gameover. Owner decisions: silent bounce, launch UX, capsule-at-zero, Contact.damage sum, EXP-016. One item added and completed (gameplay-41), so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 63,
+      note: "Default new-game start changed by owner decision (EXP-019): the Saker Mk III on Hope at Old Blackelk still boots, but with 10,000 CR (unchanged) and 7 t free hold (was 1 t). The 7 t is F998's own 23 t less 0x10 subtraction, without the executed original's 6 t fitted-equipment deduction. Ship, start record, state 0x30 and the type-1 Ross 154 arm are unchanged; gate tests updated. No burndown item completion, so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 63,
+      note: "Gateway neighbours merged: Navigator::new_game now offers its start system's real galaxy-table neighbours within 30 LY (navigation::galaxy_around), generated exactly as a map destination is (F852/F860 select the star and F841 type word, F832's position seed/mass/stars, F830/F869 name and population) instead of only the 12 hand-coded and four test systems. The default start can now jump to Titican (4.42 LY, code 0x12a53716), whose bodies include the station Argent; the local trade-loop test now completes all 8 steps (Gateway -> Titican -> Gateway). One existing item's scope advanced but world-7/world-8 (jump scene, maps) are not complete, so the remaining count is unchanged."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 63,
+      note: "Space-dust core: ffe_core::dust implements F1035's spawn gates, F769's lifetime, F1680's distance class/cull and F715's empty movement; the flight loop submits live model 0x6d dust with the Others preference and near-body visibility gates. Twelve core tests and five cache-backed view regressions pass, including detail, accelerated movement and occlusion. gameplay-dust stays in progress until its source-backed view-space/culling comparison passes; total remains unchanged."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 63,
+      note: "Scripted flight trace merged (flight-v1): `--flight idle|takeoff|planet 900` runs the executed original from boot with scripted Y/start/launch/set-speed keys and emits one bounded JSONL row per frame (mode, F1013 altitude, F1121 set speed, player planet +0x56 with model/position, ship position/velocity, chained state hash). verify-flight.py runs all three twice, checks the hash chain, rejects 16 altered fields and an empty trace, and flight_reference.rs compares the idle pad, the 0x30 -> 0x24 -> 0x26 -> 0x00 machine, the retained planet model and the released bay with the port. This first slice covers the takeover report's idle boot, launch frame continuity and retained planet; approach/docking/traffic scenarios remain, so flight-12 is in-progress and the count is unchanged."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 64,
+      note: "Autopilot audit: live prototype transfers/direct turns replaced by source guidance (512-case F597/F587/F589 oracle), F727 integration, F1020 gates and F745 pad/fines flow. Old Blackelk 1x landing passes via corrected sibling frame. Full avoidance/frame/pursuit/event parity still open; added flight-14 in progress. See docs/notes/autopilot-source-audit.md."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 64,
+      note: "Hope launch ground repaired: source model scale offsets replace collision-bound radius scaling; original near-surface culling and atmosphere restored. Four executed-original near-pad cases match 168 triangles and queues. Actual Saker launch rises with visible terrain at 0/1/3 seconds across orbital refresh. Final 240-frame 1x launch capture passes; removed scripted 10000x stress action during takeoff. ui-11 remains in progress for broader approach fidelity."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 64,
+      note: "Idle boot and services repaired: F994 mode 0x30 now selects F1011/F1012 parked handling, not gravity/collision integration; fixed the u8 absolute-position stamp alias after 256 frames. Enter/default start stays Gateway/Hope/Old Blackelk. Twelve-second idle plus subsequent climb regression passes. Pad-board mouse routing now accepts services buttons while Flight mode stays landed. No milestone count change."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 102,
+      note: "Owner source-parity audit: 24 new implementation items (8 P0), 14 done items reopened where live source equivalence is not established; remaining 64 -> 102. Confirmed F938 whole-seconds versus 49700-tics fuel/recharge bug, F1013 integration/order mismatch, orbital docking substitutes, source starting-view/death-camera gaps and broader RNG/NPC/save/jump changes. Audit and acceptance backlog only; no runtime fixes or source/asset changes in this commit. See docs/audits/gameplay-parity-2026-10-26.md."
+    },
+    {
+      date: "2026-10-26",
+      remaining: 101,
+      note: "Source-parity implementation: restored source 1 t delivered hold (PAR-19 done); remaining touched items stay in progress. Corrected surface-port rotating coordinates, F994 bay sentinel/F997 starting view, F1013 integration/order, fitted drive failures, signed selected-speed saves, new commander restart and destruction camera. F938/F929 pass 192 executed-source cases. Source atmosphere, effect evolution and full route/event replay remain open."
+
+    },
+    {
+      date: "2026-10-27",
+      remaining: 101,
+      note: "Modern graphics engine, first slice: a separate presentation module (ffe_rs::modern) that reads the finished 320x200 frame and never touches game state; Classic/Modern rows on Port Options and Ctrl+G switch it live, persisted as graphics= in config.cfg; first technique is edge-directed 4x upscaling (Scale2x twice) with a smooth fit. One item added and completed (enhanced-0); packs-3 in progress. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-27",
+      remaining: 101,
+      note: "Modern graphics GPU 3-D view: new ffe-render crate (wgpu, offscreen, 4x MSAA, reversed-Z depth, perspective-correct mipmapped anisotropic textures) draws the flight view's model faces at the window's resolution with the original's projection, over the original's frame and under its HUD; Classic is unchanged. Planets, stars and dots not yet on the GPU, so enhanced-1 is in progress. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-27",
+      remaining: 101,
+      note: "Modern graphics: planet surfaces on the GPU. The terrain emitter records each queued entry's view-space corners beside the unchanged queue; the surface is one depth-tested, textured batch from orbit to the ground (covers 99.9% of the original's planet pixels). Textures persist between frames (256-layer GPU array). Atmosphere ring, stars and dots still classic; enhanced-1 stays in progress. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 101,
+      note: "Modern graphics: a per-pixel GPU atmosphere shell from F1877's record (radius * (1 + word8/32768), the haze material, lit by the star) replaces the dithered ring in Modern only; strongest at the limb, thin over the ground, seamless at the terrain's outline. enhanced-3 in progress (shadows and clouds remain). Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 101,
+      note: "Modern graphics: model lights as soft GPU sprites (halo and core, depth-tested), background stars as GPU points, the nebula model on the GPU, and anti-aliased wide lines; lines and F1546 curves now carry view-space points from the executor. enhanced-1 stays in progress. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: modest bloom (bright parts blurred at half size and added back) and a halo sprite for a star in view. enhanced-2 done."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: the hyperspace tunnel and engine glows on the GPU (glow quads lifted to the plume's depth from the thruster's view positions, textured like the original's). Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: textures as index maps coloured per face on the GPU (as the original colours them), and the owner's upscaled model/planet textures read from img-export (turned back into indices with a brightness detail), reloaded within a second when a file changes. No packed upscaled.bin yet, so packs-2 stays todo. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: planet surfaces one detail level finer in the GPU view (presentation only), and smooth shading that evens out the original's flat lighting steps at shared corners of like faces. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: planets eclipse stations and ships (umbra, penumbra, annular) in the GPU view. enhanced-3 still in progress (self-shadowing and clouds remain). Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: the GPU view in floating point (original colours exact, highlights brighter than white run to white), additive glows, and the star's white-hot core, glare and lens flare, dimmed when a planet covers it. enhanced-4 (HDR output) stays todo: this is HDR rendering, not HDR display. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: particle chains as GPU glows, and beams, explosions and hit sparks give off light (saturated colours past white, bloomed). Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: the GPU view supersampled 1.5x on top of 4x MSAA (5.3 ms a frame at 1920x1440). Full-precision colour left: the original's colours are 4-bit by design. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: explosions burn with an animated fire material, engine glows are animated flames, and complex polygons (opcode 5) are filled on the GPU on their plane (ear clipping). Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: a generated sky (Milky Way band along the original nebula's plane, nebulae, dust lanes, three star layers) replaces the original star points and nebula model in open space. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: a star's glow, glare and flare take the star's own colour from its drawn model (Gateway orange, Sol yellow) instead of the stand-in disc's green. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: a star's glow colour is worked out once per star from a fixed close render, so a far star (beyond the range its model is drawn) no longer glows green. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: the gunsight, velocity marker and targetting marks are drawn as crisp lines; explosion fire is round fireballs and streaks with body instead of filled polygons and dithered textures. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Space dust follows the time acceleration's shift (DATA_009123) as the original does, so it shows at 1000x; Modern draws warp-like speed dust streaks instead of the original's clouds. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: text in the main font is drawn with a real font (Bahnschrift, or the owner's own) at full resolution, in the original's layout. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-28",
+      remaining: 100,
+      note: "Modern graphics: speed dust keeps its fast streaking look at every speed, including top speed at 10000x (layers no longer run out). Remaining count unchanged."
+    },
+    {
+      date: "2026-10-29",
+      remaining: 100,
+      note: "Modern graphics: speed dust looks faster at each higher time acceleration step (1x to 10000x), not slower. Remaining count unchanged."
+    },
+    {
+      date: "2026-10-29",
+      remaining: 100,
+      note: "Modern graphics: the star no longer shines through ships and stations: its core lies behind them and blooms round their edges, and its glare and lens flare dim as they cover it. Remaining count unchanged."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 97,
+      note: "Audit of todo items against the code: native versioned JSON saves (persist-2) and in-game save, load and quick-save (persist-3) were already complete; config.cfg now also applies its bind.<game key>=<physical key> remaps (persist-5). The system and galaxy maps, BBS missions, journal, message pages and station traffic exist and move to in-progress."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 97,
+      note: "F534's cabin check: passenger contracts fill cabins (DATA_008892 from the active contracts) and an offer with too few free cabins is refused with 0x9928. The escape capsule item (gameplay-13) is the shipped v0.85 death/capsule work and moves to in-progress with gameplay-25."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 97,
+      note: "Assassination contracts now need a kill: the target (a trader leaving the nearest port with two military bodyguards) is placed once per visit to its system and destroying it settles the contract; arrival alone no longer pays."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 97,
+      note: "Mining machines (F242-F252, F317): d while landed deploys a machine with F246's surface survey and yield table, F243 digs a tonne a day into the hopper, d beside a machine loads the hopper or takes the machine back, and status page 6 lists them. Part of equipment (gameplay-2), which stays in-progress."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 97,
+      note: "Military strikes (F626-F628): assassination, photograph and bombing contracts open by rank with the source's payments and enemy-capital targets; the target, or a base to photograph (Military Cameras, d within 10 km) or destroy, is placed in the target system, and photographs and bombings pay on return."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 96,
+      note: "Game controllers: on Windows a pad (gilrs) is read every frame and turned into the active preset's keys (sticks steer, triggers throttle, bumpers roll, face buttons fire/missile/target/view), recorded with the input. Mouse steering was already in place, so mouse and joystick input (ui-8) is done."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 96,
+      note: "Parity pass: no silent prototype/placeholder fallback outside --dev (PAR-23); the world-step/tick oracles run F1041 alone again and the laser view gets its own pirate, so physics, world-tick and combat pass (55 of 57 oracles pass on Linux); hull temperature from F1033 star contact with F1007 cooling (PAR-14); saves keep the live NPC ships and stations' traffic records (PAR-18); an --npc-trace harness mode for PAR-15. No parity item is complete yet, so the count is unchanged."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 96,
+      note: "NPC flight AI on the original physics (PAR-15 in progress): ships with statistics are guided by F597 and flown by F601 thrust, F585 turns and F1512 moves instead of the port's speed caps; pirates close at their own top speed, break off inside the standoff and come round again. The npc_ai and npc_missiles fixtures now undock the player so hostile fire is not held."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 96,
+      note: "Shared random pair (PAR-17 in progress): traffic, effects, dust, hyperspace arrival, the ships' missile/ECM rolls and the player's damage and servicing rolls now draw from one saved DATA_008818/8820 stream in call order, seeded as F147 does. Also fixes a degenerate explosion/debris orientation when a random forward lay along the helper axis."
+    },
+    {
+      date: "2026-11-02",
+      remaining: 96,
+      note: "One frame clock (PAR-12 in progress): F1418's millisecond-to-tic arithmetic is computed once per frame and every gameplay system reads it (clock, days, traffic, ships, missiles, effects, lasers, scoop) instead of converting time separately; the death view's effects now follow time acceleration."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 96,
+      note: "Hyperspace mis-jumps (PAR-13 in progress), traced in the executed original with a new --misjump probe: one jump in 128 strands the ship in deep space, Left Alt forces one, and F910's outcome table can destroy the drive or lose the ship. Also: the game reads its content straight from the game folder (no data.bin) and the launcher works on Windows."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 96,
+      note: "Explosion effects (PAR-21 in progress) checked against the executed original's death probe: timer rates and spark timing match; sparks now keep their thrower's size word (big from the explosion, small from debris) and debris pods carry their cargo word."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 96,
+      note: "Escape leaves a derelict (PAR-22 in progress): the ship abandoned for a capsule or Stowmaster now drifts where it was until 67 km away, as F1098 leaves it, and escaping clears the wanted state."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 96,
+      note: "Saves keep station markets (PAR-20 in progress): stock after your trades, prices and the daily drift survive a save and load instead of being regenerated. Two cache tests broken by the shared random pair were fixed (effects kill damage, the recycled-ship pick)."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 95,
+      note: "Save and config migration done (release-3): version-1 snapshots migrate, the oldest version-2 save (every later field missing) loads, the old controls/display sidecars migrate into config.cfg, and launcher.cfg ignores unknown or bad lines; each has a test."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 95,
+      note: "Message strings imported (content-2 in progress, cache v30): the ten string arrays behind the original's 0x8000+ message codes (1,284 strings, including every 0x98xx console message, the preference pages, mining and the bulletin board) come from the player's FIRSTENC.EXE, each table matched entry by entry against JJFFE. The journal and the remaining fonts are still open. CI was red on main from three lint warnings; fixed, and macOS added to CI."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 93,
+      note: "world-3 and world-10 done on the reference oracles (verify-world.py, re-run today on the v30 cache): F875/F878 system generation matches the executed original for 4,156 systems and 63,810 objects (4 non-terminating cases skipped), and F880's object creation with its orbits for 1,024 systems and 17,762 physics objects; both traces repeat and tampered rows are rejected. The body-update oracle covers the orbits advancing."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 92,
+      note: "ui-3 done: F11's combat computer view (6) joins the missile (F10) and external (F9) views. With the Combat Computer fitted, F1054's chase camera backs off to keep the nearest ship in frame and F1109 prints each ship's range, hull/shields and type in amber below it."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "release-2 done: CI now builds, lints (clippy -D warnings) and tests on Linux, macOS and Windows and makes release builds of the game, tools and launcher on each (runs 336/337 green on all three). CI had been red on main from three lint warnings and a macOS-only filesystem assumption in a test; both fixed."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 90,
+      note: "audio-4 done: F1910's continuous engine bed (sample 0x0f at raw>>9 volume, raw+0x10000 pitch, raw = max|thrust| - 0x221) now plays each flight frame, gated by the Engine sound option. F1759's positional volume is never called by the DOS build, so the mono mix stays like for like."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 90,
+      note: "gameplay-12 progress: the port's console and contract texts now use the executable's strings: traffic control's three refusals (0x98b7..0x98b9) and the no-clearance warning (0x98be) in full, the undercarriage warning (0x98ce), and F316's contract rows (0x9c1e + kind, so military strikes read IMP. NAVY / FED. MIL. Kill, Film or Bomb). Console lines break on the strings' newlines. A local-only test pins them to the player's FIRSTENC.EXE."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 90,
+      note: "gameplay-2 progress: laser fitting follows F428/F434/F435. A laser with several free (or, for Remove, several matching) gun mountings asks \"Select Mounting.\" and goes on the chosen one; one candidate is fitted directly; none is 0x98ff \"Your ship does not have a gun mounting.\" The choice is taken on the console with keys 1..4 (listed in DEVIATIONS.md)."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 90,
+      note: "content-2 progress (cache v31): the ship library's journal archive is imported. MISSION.DAT is cut by the executable's own offset table (DATA_002292, 672 entries) and unscrambled the way F78 does (a 32-bit bit shuffle), giving the 671 S.L.A.M / M.C.S / J.F. articles with their macros left in. The asset oracle passes on v31 (1,817 assets). Macro expansion and the viewer are still to do; the remaining fonts too."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "Item added (gameplay-41). The ship library journals turn out to be driven by the original's mission-script interpreter (F41/F31, about 2,700 lines of assembly plus helpers) running a script graph in the executable's data. The same engine sets up the journals, queues their articles and runs the scripted missions. Traced and written up in docs/notes/journal.md; the journal viewer waits on it."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "gameplay-41 in progress (cache v32): the mission scripts are imported from the player's FIRSTENC.EXE. The script region is copied with its relocated pointers rewritten, and every one of the 105 missions, 333 reachable states and 665 conditions decodes to its end exactly as the original interpreter reads it (one known misparse in the original, mission 83). JJFFE's copy of the scripts differs from the floppy 1.02 executable, so the import uses the player's file. The interpreter port is next."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "gameplay-41 progress: the mission-script interpreter is ported (expressions, assignments, all 61 statements' operands, event subscriptions, the scheduler and the time/day ticks), and the journal scheduler with it (cache v33 adds the 170 stories). On the real scripts a new game starts 20 mission instances, creates the Imperial Herald, Federal Times, RIG, Frontier News and Universal Scientist, and the daily ticks publish their issues with the original's notices. Still to do: the game hooks the other statements need, saves, the journal viewer and F76's article macros."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "gameplay-41 progress: the scripts run in the game. A new game (or a save from before them) starts the mission scripts and journals, each new day runs the scripts' day ticks and publishes the journals with the console's new-issue notice, docking delivers waiting issues, and the state is saved. The conversation/object hooks and the journal viewer are next."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "gameplay-41 progress: the scripted adverts and conversations reach the station screens. The engine keeps the station menu the scripts drive (F331/F332, F345-F347, F349/F352, F360, F326), the bulletin board lists the scripts' adverts after the station's (the journal subscription offers and the special jobs on a new game), and choosing one opens their conversation page; the journal subscription conversation charges and replies as in the original. Next: the station's other signals, ship/object statements and the journal viewer."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "gameplay-41 progress (cache v34): the scripts' texts expand in full. F76's [ macros are ported for the script texts (Mi asks the scripts through F64 with the imported DATA_001698 query names; Pn, Ca, Nu, Dr and the name macros), so the adverts read e.g. '... by 25-Feb-3251' and '$50000 paid to the right Commander'. The scripts can now refuse launches, hyperspace jumps, docking requests, laser shots and jettisons as in the original. Next: the ship/object statements (spawning, placing and steering mission ships) and the journal viewer."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "Stashed 2026-10-28/29 work re-applied on main: opcode 17 beams and Saturn's ring are drawn (visible-14/15 added and done, so the count is unchanged); F750's under-attack and F941's incoming-missile alerts, the original's quieter combat log, X for the escape capsule (brake on B), the Modern intro/gravestone through the presenter, no dust while dying, the upscaled console panel and the FFED3D .X reader (ffe-tools inspect-ffed3d). The port's older hostile-engagement AI and safe-system pirate chance were left out in favour of PAR-15/PAR-17."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "gameplay-41 progress: the scripts' ships and objects. Every statement the real scripts use now reaches the game: F772/F702/F672 make, place and depart their ships, statement 60 flies them in DATA_001705's formations, F37 sets their AI states, targets, models and cargo, F953/F942 damage and destroy them (and the player), F926/F291 make canisters, F297/F40 put buildings and orbiting objects in the system, F314/F315/F290 add contracts (the contracts page asks the scripts for their rows), F236 fines and F304/F305 ranks. The game signals the scripts as the original does: F953 before damage, F383's Upgrades prices, F633's station days and F60's time ticks. The ship library shows the five journals and their issues. Placement still uses stand-ins and a save does not keep the scripts' objects' fields (deviation 2026-11-03), so the item stays in progress."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "gameplay-41 progress: a scripted mission plays through. The game now raises the scripts' player events as F21's values change (the system on arrival, the docked object, the flight mode, the cabins), without which no mission waiting to be in a system could fire. F702 places the scripts' ships with F1530/F1507 from the shared pair and F40 with its own longitude and phase. A save keeps the scripts' ships' fields, their canisters and their body-held objects. Mission 25 (the storyline's military assassination) runs in a test from the offer to the $1500 reward with the port's hooks."
+    },
+    {
+      date: "2026-11-03",
+      remaining: 91,
+      note: "gameplay-41 progress: the station's adverts are F326's own entries, so the scripts' adverts fall among them on the board as F346 places them; the scripts' attackers close on their target in AI state 9 and, within F1680's class 0xa, attack (event 0x17) and hail the player with 0x98d0 (F770); F773's F703 gives the scripts' ships their +0xa0 word from the shared pair. Left as stand-ins: the attackers' starting place, F1508's interpolation, F879's terrain height and F40's orbital motion."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 91,
+      note: "gameplay-41 progress: the mission scripts' placement stand-ins replaced with the original's. F669's attackers start on F702's 2.3 AU orbit round the root and close with the ship physics; F702 places with F1507/F1508 and gives the ship F1507's velocity; F297's buildings stand on F879's terrain; F40's objects move and turn as F866 moves them; F770's hail stops the song and sets JJFFE's combat velocity (also on F750's path); F669 raises its event 0x17. F1657's distance class now adds 32 for the high dwords, so far ships no longer read as close."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 91,
+      note: "gameplay-41 progress: the ship library's issue page is the original's (ffe_rs::journal_page): F78's text (headline upper-cased and centred, the 0xa602 byline with the publication line, five-space indents, the last byte F78's count leaves out), F1398's in-place wrap at 300 pixels with DATA_007648, F80's masthead (primary 1..5) and arrows with 0xa601, F79's F1587/F1598 text clipped to 0x28..0x8c with the more-below flag, and F81's two-pixel scrolling by line (arrows, actions 5/6) and page (0xe/0xf)."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 96,
+      note: "Modern graphics use FFED3D's assets (owner decision): six items added to the Enhanced renderer for the FFED3D stages, the first done (enhanced-6). With --ffed3d, the GPU view shows FFED3D's tex(400 + record) in full colour on the original models' textured faces (a new full-colour texture array in ffe-render, premultiplied and mipmapped) while the cabins stay the port's own (owner's choice); the launcher requires a full FFED3D for Modern. Five added items remain open, so the remaining count rises by five."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 95,
+      note: "The owner's images are packed: launcher.bat/play.bat run ffe-tools build-assets after building, which packs the ignored assets/ folder (the former img-export/) into a checked, deterministic assets.bin: files named as FFED3D's (Textures/tex<N>.png, Textures/CABIN<n>.png) and the export's upscales (only images whose size differs from the original's). Modern reads it (else the folder) and the owner's images win over FFED3D's, which win over the original's. packs-1 done; packs-2 in progress (no game-version fingerprint yet)."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 98,
+      note: "Owner's Modern plan: look very like FFED3D on DirectX 12 with FFED3D's assets, keeping the port's stars; no .fx shader port. enhanced-9 becomes FFED3D's panel and HUD and enhanced-10 its space dust; three items added (DirectX 12 window, effects and lighting, side-by-side tuning). assets/ now mirrors an FFED3D install and every file is packed into assets.bin (format 2); the owner's cabins (assets/Textures/CABIN<n>.png) replace FFED3D's, which replace the original's. Remaining rises by three."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 98,
+      note: "FFED3D panel and HUD begun (enhanced-9 in progress): Modern's real-font path now prefers FFED3D's HUD font (FRONR___.TTF, found case-insensitively at the install's root or its Textures/Fonts folders) after the owner's assets/fonts and before the system fonts, so the original's HUD text draws in FFED3D's font when a full install is present and falls back gracefully without one. The 3-D console (MODELS/panel.X with Textures/panelicons/) remains. Remaining count unchanged."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 97,
+      note: "PAR-03 done: a destroyed (F947), failed (F934), degraded (F948) or mis-jumped (F911) drive now leaves its mass in the hold as Rubbish (cargo slot 30, F946), so the tonnes used rise with the capacity; drive masses checked against DATA_007210/DATA_007188. F911's mov to the capacity is kept as an add (recorded deviation)."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 96,
+      note: "FFED3D panel and HUD done (enhanced-9): the 3-D console reads MODELS/panel.X (the .X reader) and Textures/panelicons/panel.png, places it in FFED3D's view (scale(1.4,1,1) then translate(-0.35,-1.085,3.95), one .X unit 10000 of the original's) and draws it as one full-colour, depth-tested batch behind the models in the flight view when the player is not dying, alongside the FRONR font for the HUD. PreparePanel's runtime button-icon compositing and the battle/navigate pages are deferred; side-by-side placement tuning stays with enhanced-14. Remaining falls by one."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 95,
+      note: "FFED3D space dust done (enhanced-10): Modern draws the original's F1035 particles as grey tex704 billboards (the owner's assets first, FFED3D's next, a grey square without it), at least four original pixels across (spaceDustSize 4 at 100 %) and following the cloud's +0x7e size, in place of the analytic speed dust; Classic keeps the model 0x6d objects, and no dust is drawn while dying or inside a haze. Remaining falls by one."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "The .X reader is complete (enhanced-7): animation sets and their keys are parsed too (frame references, key type 0/1/2/4, times and values), alongside the text, binary and MSZIP encodings and the flattened frame hierarchy the models already used. Applying the keys to the replacement models' sub-frames belongs to enhanced-8. Remaining falls by one."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "FFED3D replacement models, first slice (enhanced-8 in progress): Modern draws MODELS/<n>/model.x for the player's ship, NPC ships, stations and the lift in place of the original faces, at the object's view-space rows and origin (one .X unit = 10,000 model units) with skin.png; models without a file keep the original. Still open: tris.ini scale/offset/skip, AJ skin numbers, sub-models, landing gear and owner overrides. Remaining count unchanged."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "FFED3D replacement models: tris.ini's [MODEL] scale, scale_x/y/z, offset_x/y/z and skip are read and applied before the .X-to-model-unit conversion. Remaining: skins.ini and the skin number from the object id, cullmode/notdrawtext/notdrawsubmodels, sub-models, landing gear and owner overrides. Count unchanged."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "FFED3D effects, first slice (enhanced-13 in progress): the star's disc is FFED3D's sun (tex701, the owner's replacement first) as a billboard in modern3d::core, tinted by the star's own colour and dimmed by the planets' share, with the port's procedural hot-core glow kept under it for the bloom. The laser (tex705), flash/strike (tex706) and a light's outer glow (tex603) keep the port's beams and sprites for now. Count unchanged."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "FFED3D planets, first slice (enhanced-11 in progress): ffe_rs::ffed3d::parse_textures_cfg reads the install's textures.cfg into per-slot Skins (the surface texture, a living planet's nine terrain bands, the atmosphere ratio/opacity/texture and the fog/glow RGBA and ratios). Drawing FFED3D's geosphere with these skins, the clouds and the fog/glow remains. Count unchanged."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "HUD font: Modern now draws its text in Agency FB by default (a launcher choice over the common Windows fonts in Settings > Display > HUD text, stored as font= in config.cfg), with the owner's assets/fonts winning over it; FFED3D's FRONR font and Arial are no longer used (the owner disliked both). Count unchanged."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "DirectX 12 window, first slice (enhanced-12 in progress): ffe_render::Renderer::new requests the Direct3D 12 backend first and falls back to the default backends (Vulkan, GL) where DX12 is missing, and reports the backend in the adapter name. Presenting to a swapchain (minifb 0.28 exposes the window's HasWindowHandle, so a wgpu surface is available) remains. Count unchanged."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "Replacement-model orientation fixed: modern3d::replacement_triangles applied the object's rotation transposed (R instead of R^T), so a ship rotated the wrong way (and counter-spun in the external view, and flipped across Classic/Modern). A local vertex now maps to the weighted sum of the object's axes, matching the original's frame; checked by a_replacement_rotates_by_the_objects_axes. The ship library/status model still shows the original model (replacement models are wired into the flight view only). Count unchanged."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "Modern dashboard buttons implemented: the panel keeps its original proportions and replaces all classic dashboard pixels, with icons0..3 composited by console page, equipment-dependent blanks, green selected states and mesh-UV picking routed to existing actions. Systems/time controls, scanner, gauges and messages are redrawn from semantic state; no old instrument artwork or framebuffer crops remain. Missing assets use a plain modern console. Owner icon overrides win file by file. Unit tests, local flight/status captures at three window sizes, and a poisoned-frame check that no classic pixels leak through. Battle/navigation inset artwork remains deferred. Count unchanged."
+    },
+    {
+      date: "2026-11-04",
+      remaining: 94,
+      note: "Cockpit corrected against the owner's FFED3D screenshot: use doPerspectiveNear's 35-degree full-viewport projection (centre 160,100), preserve the mesh's grey material and normals, and apply the source's green button point lights and specular highlights. Removed the added rectangular systems menu, lever labels, cyan grid, horizontal bars and log window. Scanner, lever, lamps and gauges use FFED3D texNNN replacements with original placement metadata; readouts and clock/log overlay directly. Classic pixels still cannot leak into Modern. Configured HUD font preserved. Projection/material/light regressions and captures at three sizes pass. Count unchanged."
+    },
+    {
+      date: "2026-11-05",
+      remaining: 94,
+      note: "External-camera ground clipping fixed for Classic and Modern: input components that would enter original terrain/station geometry or the F650/F994 pad plane are rejected. Original orbit position and axes remain unchanged; automatic lifting/retargeting has been removed. Holding at the boundary, immediate reversal, independent controls, unchanged clear movement and the actual Hope pad regression pass. Count unchanged."
+    },
+    {
+      date: "2026-11-05",
+      remaining: 94,
+      note: "Imported FFED3D art resolves loose owner files, packed files and the FFED3D install independently per file. Panel and model meshes, skins and placement metadata now share the resolver. Native-resolution navigation/battle and icon/void sheets preserve original normalized source rectangles at arbitrary upscale factors. Actual owner upscales captured; fallback, pack, source-rectangle and control regressions pass. Count unchanged."
+    },
+    {
+      date: "2026-11-08",
+      remaining: 99,
+      note: "Modern worlds audit tracks five additional work items for planet and facility scene submission, climate and hydrology, weather, and renderer handoff and cleanup. Indexed terrain and visual weather are present. The Hope departure replay matches 393 frames across Classic, Modern and Ctrl+G. Remaining rises by five."
+    },
+    {
+      date: "2026-11-08",
+      remaining: 99,
+      note: "Modern suppresses the inside of Hope's fallback globe, uses one packed tree mesh per planted cell across distance bands, and reads the shared world profile for live weather. The planet and climate work items remain in progress."
+    },
+    {
+      date: "2026-11-08",
+      remaining: 99,
+      note: "Modern eases the atmosphere into space and keeps sampled terrain across the former 1.2-radius globe cutoff. The planet and atmosphere work items remain in progress."
+    },
+    {
+      date: "2026-11-08",
+      remaining: 99,
+      note: "Modern ring geometry has filtered radial bands, gaps, translucency and shadows. The original model still supplies ring presence and plane, so the planet scene split remains in progress."
+    },
+    {
+      date: "2026-11-08",
+      remaining: 99,
+      note: "Modern submits orbital exteriors 74, 77 and 78 directly from game placement, spin and door state with complete FFED3D art. Missing parts and other facilities retain the compatibility path."
+    },
+    {
+      date: "2026-11-08",
+      remaining: 99,
+      note: "Modern submits live orbital stations, lift stages and starports directly, using procedural geometry for missing meshes and F650 pad anchors. Layout fidelity and the orbital handoff replay remain in progress."
+    },
+    {
+      date: "2026-11-08",
+      remaining: 99,
+      note: "Restored separately placed FFED3D buildings at the Hope and Merlin ports. Flat city tiles no longer suppress procedural building fallback."
+    },
+    {
+      date: "2026-11-08",
+      remaining: 99,
+      note: "Modern reads the original seeded surface-port layouts for all slots, uses installed FFED3D meshes, and places procedural substitutes at the original building footprints."
+    },
+    {
+      date: "2026-11-10",
+      remaining: 83,
+      note: "Classic-only fork. The Modern engine, FFED3D integration, launcher and graphics packs are out of scope: the packs (3 open) and enhanced (14 open) milestones were removed. A classic-split milestone adds the removal (done) and one cleanup item (open)."
+    },
+    {
+      date: "2026-11-10",
+      remaining: 82,
+      note: "classic-split-2 done: the viewer no longer records the Modern engine's side data (Solid faces, atmosphere shells, plumes, sprites, surface view corners), and the core terrain returns to its pre-split code without the Modern detail, planet-frame and shoreline hooks. Classic captures are byte-identical."
+    },
+    {
+      date: "2026-11-10",
+      remaining: 82,
+      note: "Progress without closures: PAR-04 frame-by-frame takeoff replay and F650's pad seat; F1014 atmospheric drag and heating (PAR-04, PAR-14); PAR-06 keyboard timing for set speed (DATA_007690, right Shift only) replayed against the original; fixed the orbital-station launch blocked after an autopilot docking."
+    },
+    {
+      date: "2026-11-10",
+      remaining: 81,
+      note: "parity-06 done: F1037 runs only while the flight module shows (not under the F2 status screen or the map), and a recorded-input chain test covers the release gate, fresh and held keys, right Shift's stop at zero, reverse, engines off and save/reload, alongside the executed keyboard and takeoff replays."
+    },
+    {
+      date: "2026-11-10",
+      remaining: 80,
+      note: "Reconciled with docs/audits/gameplay-parity-work-items.json: parity-02 (refuelling and fuel bookkeeping) was finished on 2026-11-04 but still listed in progress; parity-09 (station docking contacts) and parity-10 (indoor departure placement) have had source work since 2026-11-02 and move from todo to in progress."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 80,
+      note: "content-4 done: supplied CD inventoried and all 323 AVI + 323 BMP files (533,312,426 bytes) copied losslessly to ignored FMVs with verified SHA-256 manifest. build-data now exports/verifies FMVs beside its cache; actual CD 1.01 cache build passed (1,797 assets). Added content-7 for runtime FMV decoding, audio sync, source game-event selection, timing/skip, matching stills and floppy fallback; packaging does not implement playback. One closure and one new task leave the remaining count unchanged."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 79,
+      note: "content-5 done: every floppy table location was found in CD 1.01 by content (tools/reference/map-layouts.py) and decodes; 1,816 of 1,820 assets match the floppy cache byte for byte, the other four differ only in the version string and code addresses the port does not read, and the CD start frame is identical. The CD version reported no system tables before. content-7 in progress: an 8-bit DIB/PCM AVI decoder and the runtime FMV library (CD profile plus FMVs folder) decode all 323 clips; the clip-to-event mapping is in CD-only code. Elite Club shareware 1.06 also maps but lists 339 star systems against 329, so it is refused with that reason."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 78,
+      note: "content-7 done: the CD videos play as JJFFE does. F333/F382/F384/F442's clip choices are ported with their F922 draws (ffe_core::fmv_select); the player shows the 120x120 picture at (1,17) at 15 fps with its sound on a new mixer stream voice, holds the clock, and ends on any key or click. 135 of 323 clips are reachable; JJFFE never selects the bulletin-board, p and st clips."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 78,
+      note: "Review of twelve closures another session left uncommitted. Eleven (flight-13, world-13, gameplay-3, gameplay-18, gameplay-25, gameplay-26, gameplay-34, gameplay-38, gameplay-39, gameplay-40, ui-12) rested on 2026-10-25/26 notes that the parity audit superseded when it reopened or tied them to its items, which remain open, so they stay in progress. v0.48-17 moves to in progress, not done: the CD 1.01 census now runs and matches the floppy (448 of 466 at top level; 16 child-only models, model 0x59's truncated block and the null slot 149 remain)."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 78,
+      note: "PAR-16 started (no new closure): the new game's F688 pass spawns no police (the executed original's default start holds none) and the port's per-kind traffic caps are lifted so F688's rolls stand within F691's 25 and a 40-ship budget. The draw ledger still differs (port 0 traders, 13 bay ships, 0 aux; original 1, 6, 1), which needs PAR-17 and an F922 trace in the reference."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 78,
+      note: "PAR-17/20/16 progress (no closure): the bulletin board is now the original's F621/F636-F646/F857/F623-F632 generators, and F622's 1,711 draws before F688 match the executed original (reference trace via FFE_RNG_TRACE; caveat: JJFFE's galaxy table has ten more empty systems). The new game enters F688 in the original's RNG state a3e751f9/1df3aaed. Next: F688's spawn bodies (F689/F691/F698/F699/F702/F772/F775), where the port diverges at draw 1712."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 78,
+      note: "Play-through fixes (gameplay-2, gameplay-3; no closure): a bought hull carries its own stock drive and a hold net of it (F1533/F441), the start pad is kept after a ship purchase so F4 services work, and time acceleration is held lower near stations and starports (EXP-021) after a 10000x autopilot arrival destroyed the ship."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 78,
+      note: "PAR-16 advanced (not closed): F688's spawn is the original's draw for draw (ffe_core::spawn). The default start's 17 ships match the executed original slot for slot and its RNG exit state, and Ross 154 matches too. Open: F702 system-wide placement (needs PAR-15's AI), F238 police response, start types 2 and 3."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 77,
+      note: "parity-16 done (owner closed it): F688 spawns the original's ships draw for draw, with the RNG ledger from the F147 seed to the end of F688 matching the executed original on the default start and Ross 154. The leftovers moved to parity-15: F702 system-wide placement (F1506/F1508) and F238's police response; start types 2 and 3 are not traced."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 78,
+      note: "Display filters design: added ui-24 for pixel-art upscaling (xBRZ, HQx, Scale2x) and CRT scanlines; planning-grade documentation in docs/notes/display-filters-design.md. Software-renderer architecture makes CPU-based pixel upscaling ideal; GPU CRT shaders deferred. Remaining count +1."
+    },
+    {
+      date: "2026-11-11",
+      remaining: 78,
+      note: "Display filters implementation: ui-24 in progress. Added filters module (scale2x, xbrz 2x/3x, scanlines), extended Filter enum and DisplaySettings with scanlines/intensity, integrated into compose() pipeline, updated Display Options page with 5 filter choices + scanline controls. Config persistence to saves/display.cfg. Builds successfully with unit tests. Ready for manual QA."
+    },
+    {
+      date: "2026-11-15",
+      remaining: 78,
+      note: "gameplay-3/PAR-18 progress (no closure): initialize the daily servicing marker on first use so later days run wear/failure checks; native saves now preserve that marker and the fuel-scoop cooldown, with backward defaults and cooldown validation. Regression tests compare uninterrupted and resumed RNG, wear, drive failures and cargo; all seven save tests and the cockpit laser integration test pass with the local cache."
+    },
+    {
+      date: "2026-11-15",
+      remaining: 78,
+      note: "Ten bounded PAR-18 follow-ups added and completed (persist-6 through persist-15): career, live missiles and ids, chaff and ids, effects and timers, ship autopilot target, launch permission, landing-warning latch, fractional clearance time, mission-target spawn ledger and initialized empty NPC populations now survive native resume. Twelve deterministic cache-backed regressions include old-save migration and malformed-state rejection. Total 214, done 136; broad PAR-18 remains open, so remaining stays 78. Corrected the pre-existing duplicate gameplay-41 id: the completed crash task is now gameplay-crash; historical notes are unchanged."
+    },
+    {
+      date: "2026-11-15",
+      remaining: 78,
+      note: "Second ten bounded native-resume follow-ups added and completed (persist-16 through persist-25): transit timing, carried pursuers/player anchor, changed shipyard stock, changed bulletin posts, unvisited generated boards/entry marker, BBS jobs/destination memory, calendar/pending day events, mission deadlines, autopilot history/clearance retry and navigation frame. Twelve cache-backed scenarios verify behavior, earlier-save migration and malformed-state rejection. Total 224, done 146; PAR-18 and PAR-20 remain open and remaining stays 78."
+    },
+    {
+      date: "2026-11-15",
+      remaining: 77,
+      note: "parity-23 completed: normal startup validates essential cache and ship records; source-model construction requires checked stats; unsupported saves fail before simulation; only --dev exposes prototype flight and the Sol sandbox. Six source_boot cases and five source-start comparisons pass, and the 3-frame debug/release smoke runs succeed. Total remains 224; done 147, remaining 77."
+    },
+    {
+      date: "2026-11-15",
+      remaining: 76,
+      note: "ui-24 completed under the owner's authorization to close items awaiting user QA. Filter selection/persistence, scanline routing/intensity/persistence and focused filter/settings checks were already recorded as passing; owner appearance QA was the only remaining gate. Total remains 224; done 148, remaining 76."
+    },
+    {
+      date: "2026-11-15",
+      remaining: 75,
+      note: "gameplay-38 completion gate passed: the five runtime regressions cover F3/F4 routing, module-clock ownership, parked handling and pause removal; three player-event tests pass across flight/docked modes and stopped-clock behavior. One fixture-backed original comparison remains ignored without its local capture. Total 224; done 149, remaining 75."
+    },
+    {
+      date: "2026-11-16",
+      remaining: 75,
+      note: "release-4 audit scoping started: no package workflow or package artifacts were found in the bounded repository review; acceptance still needs defining. License choice and owner sign-off remain separate release items. No completion; total 224, done 149, remaining 75."
+    },
+    {
+      date: "2026-11-16",
+      remaining: 74,
+      note: "gameplay-39 completed: the two autopilot control tests and four cache-backed source runtime cases pass; the focused F1018 cancel regression passes and clears the route/brakes. The implementation already uses the source guidance and slot approach, with its earlier reference evidence recorded. Total 224; done 150, remaining 74."
+    },
+    {
+      date: "2026-11-16",
+      remaining: 75,
+      note: "Correction: gameplay-39's focused runtime and cancel tests pass, but closure was premature because the linked PAR-11 source audit still lacks avoidance, moving-target pursuit, rotating-parent guidance and event-cadence replay. Reopened gameplay-39 and restored the prior total: 224 items, 149 done, 75 remaining."
+    },
+    {
+      date: "2026-11-16",
+      remaining: 74,
+      note: "gameplay-40 completed: the full starport pad descent runtime regression and model 0x59 collision-geometry import test pass with the local content cache. The wider PAR-11 autopilot route remains open. Total 224; done 150, remaining 74."
+    },
+    {
+      date: "2026-11-16",
+      remaining: 73,
+      note: "gameplay-26 completed: existing source comparisons cover start types 0/1/2/3/5; cache-backed default Hope, Ross 154, and F2/services-hold regressions pass after the capacity correction. Total 224; done 151, remaining 73."
+    },
+    {
+      date: "2026-11-16",
+      remaining: 72,
+      note: "world-9 completed: the live star vector uses F1481's source sign and feeds ships, stations and lift; F1535's six imported shade tables are selected by the star class, including flagged Ross 154 class 0x81; planet day/night uses the local sun. Focused cache-backed local-star and terminator regressions pass, and the existing intro cache regression now checks every defined table. Total 224; done 152, remaining 72."
+    },
+    {
+      date: "2026-11-16",
+      remaining: 71,
+      note: "content-1 completed: the 466-slot ship/name table comparison and 58-hull shipyard check pass; all 66 equipment records, equipment-mass/hold tests, 33 market goods and all 38 names are covered. Existing executed-source evidence records DOS equipment bytes and 8,192 original price/stock cases. Mission-cargo runtime and F641 board generation remain in their existing gameplay items. Total 224; done 153, remaining 71."
+    },
+    {
+      date: "2026-11-17",
+      remaining: 70,
+      note: "ui-7 completed under the owner's authorization to close items awaiting user QA. Existing source intro checks cover 76 cases; nine front-end tests and the intro-reference compile are recorded. The dashboard scope is intro/new-game; direct L/load-picker behavior is outside it. Total 224; done 154, remaining 70."
+    },
+    {
+      date: "2026-11-18",
+      remaining: 65,
+      note: "Owner decision: parity-04, -07, -09, -13 and -14 closed as accepted at about 95% of the original (accepted-95). Each rests on executed-original replays or source reads; the gaps left on purpose (engine-off takeoff, Hope start frame 1.2% of pixels, other station models, no whole-jump trace, no executed scoop trace) are recorded in docs/ACCEPTED_PARITY.md. The six fully evidenced items (parity-02, -03, -06, -16, -19, -23) were already done. Total 224; done 159, remaining 65."
+    },
+    {
+      date: "2026-11-18",
+      remaining: 61,
+      note: "Owner decision: parity-01, -05, -10 and -11 closed after testing as accepted at about 90 to 95% (accepted-95 / accepted-90). New replays against the executed original: firing and F152 events at 1x to 10000x (parity-01), a 3,119-frame climb and fall (parity-05), the Lave launch and exit (parity-10) and the whole planet-starport autopilot descent, 14,934 frames (parity-11); the harness gained firing, acceleration and paddock hooks. The gaps left on purpose are in docs/ACCEPTED_PARITY.md. Total 224; done 163, remaining 61."
+    },
+    {
+      date: "2026-11-18",
+      remaining: 60,
+      note: "Owner decision: parity-12 closed as accepted at about 90% (accepted-90). The F152 event replay was re-run on a corrected harness (F208 now pulls the real marker back) and passes on 358 frames at 1x to 10000x; a 1x to 10000x schedule gives the same milliseconds, Timer50Hz callbacks and events (within 2) at 20, 50, 60 and 144 fps. Gaps in docs/ACCEPTED_PARITY.md. Total 224; done 164, remaining 60."
+    },
+    {
+      date: "2026-11-18",
+      remaining: 50,
+      note: "Owner request: close the ten lowest-effort open items. Eight flight items and gameplay-39 close as accepted at about 90% on the same evidence as their accepted parity twins, re-run today against a freshly executed original: takeoff (frame 430 vs 429), uneven frame rate, hover, keyboard set speed, reserve and firing (within 6), the 2,631-frame climb (0.48%), the Lave launch, exit flight, approach and every docking stage, F152 events at 1x to 10000x, and the 14,934-frame pad descent (1.20% after the first 800 frames). gameplay-dust closes on today's executed-original comparison (153 port pixels against 151, all covered; 42 singles and 11 plus shapes in both; speed class and detail words ported). The gaps left on purpose are in docs/ACCEPTED_PARITY.md. Total 224; done 174, remaining 50."
+    },
+    {
+      date: "2026-11-18",
+      remaining: 54,
+      note: "Scope found: the galaxy map's console icons F7-F10 open four original pages the port still answers with \"not ported yet\": the system description over the body diagram (F842, F850/F851), the economy and people pages (F843's 0xf9/0xfa), a click on a diagram body for its mass, temperature and orbit (F843 0x80-0xbc), and the star-name sky of picture mode (F844-F849). Added ui-25 to ui-28 (source map in docs/notes/galaxy-map.md); nothing implemented. Total 228; done 174, remaining 54."
+    },
+    {
+      date: "2026-11-18",
+      remaining: 52,
+      note: "Owner decision: parity-17 and parity-18 closed as accepted at about 90% (accepted-90). parity-17: F633 now runs on the shared pair in the original's draw order and a whole executed day boundary (125 draws: three news chances, 99 market steps, the board replacement, the ship queue) ends in the original's pair; the new-game day also changes at midnight now, twelve hours in, as the original's. parity-18: the integer flight words (rates, fractions, caps, thrust, drift) and F633's working boards are saved, and resumed runs match uninterrupted ones exactly. Gaps in docs/ACCEPTED_PARITY.md. Done 176, remaining 52."
+    },
+    {
+      date: "2026-11-18",
+      remaining: 51,
+      note: "ui-25 completed: the galaxy map's F7 icon shows F842's description page. F850/F851's body diagram (35 sprite records, hot squares laid out), F830/F1343's string codes and F895's description string are ported; Gateway's frame matches the owner's capture of the original (15 major bodies, text and wrap). Five unit tests and two cache-backed tests pass. ui-26 to ui-28 remain. Total 228; done 177, remaining 51."
+    },
+    {
+      date: "2026-11-18",
+      remaining: 41,
+      note: "Owner request: ten more low-effort open items closed. world-4, world-5, world-7, gameplay-1, gameplay-3, gameplay-13, gameplay-25 and gameplay-34 close as accepted at about 90% on evidence re-run today: the hyperspace, market, sector, system-name, galaxy-map, surface, pad, world, collide, physics, thrust and world-tick oracles against the executed original all pass, as do the crash, damage, fitting, landing, trade, market-view, death, game-over and station-dock tests. release-5 closes on tools/clean-machine-check.ps1 (a fresh folder with only the executable and a copy of the game imports, runs twice, leaves the game byte-identical and refuses an empty folder clearly). release-4 closes on the scripted audit: tools/package.ps1, tools/third-party.py (223 crates, three acknowledged LGPL-2.1 crates) and docs/THIRD_PARTY.md; the LGPL relinking arrangement and the sound bank's provenance stay owner decisions. The gaps left on purpose are in docs/ACCEPTED_PARITY.md. Total 228; done 187, remaining 41."
+    },
+    {
+      date: "2026-11-19",
+      remaining: 40,
+      note: "ui-26 completed: the galaxy map's F9 (economy) and F10 (people) icons show F843's pages. The five goods columns follow F870's stock flags (major/minor imports and exports, illegal goods) and the people page expands the government, economy, allegiance and population codes through the new string engine; Gateway's two frames match the owner's captures of the original, and an unexplored system (no population byte) draws nothing as in the original. F7 now shows the unexplored text for such a system too. ui-27 and ui-28 remain. Total 228; done 188, remaining 40."
+    },
+    {
+      date: "2026-11-19",
+      remaining: 36,
+      note: "Owner request: four more items closed as accepted at about 90 percent, on evidence re-run today. gameplay-2: the fitting (6), ship-change (3) and outfitting tests and the market oracle. gameplay-11: the traffic, station-queue, station, station-models, lift and npc oracles against the executed original and the station traffic and docking tests. flight-8: F934's servicing against the executed original on 96 dispatches, plus the takeoff, launch and dock mode replays. world-6: the station view (12), pad and docking tests and the pads and station oracles. The gaps left on purpose are in docs/ACCEPTED_PARITY.md. Total 228; done 192, remaining 36."
+    },
+    {
+      date: "2026-11-19",
+      remaining: 34,
+      note: "ui-27 and ui-28 completed: a click on a body of the galaxy map's diagram shows its name and type, mass, surface temperature, starports and orbit (F843 0x80-0xbc, F1482/F1494/F1515 short floats), and F8 draws picture mode, the star-density sky with the names of the nearby stars (F844-F849; F11/F12 step its zoom). Gateway 5's facts and all nine sky names match the owner's captures of the original. The sky is drawn as its final pass, not the original's three-frame refinement. Total 228; done 194, remaining 34."
+    },
+    {
+      date: "2026-11-19",
+      remaining: 36,
+      note: "Owner report against ui-25 to ui-28: the original's 3D system map page ('Time point', orbit curves, body labels, F975-F986) is not created in the port, and a click on a body of the galaxy map's diagram gave no details. The click was a defect: main.rs overwrote mouse_was_down before the page's mouse-down test, so it never fired; fixed with a mouse_edge flag taken before the overwrite (builds; not yet exercised in the running game). Added ui-29 (the system map page) and ui-30 (its object clicks), both todo. Total 230; done 194, remaining 36."
+    },
+    {
+      date: "2026-11-19",
+      remaining: 36,
+      note: "ui-29 and ui-30 built, still in progress: the galaxy map's F6 (this system) and n/r (the selected star's) open the 3D system map: orbit curves, names, the Time point line, the console slider and Left/Right moving the time point, right-drag turn, zoom, a click that targets (t then click: autopilot). Seven unit tests and a cache-backed test pass and Gateway's frames were viewed; the projection has no perspective and the orbit is a polyline (EXP-025), and nothing was played in the running game or compared pixel for pixel with the original. Total 230; done 194, remaining 36."
+    },
+    {
+      date: "2026-11-19",
+      remaining: 35,
+      note: "Owner request: parity-15 finished and closed as accepted at about 80 percent (accepted-80, docs/ACCEPTED_PARITY.md). Closed in this pass: F748's delay (the original's orbital police attack on their own AI step, 143 frames after the launch), the global day phase of F238, the removal of the port's own police patrol (no entry spawns one), and the offended starport for mission-script offences. The pirate approach and the police response replay against the executed original (7,798 of 7,798 Hope frames, 4,798 of 4,798 orbital). Accepted gaps: F702's system-wide placement, F593's waypoint offset, attack states 1/2, the missile rows, F659's launch positions, and no traces for traders, escorts and heavy freighters (the original gives them no dynamics without the player in their frame). Total 230; remaining 35 (the 36 before include ui-29 and ui-30, still in progress)."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 34,
+      note: "v0.48-16 closed. F1610/F1611 (particles) were already checked against the executed original on 6,000 centres and sizes (dots_reference); F1609 (the sprite, DATA_007784/5) has hand-traced and cache-backed tests and draws the glints the owner captured; F1612 (the circle) was wrong in the port (a square-root outline in the targeter and a 32-segment polygon in the gunsight) and is now a literal port of its table-driven midpoint loop (ffe_core::model_dot::circle), hand-traced for sizes 4 and 12 and run over sizes 2 to 400 for table bounds. No executed-original oracle exists for F1609 or F1612 (the reference tool has no --sprite or --circle mode and cannot be built here), so those two are closed on the hand traces. Total 230; done 196, remaining 34."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 33,
+      note: "release-6 closed: the project's Rust code is now MIT (owner decision). LICENSE replaced the placeholder; license = \"MIT\" set on the workspace and inherited by all seven crates; docs/LEGAL.md states the licence scope (Rust code only). Owner also confirmed the GeneralUser GS SoundFont stays bundled with its licence, accepting the author's uncertain-provenance note. Total 230; done 197, remaining 33."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 32,
+      note: "v0.48-17 closed. The model census runs 448 of 466 slots (floppy 1.02 and CD 1.01); the remaining 18 are 16 child-only programs (first primitive an external vertex; verified to run via their real parent call), model 0x59 (truncated identically in both releases), and null slot 149. No unported model feature remains. CD 1.01 census matches floppy per slot (0 differences). Tests: model_census (3 ignored local), ffe-core (237 lib + integrations), ffe-rs --lib (275). Total 230; done 198, remaining 32."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 31,
+      note: "v0.48-7 closed. F1835 is now an explicit source-dispatched face dispatcher (was inlined); F1834/F1868/F1869 quad emission is verified word-for-word against the executed original (54 surface-draw cases, 21,380 triangles, 54/54 order queues; 4/4 near-pad records); F1870-F1873 query flags are matched by Terrain::distance (2,048 executed cases). Total 230; done 199, remaining 31."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 30,
+      note: "persist-1 closed. game/FIRSTENC._01 (the supplied original commander file) parses read-only: a DOS-era FFE file in F175's layout (F69 loose block, F65 stream, F170 body), not a plain JJFFE F65 file. saves::legacy_import validates the F170 magic/checksum (0x81756ACA) and decompresses all five sections exactly to EOF, recovers the commander (Jameson), system (Gateway) and save identity, and refuses malformed input. The gameplay-state field map (credits/ship/cargo/clock/RNG) is deferred to persist-4 (DOS player-block offsets differ from ffe.asm). Total 230; done 200, remaining 30."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 31,
+      note: "Scope +1: gameplay-42 added for the owner-requested broken-mission fixes. A static audit of the 105 mission scripts (docs/notes/broken-missions.md) flagged 9 high-confidence broken missions (78, 90, 91, 37, 38, 39, 55, 20, 83) and 1 medium (81); fixes are always-on bug fixes with DEVIATIONS entries and regression tests. Total 231; done 200, remaining 31."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 30,
+      note: "gameplay-42 closed: 5 of the audited broken missions fixed as always-on bug fixes (78 article test, 55 missing response, 20 journal debits, 81 reward trigger, 83 lost goto; EXP-030..034); 5 orphaned missions documented not-patched (37/38/39 and 90/91 have no starter in the source, EXP-035). Fixes applied in-memory via ffe_core::script CORRECTIONS; original data untouched. See docs/notes/broken-missions.md. Total 231; done 201, remaining 30."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 29,
+      note: "gameplay-5 closed (missiles and countermeasures): player launch/lock/guidance/fuse/damage + F10 view, standard and naval ECM, chaff, NPC pylons/launch/evasion, F754 state-1/2 alignment, drawn NPC beams/missiles. Residuals documented in combat.md: F937 energy-bomb blast, F935 one-frame ECM ring, F989 acquisition walk, chaff-consumption decision. gameplay-6/7/18 stay open (missile rows 0x13-0x1b / F770 / F702 placement / F233 / F659 / F597 placement / EXP-023). Total 231; done 202, remaining 29."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 28,
+      note: "flight-5 closed in the same batch: input processing and key accumulation were already replay-verified; the remaining remap gap is now applied. config.cfg's bind.* lines are read at start-up and delivered every frame (session::bindings -> Frame::remap), by minifb game-key name or by the preset-independent action names in input::Action (docs/CONTROLS.md#remapping-keys). Unknown names are ignored; there is no in-game remap screen (out of scope). New input.rs and session.rs regressions cover the action vocabulary, a remap changing the delivered flight action, and ignored names. In-place cargo was blocked by an unrelated uncommitted navigation.rs build error; verified in an isolated HEAD worktree. Total 231; done 203, remaining 28."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 37,
+      note: "Scope +9: a new 'enhancements' milestone for optional, toggleable improvements (each a launcher toggle, save-safe, mid-game toggleable): turrets-turn-while-paused, missile launcher self-collision, 3 autopilot fixes (waypoint offset, braking vs retro+gravity, all-body collisions), missile swept collision, mission fixes (7 issues), ECM vs NN500, and NPC relative-speed HUD. Total 240; done 203, remaining 37."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 39,
+      note: "Scope +2 within the enhancements milestone: the NPC relative-speed toggle became a three-part combat enhancement — NPC relative speed (with hull/shield), combat-computer NPC labels (green passive / red hostile, selectable), and an edge target indicator. Total 242; done 203, remaining 39."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 36,
+      note: "Owner request: close world-8, ui-5, ui-30, content-2 and ui-12 where the evidence allows. ui-30 done on evidence: a click on a planet, moon or station picks the nearest dot within 8 pixels, locks it, and after t sends the autopilot there; the pad refuses with the K key's message (system_map_view test, local). ui-5 and world-8 closed as accepted at about 90 percent (docs/ACCEPTED_PARITY.md): the real game's Escape, Escape and a click on Load were replayed through the session layer (pause, pages, Load routes), and the galaxy map's pixel oracle, five galaxy_map_view tests and the F5-F10 pages cover world-8; the named gaps stay. content-2 (the other session's Sy/Ci and Pl/Sc/Sr/Si macros) and ui-12 (parity-21's object system) stay open. Total 242; done 206, remaining 36."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 26,
+      note: "Enhancements implemented and toggle-gated: 10 of 11 done — turrets-paused, missile launch, missile swept, ECM-vs-NN500, NPC relative speed, NPC labels (with back-exit teardown), edge indicator, and the 3 autopilot fixes (EXP-036..045); mission fixes (enhancement-7) still todo. Total 242; done 216, remaining 26."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 25,
+      note: "Owner request: finish content-2. Done on evidence: every F76 macro of DATA_102307 is ported (Pl, Sc, Sr, Si added; Pl and the F858 form of Ci name the picked object's parent) and a new oracle runs F77 in the executed original (FFE_EXPAND, tools/reference/headless.c) and compares text and the shared random pair: 27 cases at four pairs, 0 differ (crates/ffe-rs/tests/macro_oracle.rs); the bitmap font and blit oracle (verify-font.py) still pass; all 671 archive articles expand without Sy/Ci/Pl left over. One recorded deviation (EXP-026): the (argument) forms of Sy, Ci and Pl always fall back to the current system in the executed JJFFE, and the port keeps the DOS game's intent. Total 242; done 217, remaining 25."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 24,
+      note: "enhancement-7 (mission fixes) done, closing the enhancements milestone: all seven behaviours are behind enhancement.mission_fixes and recorded as EXP-046 — hyperspace jumps no longer credit kills and script ship ids continue above the old systems' ids; F1125's G0=4 view pulse restores the hitch-hiker tracking; F312's full two-column medal list; the Alioth briefing states its 3252 deadline (UI only); a full station launches a bay's occupant for the player and for mission NPCs; a docked mission dialogue holds time at 1x. The medal award path and the gameplay-42 script corrections were already source-correct. Regression tests: mission_fixes helpers, Engine::camera_changed, status::medal_position, Starport::free_bay_holder and the cache-backed save serial. Total 242; done 218, remaining 24."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 23,
+      note: "Owner request: finish ui-10. Done as accepted at about 90 percent (docs/ACCEPTED_PARITY.md): the flight view now registers every object's colours and builds the runtime palette once per frame like F1536/F1789/F1330 (Screen::draw runs its objects in a registering pass, one build, then a drawing pass; ModelViewer::begin_registration/finish_registration; palette_builds pinned by palette_frame::a_frame_of_two_objects_is_built_once). Measured at the landed Hope start against --game-frame 500 0: 17 of 50,560 view pixels change (at most 8 levels), the upper palette holds 64 entries instead of 50, and the view still differs from the original in 18,693 pixels for structural reasons (starport and terrain). The original has no palette fades; its transitions are F915/F917/F919's clear plus an empty F1330. Open and recorded in docs/notes/palette.md section 6: the DAC upload (the port resolves to RGB), the owner's EXP-013 non-default space colours, and the station name-board glyph colour drawn unregistered. Total 242; done 219, remaining 23."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 22,
+      note: "Owner request: finish ui-29. Done as accepted at about 90 percent (docs/ACCEPTED_PARITY.md): the 3D system map now uses the original's view. F963's start (distance 0x7fff at exponent 0x2a, the focus slot 0x6c/0x6f/0x60/0x70 by start type, kept between visits), F982's camera (F1676's matrix from the mouse accumulators, the camera parented to the focus and standing mantissa * 2^(exponent-16) millimetres back along its third row) and F1680/F1479's perspective projection (the port's setup_object, the original's dot sprites and far/cull decisions); F11/F12 step the distance by 0x7998 and 0x435d with F984's floor and the exponent 0x3f cap; names are F978's (stars, planets and moons, at x+3, y-4, not beside a parent within ten pixels); rings only for kind-1 objects and only when F1680 would draw the ring model 0x96. New oracle tools/reference/verify-system-map.py (the harness gained FFE_MAP_DUMP): against the executed original's page at the Ross 154 start the focus slot, zoom words, camera position and all six bodies' screen positions match exactly, the three names match, and 837 of its 977 overlay pixels (86 percent) are shared. Not done: F986's ring model (the port draws a polyline in a flat green; the ring colour and the exact orbit plane differ by a few pixels), the planet model when zoomed in (a disc), the slider's pressed-arrow redraw and F271's replace flag for the t message. EXP-025 narrowed. Total 242; done 220, remaining 22."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 20,
+      note: "Owner request: finish ui-12 and parity-08. Done as accepted at about 90 percent (docs/ACCEPTED_PARITY.md): the executed original's F942 death traced frame by frame (harness: FFE_PAIR, FFE_DEATH_OBJECTS, FFE_RNG_TRACE with --death-probe, FFE_DEATH_FLIGHT with --flight; replay: crates/ffe-core/tests/death_replay.rs). Every frame of seven deaths matches slot, model, AI state, +0x7e, +0xa4, +0x9e, pod spark count, position, velocity words and rows. The comparison fixed F942/F939's F1530 draws and timer, F926's pods (ship rows, F1514 placement, F603 pull, cloned fraction and parent), the descending object sweep with immediate sparks, F939's gate draw, the global pod countdown and the speed-dependent spark velocity (docs/notes/death.md); F719's missile explosion follows the source but is not executed. Open at about 90 percent: the parent frame is the nearest planet or moon, no pixel comparison of the fragments. parity-21 stays open (object system). Total 242; done 222, remaining 20."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 19,
+      note: "parity-24 completed: the initial Enter boot, the post-GAME-OVER restart, --start N and the intro's start keys all use the one boot::new_commander initializer (Navigator::new_game + OriginalFlight::new_commander), and both load entries (the intro's L/key 4 and the Escape menu's Load) share apply_save + resume_model. The restart arm resets the commander record and every per-game UI local; the RIP click/Enter shortcut takes that same IntroExit::Start arm. New cache-backed source_boot::a_post_death_restart_builds_the_first_boots_commander_and_state boots starts 0 and 1 twice, destroys and mutates the second commander (name/ranks/missions, cash, cargo and fuel, hull, damage, service days, loadout, lasers, position, view, clock, fines), then restarts: the whole Flight, the whole OriginalFlight frame model, Navigator::save_state, the default commander, fuel and services equal the first boot and nothing of the dead commander survives. Not covered headlessly: the window-bound intro/Escape load handoff (code-verified) and a pixel HUD capture; the restart note differs ('New game.' against the first boot's blank/hint) but Screen::draw ignores message before the first tick. Total 242; done 223, remaining 19."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 19,
+      note: "gameplay-41 progress: every station page now sends its F326 screen number (station::Screen::script_screen: services/shipyard 0, board 2, market 3, upgrades 4, ships 5, military 7, repairs 8), so entering a page runs F342's clear and F331/F345's station entries as F327 does. Engine::build_screen was corrected to the jump table at DATA_000025: only 2/3/5/6/7 rebuild; 0/1/4/8/11 (F335/F523/F385/F445/F541) only redraw, so a rebuild no longer wipes their entries. F669's ordering, the military list's script rows, parity-11's closing and the in-play check remain. gameplay-12 progress: Event::repeating now reaches MessageLog (record_repeat), so a second identical missile warning is appended while a repeated state line still folds; the bug was that insert's back-comparison dropped it and the API still reported Added. Remaining 19 unchanged."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 18,
+      note: "ui-11 closed as accepted at about 90%: F1680's far class (+0x20), dot class (+0x28) and F1686's sphere cull now run for every object of the flight view through Screen::f1680_draws_model, not only the planets: an NPC ship is a model close up, an F1700 glint from its dot class (Saker model 31: 10, about 8.4 km) and absent past its far class (19, about 4,295 km), station model 74 likewise (16/24, about 537/137,000 km), and a wholly off-view object no longer runs its model. far_objects (4, local, cache v35): the Gateway glints from Hope, station 74 at 2 km / 600 km / 140,000 km (14,954 / 17 / 0 pixels), ship 31 at 9 km / 5,000 km (21 / 0 pixels) and 58 system bodies whose largest dot is 7 px, so F1700's unported lit shaded sphere is unreachable. planet_view's 26 local cases and the executed-original near-pad comparisons cover the approach. Accepted gaps: the rotating-frame F1680 branch (world-13), the textured surface fills, and no matched whole-frame approach capture. Verified with a rebuilt cache v35 (the parity07 cache is v34 and lacks object-dots)."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 16,
+      note: "gameplay-10 and world-13 closed as accepted at about 90 percent. gameplay-10: F302's overdue-failure pass and F301's 0x9c36 notice are ported (an overdue contract fails at any system — reputation -2, page 0x9c37, contract removed — before the destination check), F303's late-arrival/seed-0 branches, and a signed reputation; the journal archive/viewer was already ported. Recorded gaps: F300's removal-list overdue page (0x9c29), the F304/F305 rank page, and F485's abandon page/-8. world-13: F1680's source model scale (operand +0x148, key +0x130, instance position and cull) now drives near-surface and distant bodies, verified by unit tests and the near-surface executed-original oracle. Recorded gaps: F1680's rotating-frame branch (read-only, picture/key-equivalent) and no matched whole-frame planet capture. Total 242; done 226, remaining 16."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 15,
+      note: "parity-21 closed as accepted at about 90 percent: F1512/F1511 integer movement and the F928/F927/F924/F767 lifecycle for every effect kind are ported and wired into Navigator with a save round-trip, and death_replay re-verified 450/450 frames against the executed original (the seven-death run is documented under ui-12/parity-08). Recorded gaps: F719's missile-end explosion (impact/timeout) is only on ECM and a missile-killed NPC gets no F942/F926 burst — scoped to parity-22; the EffectTable/ShipSlots slot namespace is split (the source has one list); NPC/missile-death traces are not separately captured; no pixel comparison of the model-155 fragments; the parent frame is the nearest planet/moon. Total 242; done 227, remaining 15."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 14,
+      note: "gameplay-41 closed as accepted at about 90%: the military office now lists the scripts' rows. F326's screen 7 builder (F493) seeds the menu with the station's own offers as native entries (the regenerated DATA_009004 rows), then pulses global 0 with 3; the scripts' F346 inserts land in that menu. Mission 23's state 0 answers with `24 0xa9b9`, so the list prints the hidden mission among the offers (F346 moves the row it displaces to the end); selecting it runs F360 and starts mission 25, whose F331 opens the mission's conversation page. The list draws the menu's order through the shared station::menu_rows model (also used by the board), and native rows keep F493/F509's briefing path. Evidence: cache-backed mission_scripts::the_other_station_screens_signal_the_scripts starts mission 23 with a future deadline, opens screen 7 and asserts the 0xa9b9 row, then selects it and asserts mission 25's 0x98d8 page with 0xa9bb and 0x983f; station::f326s_rows_keep_the_scripts_entries_in_the_menus_order; 10 mission_scripts, 15 station_view and 323 ffe-rs lib tests pass (the latest full core run is blocked only by another stream's uncommitted bulletin test). Recorded accepted gaps: F669's event 0x17 is raised after the run rather than mid-statement (deliberate architecture change); the attackers' time-accelerated closing is F597's branch tracked by parity-11; no headless in-play check of a full military-mission playthrough. Total 242; done 228, remaining 14."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 13,
+      note: "gameplay-12 closed as accepted at about 90 percent: F460's civilian removal conversation opens (0x98d8 Video Link, 0x99c4 description, the 0x9861..0x9864 rows plus 0x983e/0x983f hang-ups), F460's rating gate and F467/F535 accept, and the F503 surface-place / F470 kind-0x10 target fidelity. Recorded gaps: the removal stays F290's 20-byte contract under MAX_MISSIONS (not F467's six-entry list), F291 places the target nearest the player, and no matched whole-frame message-page comparison. Total 242; done 229, remaining 13."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 12,
+      note: "gameplay-9 closed on its four recorded remainders. F460's removal conversation is the gameplay-12 page (0x99c4/0x99c5, 0x9861..0x9864, F467's 0x99ca and F535). F291's non-player branch now runs from statement 58: Action::Jettison carries the anchor, so any non-player object emits F928(0x99) in state 0x16 just behind it with +0x9e = DATA_005112[mission] and the 0x8e00+role name while only the player's branch spends DATA_008896 and posts 0x9c2f. F329's dynamic height is modelled: the entry wraps at 0x140-3-x and the next row advances by max(pitch, 10*lines) in the drawing, the scroll window and the button hot areas. F642/F633's +0x131 service flags keep at most one Federal (0x9827) and one Imperial (0x9828) recruitment notice, and a daily replacement clears the replaced notice's bit before F621 draws. Evidence: ffe-core 316 lib + every target; ffe-rs --lib 324 passed/31 ignored; cache-backed bbs_reference 3, missions 7 (a_removal_advert_opens_f460s_conversation), mission_scripts 10, station_view 15; bin check and 3 bin tests; changed-file rustfmt and lib clippy clean. Recorded gaps: F467's six-entry 0x34-byte removal contract (the port keeps F290's contract under MAX_MISSIONS), F291's live NPC canister has an interpreter test but no cache-backed scene test, and the reply/briefing pages have no matched whole-frame capture. Total 242; done 230, remaining 12."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 9,
+      note: "gameplay-6, gameplay-7 and gameplay-18 closed as accepted at about 90 percent on one evidence base. F659's launch geometry: police::launch_offset reads DATA_006202..006205 (open-air starport, selected by the bay count), 006209 (a closed station's lift) and 006206..006208 (recorded, unreachable from F239), rotates by F1669 and shifts << 10; Navigator::make_police adds the body's position, so the fixed 270 m far-side offset is gone. F233's event 1 (F909's arrival broadcast) clears DATA_008647/8646 bit 0 in Navigator::jump, so the wanted and chase states do not survive a hyperjump. F770's trading approach is State::Trading: it closes on +0xfe without hunting or firing, and the existing scripts::approaches keeps F770's class-0xa transition, event 0x17 and the 0x98d0 hail. The missile/object rows 0x13-0x1b are missile::AI_ROWS with each row's control/movement routine: 0x13 F758/F717 guidance, fuse and 60-update lifetime; 0x14 F716's contact-only mine; 0x16 F767/F713's seeker with removal at 2^26 mm; 0x15/0x17-0x1b are effect-owned objects. An attacker that reaches a world is destroyed as state 0x1c (NpcShip::hits_ground + keep_ships_out_of_worlds) instead of being lifted clear. Evidence: ffe-core 331 lib + every target; ffe-rs --lib 325 passed/34 ignored; cache-backed npc_ai 8, npc_fire_view 1, npc_view 3, station_traffic 1; the new save_tests f233 and ground-collision cases; bin check. Recorded gaps: F702's system-wide orbit, F597's accelerated placement (parity-11), F589/F671's orientation/pad settle, EXP-023's beam box, F770's approximate approach motion and F941's missile selection. Total 242; done 233, remaining 9."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 8,
+      note: "flight-1, gameplay-6, gameplay-7 and gameplay-18 closed as accepted at about 90 percent: the object/agent record layer (ObjectRecord/AgentRecord over the source PhysObj/agent fields, the ShipSlots player/missile/decoy table, the jump cycle/clock and carried +0xf2, F606 frame-of-reference, F802/F610 avoidance, F939 smoke, F682/F680 carried jump, the orbital/starport overlay and the player +0xff/+0x10e) is complete and tested. Recorded gaps: the renderer/scanner still draws NPC/chaff/player frames from the port structs (only missiles read the records), F802 is a centre/ray test not F817's full shape, F761's no-words case uses the documented fallback, and no matched whole-frame capture of smoke/avoidance. Total 242; done 234, remaining 8."
+    },
+    {
+      date: "2026-11-20",
+      remaining: 7,
+      note: "v0.48-8 closed as accepted at about 90 percent: the planet-scale surface quad oracle is the saved executed-original --surface-draw table (.cache/parity07/surface-draw-cases.jsonl, 56 cases: the four near-pad records and 52 planet-scale patches, 47 beyond 1.4 radii, details -1 to 4). The port matches all 54 completing cases: 21,380 triangles, 54 order queues (369,811 words) word for word, 2 queue overflows, the F1877 haze/sky and the recorded corner projections. New: surface_draw_reference::executed_reference_planet_surface_draw requires 40 planet-scale cases (the near-pad file alone fails) and tools/reference/verify-surface-planet.py runs it; --surface-near 0..3 reproduces surface-near.jsonl byte for byte on the local reference binary. Accepted gap: the full 512-case --surface-draw table forks a child per case and uses open_memstream, so it is Linux-only (the Windows reference refuses --surface-draw CASE); its 465-queue/207,689-triangle result is the recorded Linux run, not re-run here. Total 242; done 235, remaining 7."
+    },
+    {
+      date: "2026-11-21",
+      remaining: 5,
+      note: "v0.48-14 and persist-4 closed. v0.48-14: a new --scene-frame mode draws a fixed station (74) and three ships (31, 23, 25) through the executed original's F1537/F1680/F1772, F1330/F1331 palette and F1789 depth-sorted flush into the 320x200 framebuffer; tools/reference/verify-frame.py and the Rust test scene_frame::the_scene_frame_matches_the_executed_original rebuild the same scene through the port's F1680 set-up and model executor and match 63,946 of 64,000 RGB pixels (54 residual: the unported F1747 name-board text and a two-pixel station-edge depth tie). persist-4: --legacy-save loads game/FIRSTENC._01 through the real F70/F66/F171; the 0x984a object array and the DOS player block are byte-exact and 14 commander fields match saves::legacy_import (Jameson, 10,000 CR, Saker model 31/TY-198, 7 t hold/1 t fuel, clock 1,014,497,784/1,187,064, RNG 0x38acd1/0x0fc168d5). The field map is recorded in docs/notes/persistence.md 1.2.1: the block is the source gmstruct layout (the earlier +0x22E was a seven-vs-0x40 scatter misparse) and the DOS player section is 0x5535 bytes (JJFFE's 0x556a over-reads 0x35 bytes of the string section). verify-legacy-save.py rejects altered fields and raw bytes. Evidence: 325 ffe-rs lib, 331 ffe-core lib, bin check, rustfmt/clippy clean; both verifiers pass and are in verify-all.py. Total 242; done 237, remaining 5."
+    },
+    {
+      date: "2026-11-21",
+      remaining: 2,
+      note: "gameplay-8, parity-20 and parity-22 closed as accepted at about 90 percent on one reference run. gameplay-8: --combat (Hope start, player on the pirate leader's forward axis) traces the hostile group and effects; combat_replay.rs/verify-combat-replay.py replay F750's guidance (398/399 thrust words exact, 399/399 caps and positions, 396/399 velocities) and check the state changes, player fire and hostile damage (hull 112 -> 80). parity-20: --daily traces the first day boundary's 125 F922/F1530 draws; daily_reference.rs/verify-daily-replay.py replay every pair step and Navigator::tick_days ends on the same pair (1273017021/228009932 -> 1772616542/3616182582), with the board/job state changed. parity-22: --missile-encounter hit/ecm/naval/mine/escape; missile_encounter.rs/verify-missile-replay.py check the model-6 hit and F719, standard-vs-naval ECM (model 6 vs 7), the model-5 state-0x14 mine and F1098's model-16 Stowmaster/state-0x16 hull. F719 now also runs on missile hit/timeout and a missile-killed NPC gets F942/F926. Accepted gaps: F754 state-1/2 combat pass, EXP-006 per-station market streams, whole-encounter NPC-vs-NPC missile chains and the legal witness trace. Total 242; done 240, remaining 2."
+    },
+    {
+      date: "2026-11-21",
+      remaining: 1,
+      note: "release-1 closed as accepted at about 90 percent: one checkpoint per playthrough stage. New modes: --trade (the real F555/F556 buy and sell with ten cases and all five 0x98e1..0x98e5 refusals), --save-roundtrip (F214/F170/F174 write, a changed state, F176/F171 restore, plus legacy_import on the written file) and --jump (F908/F901/F909 from Gateway to Titican: 442 units, 189,322 time units, 1 t of fuel, 2.89 days). New tests market_trade.rs, save_roundtrip.rs and jump_reference.rs; verify-playthrough.py chains the nine stage oracles (import, intro, launch/fly/dock, trade, save/load, jump, combat, missions/BBS, render) and all nine pass. Accepted gaps: no executed in-play mission chain (the script engine's station side is --daily plus mission_scripts), F909's arrival draw ledger (the arrival is checked on the port's 7.4..11.3 AU orbit), the map destination cursor (the jump sets the selected destination), and a JJFFE-written save's string-section commander name is two bytes short in the importer. Total 242; done 241, remaining 1 (release-7, the owner's sign-off)."
+    },
+    {
+      date: "2026-11-21",
+      remaining: 0,
+      note: "release-7 closed: the owner has signed off the like-for-like parity. The burndown reaches zero — all 242 work items are done. Any further issues will be raised as new bugs. Total 242; done 242, remaining 0."
+    },
+  ]
+};

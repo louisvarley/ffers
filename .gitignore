@@ -1,0 +1,143 @@
+# ---------------------------------------------------------------------------
+# Player-supplied game files and unlicensed reference source — NEVER commit.
+# ---------------------------------------------------------------------------
+/game/
+/legacy/
+/jjffe-master/
+/ffed3d-master/
+# The player's own FFED3D download (replacement models): local only, never committed.
+/full-download/
+/Frontier-First-Encounters*/
+legacy/Elite 3/
+legacy/Elite3/
+legacy/ffed3d/
+legacy/ffed3d-master/
+
+# Local export bundle: contains game data and reference binaries. NEVER commit.
+/export.zip
+/export.zip.tmp
+/EXPORT_MANIFEST.txt
+
+# Converted original content and working art.
+/data.bin
+/data.bin.tmp
+/data-*.bin
+/upscaled.bin
+/upscaled.bin.tmp
+/to-be-upscaled/
+/upscaled/
+/extracted/
+/img-export/
+# The owner's images and the local asset pack. Only the CC0 project materials are tracked.
+/assets/*
+!/assets/Materials/
+/assets/Materials/*
+!/assets/Materials/README.md
+!/assets/Materials/lift-metal-*.png
+!/assets/Materials/pad-concrete-*.png
+!/assets/Materials/forest-floor-*.png
+!/assets/Materials/beach-sand-*.png
+!/assets/Materials/snow-*.png
+!/assets/Materials/rock-*.png
+!/assets/Materials/port-grass-*.png
+!/assets/Materials/port-pavers-*.png
+/assets.bin
+/assets.bin.tmp
+/music.bin
+/.music-bin-*.tmp
+/.music-render-*/
+/assets-old/
+/found_assets/
+/docs/evidence/**/*.png
+/assets-old/
+/saves/
+*upscaled/working/
+*.ffe-cache
+
+# Derived art stays local until distribution rights are resolved.
+# The existing LFS attribute does not grant permission to publish a pack.
+
+# ---------------------------------------------------------------------------
+# Build and tool output.
+# ---------------------------------------------------------------------------
+/target/
+**/target/
+/build/
+**/build/
+*.pdb
+*.ilk
+*.exp
+*.obj
+*.o
+*.lib
+*.dll
+*.exe
+*.dSYM/
+.cache/
+__pycache__/
+.direnv/
+
+# ---------------------------------------------------------------------------
+# Tests, captures and derived frames (never commit frames/screenshots).
+# ---------------------------------------------------------------------------
+/tests/frames/
+/tests/screenshots/
+/tests/golden/frames/
+/tests/golden/screenshots/
+/frames/
+/screenshots/
+/shots/
+/shots-nav/
+/shots-prefs/
+*.bmp
+*.tga
+*.dds
+*.raw
+*.hmp
+*.sav
+*.sve
+*.fs
+frame_*.png
+shot_*.png
+screenshot*.png
+classic_*.png
+enhanced_*.png
+baseline_*.png
+comparison_*.png
+
+# Local trace dumps (hashes/numeric dumps under tests/golden are allowed).
+/traces/
+*.trace
+*.trace.gz
+
+# ---------------------------------------------------------------------------
+# Editor / OS / local config.
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+.env
+.env.*
+ffe-rs.toml.local
+*.log
+*.ffe-input
+*.ffe-input
+tools/redraw-swarmui.ps1
+/ffed3d
+
+# Local original CD videos and matching stills; never commit.
+/FMVs/
+/.FMVs-*.tmp/
+
+# A local copy of the Elite Club shareware distribution (original game files); never commit.
+/firstenc.zip
+
+# Playtest packages staged by tools/package.ps1.
+/dist/
+
+# Developer screenshots and captured frames (PPM) are never tracked.
+*.ppm

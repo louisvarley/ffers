@@ -1,0 +1,1377 @@
+use serde::{Deserialize, Serialize};
+
+use ffe_core::npc::Random;
+
+use crate::damage::{Damage, SystemEvent};
+
+pub const STEP: f64 = 0.02;
+pub const BUY_PRICE: u32 = 10;
+pub const SELL_PRICE: u32 = 9;
+pub const CARGO_CAPACITY: u32 = 10;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Mode {
+    Docked,
+    Flight,
+}
+
+/// `DATA_005111`: the internal fuel tank's energy for each drive class
+/// (`+0xd0`), the limit F289 refuels to.
+pub const FUEL_TANK: [u32; 15] = [
+    0,
+    0x2000_0000,
+    0x2000_0000,
+    0x4000_0000,
+    0x6000_0000,
+    0x8000_0000,
+    0xa000_0000,
+    0xc000_0000,
+    0xe000_0000,
+    0xffff_ffff,
+    0x2000_0000,
+    0x4000_0000,
+    0x6000_0000,
+    0x8000_0000,
+    0x2000_0000,
+];
+
+/// What F289's refuel did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refuel {
+    /// "Internal fuel tank full" before anything was burned.
+    TankFull,
+    /// No fuel in the hold: F289 only redraws the page.
+    NoFuel,
+    /// A tonne was burned; `full` when the tank stopped it (the message).
+    Refuelled { full: bool },
+}
+
+/// The two services F444 sells: the drive's (`DATA_008924`/`DATA_008926`)
+/// and the equipment's (`DATA_008923`/`DATA_008925`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Service {
+    Drive,
+    Equipment,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Flight {
+    pub mode: Mode,
+    /// DATA_008918, in original signed velocity units. Older saves infer it
+    /// from motion once; new saves preserve a selected speed independently.
+    #[serde(default)]
+    pub set_speed: Option<i32>,
+    pub position: [f64; 3],
+    pub velocity: [f64; 3],
+    pub yaw: f64,
+    pub pitch: f64,
+    pub credits: u32,
+    pub cargo: u32,
+    pub stock: u32,
+    pub ticks: u64,
+    pub docking_requested: bool,
+    /// The player's craft: an original model table slot (see `ships`). Saves from
+    /// before ship selection load with the Eagle long range fighter.
+    #[serde(default = "default_ship")]
+    pub ship: u32,
+    /// The forward thrust last commanded (-1..1), for drawing engine glows. Saves
+    /// from before it load with 0.
+    #[serde(default)]
+    pub thrust: f64,
+    /// The ship's full orientation (right, up, forward) when the original flight
+    /// model is running (it rolls, which `yaw` and `pitch` cannot say). Saves from
+    /// before it load `None` and fall back to `yaw` and `pitch`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axes: Option<[[f64; 3]; 3]>,
+    /// Flying in a system (the navigator's bodies, not the prototype's station at the
+    /// origin): the prototype's boundary, docking and safety reset do not apply.
+    /// Saves from before it load `false`.
+    #[serde(default)]
+    pub system_flight: bool,
+    /// Tonnes of each commodity in the hold (the original's 38-word cargo array,
+    /// `ffe_core::market`); empty is an empty hold. Saves from before the market
+    /// load empty.
+    #[serde(default)]
+    pub hold: Vec<u16>,
+    /// `ship+0x9e`, the undercarriage's extension (0 raised, 0xffff down):
+    /// the ship model's animation global 1.
+    #[serde(default)]
+    pub gear: u16,
+    /// The laser installation and its heat, energy and refire words. Saves from
+    /// before combat load no lasers.
+    #[serde(default)]
+    pub combat: crate::combat::Combat,
+    /// The player's shield words (`ship+0xe0` current, `+0xe2` maximum). The
+    /// maximum is `0x40` per fitted shield generator (`F413`); `[0, 0]` means
+    /// no shield state, as on a new-game ship without a generator. `F1099` does
+    /// not draw the line when the two words are equal (a pristine shield).
+    #[serde(default)]
+    pub shields: [u16; 2],
+    /// The hull word (`ship+0xe4`, mass * 4) and its full value. `[0, 0]` means
+    /// untracked until [`Flight::ensure_damage`] fills it from the ship
+    /// statistics (the descriptor mass word times four, as F1533 does).
+    #[serde(default)]
+    pub hull: [u16; 2],
+    /// The fitted equipment (`ship+0xc8`, `+0xd6..+0xdf`, `+0xe2`). Saves from
+    /// before equipment load with nothing fitted; the new game sets F998's
+    /// loadout in `main`.
+    #[serde(default)]
+    pub loadout: ffe_core::equipment::Loadout,
+    /// The drive and equipment service dates (`DATA_008926`/`DATA_008925`) as
+    /// game days, shown by F444's "last:" rows. Saves from before the repairs
+    /// screen load with day 0, the new game's 1-Jan-3250.
+    #[serde(default)]
+    pub service_days: [u32; 2],
+    /// The thruster words, damaged equipment bits and service counters
+    /// (`ship+0xbc..+0xc6`, `+0xcc`, `DATA_008923`/`DATA_008924`). Saves from
+    /// before the damage model load undamaged with fresh counters.
+    #[serde(default)]
+    pub damage: Damage,
+    /// The last game day the servicing roll (F934) ran for; `None` starts at
+    /// the first frame so an older save does not replay every past day.
+    #[serde(default)]
+    pub last_service_day: Option<u32>,
+    /// F1033's scoop cooldown, in accelerated seconds (`0x2468a` tics).
+    #[serde(default)]
+    pub scoop_cooldown: f64,
+    /// The hull temperature (`DATA_008804+0x1ec`, see `damage::HEAT_LIMIT`).
+    #[serde(default)]
+    pub hull_heat: u32,
+    /// `DATA_008886` (`player+0x10e`): seconds left of F1099's hull line. F1102
+    /// sets 30 on every F953 hit on the player's ship; F1007 counts it down.
+    #[serde(default)]
+    pub hull_display: u32,
+    /// The original's shared random stream (`DATA_008818`/`DATA_008820`) for
+    /// the damage and servicing rolls.
+    #[serde(skip, default = "default_rng")]
+    pub rng: Random,
+    /// F1104's death sequence, when the hull has been used up and no escape
+    /// craft launched. Saves from before the sequence load alive.
+    #[serde(default)]
+    pub death: Option<crate::death::Death>,
+    /// The accepted BBS contracts, the journal and the comms pages (F290/
+    /// F303/F306/F307). Saves from before the mission slice load empty.
+    #[serde(default)]
+    pub missions: ffe_core::missions::State,
+    /// F246's deployed mining machines (`DATA_009106` records with a system
+    /// code); the machines still aboard are `loadout.mining`.
+    #[serde(default)]
+    pub mining: Vec<ffe_core::mining::Machine>,
+    /// The mission scripts and the ship library's journals (cache v33).
+    /// Saves from before them start the scripts afresh on load.
+    #[serde(default)]
+    pub scripts: Option<ffe_core::script::run::Scripts>,
+    /// What the scripts asked the game to do this frame (their ships,
+    /// canisters, damage and contracts), for [`crate::scripts::apply`];
+    /// never saved.
+    #[serde(skip)]
+    pub script_actions: Vec<crate::scripts::Action>,
+    /// The player's `+0xa0` word as a script set it (F37 target 0x38).
+    #[serde(default)]
+    pub script_seed: i32,
+    /// The player's name (`+0x124`) as a script set it (statements 26/47).
+    #[serde(default)]
+    pub script_name: Option<String>,
+    /// The integer flight model's own words (rates, sub-unit fractions, caps,
+    /// thrust, drift, the scanner and the like) as `OriginalFlight::apply` last
+    /// wrote them, so a resume continues the same integer state instead of one
+    /// rebuilt from the floating-point view above (PAR-18). Ignored on load
+    /// when the position, velocity or rows no longer match what it says.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume: Option<crate::original_flight::ResumeState>,
+}
+
+fn default_rng() -> Random {
+    Random::new(0x2545_f491, 0x9e37_79b9)
+}
+
+fn default_ship() -> u32 {
+    crate::ships::DEFAULT_SHIP
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq)]
+pub struct Controls {
+    pub thrust: f64,
+    pub yaw: f64,
+    pub pitch: f64,
+    pub brake: bool,
+}
+
+impl Default for Flight {
+    fn default() -> Self {
+        Self {
+            mode: Mode::Docked,
+            set_speed: None,
+            position: [0.0, 0.0, -60.0],
+            velocity: [0.0; 3],
+            yaw: 0.0,
+            pitch: 0.0,
+            credits: 1000,
+            cargo: 0,
+            stock: 50,
+            ticks: 0,
+            docking_requested: false,
+            ship: default_ship(),
+            thrust: 0.0,
+            axes: None,
+            system_flight: false,
+            hold: Vec::new(),
+            gear: 0,
+            combat: crate::combat::Combat::default(),
+            shields: [0; 2],
+            hull: [0; 2],
+            loadout: ffe_core::equipment::Loadout::default(),
+            service_days: [0; 2],
+            damage: Damage::default(),
+            last_service_day: None,
+            scoop_cooldown: 0.0,
+            hull_heat: 0,
+            hull_display: 0,
+            rng: default_rng(),
+            death: None,
+            missions: ffe_core::missions::State::default(),
+            mining: Vec::new(),
+            scripts: None,
+            script_actions: Vec::new(),
+            script_seed: 0,
+            script_name: None,
+            resume: None,
+        }
+    }
+}
+
+impl Flight {
+    pub fn approach() -> Self {
+        Self {
+            mode: Mode::Flight,
+            position: [0.0, 0.0, -180.0],
+            velocity: [0.0, 0.0, 5.0],
+            ..Self::default()
+        }
+    }
+
+    pub fn free_flight() -> Self {
+        Self {
+            mode: Mode::Flight,
+            position: [0.0, 0.0, -1500.0],
+            ..Self::default()
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        // The prototype boundary keeps the ship near the origin and caps the
+        // speed at the prototype's own limits. System flight carries the
+        // original's 64-bit system coordinates (scaled by
+        // `UNITS_PER_FLIGHT_UNIT`) and its signed 32-bit velocity words, which
+        // are far larger; only finiteness and a generous corruption bound apply
+        // there. The original flight model (key O) itself reaches a few
+        // thousand flight units per second in the prototype.
+        let (position_limit, velocity_limit) = if self.system_flight {
+            (1.0e12, 1.0e8)
+        } else {
+            (1_000_000.0, 5000.0)
+        };
+        if !self
+            .position
+            .iter()
+            .chain(&self.velocity)
+            .chain([&self.yaw, &self.pitch])
+            .all(|number| number.is_finite())
+            || self
+                .position
+                .iter()
+                .any(|number| number.abs() > position_limit)
+            || self
+                .velocity
+                .iter()
+                .any(|number| number.abs() > velocity_limit)
+            || self.speed() > velocity_limit * 1.0000001
+            || !(0.0..std::f64::consts::TAU).contains(&self.yaw)
+            || self.pitch.abs() > 1.4
+            || self.cargo > CARGO_CAPACITY
+            || self.stock > 1000
+            || self.credits > 1_000_000_000
+            || !(crate::ships::FIRST_SHIP..=crate::ships::LAST_SHIP).contains(&self.ship)
+            || !(self.thrust.is_finite() && self.thrust.abs() <= 1.0)
+            || self.axes.is_some_and(|axes| {
+                axes.iter().any(|row| {
+                    row.iter()
+                        .any(|value| !value.is_finite() || value.abs() > 1.5)
+                        || !(0.9..=1.1).contains(&length(*row))
+                })
+            })
+            || !(self.hold.is_empty() || self.hold.len() == ffe_core::market::NAMES)
+            || self.hold.iter().map(|t| u32::from(*t)).sum::<u32>() > 100_000
+            || self.shields[0] > self.shields[1]
+            || self.hull[0] > self.hull[1]
+            || !self.loadout.validate()
+            || self.combat.drive > 0x0e
+            || self
+                .combat
+                .lasers
+                .iter()
+                .any(|code| *code != 0 && ffe_core::laser::index(*code).is_none_or(|i| i > 10))
+            || self
+                .combat
+                .missiles
+                .iter()
+                .any(|code| *code != 0 && ffe_core::missile::model(*code).is_none())
+            || !self.scoop_cooldown.is_finite()
+            || !(0.0..=crate::damage::SCOOP_COOLDOWN).contains(&self.scoop_cooldown)
+            || !self.missions.validate()
+        {
+            return Err("save contains out-of-range prototype state".to_owned());
+        }
+        // F1104's sequence ends the game; there is no save after death.
+        if self.death.is_some() {
+            return Err("save was made after the ship's destruction".to_owned());
+        }
+        if self.mode == Mode::Docked
+            && !self.system_flight
+            && (self.velocity != [0.0; 3]
+                || self.position != [0.0, 0.0, -60.0]
+                || self.docking_requested)
+        {
+            return Err("save has inconsistent docked state".to_owned());
+        }
+        Ok(())
+    }
+
+    pub fn forward(&self) -> [f64; 3] {
+        if let Some(axes) = self.axes {
+            return axes[2];
+        }
+        [
+            self.yaw.sin() * self.pitch.cos(),
+            self.pitch.sin(),
+            self.yaw.cos() * self.pitch.cos(),
+        ]
+    }
+
+    pub fn distance(&self) -> f64 {
+        length(self.position)
+    }
+    pub fn speed(&self) -> f64 {
+        length(self.velocity)
+    }
+
+    pub fn launch(&mut self) -> Result<&'static str, String> {
+        if self.mode != Mode::Docked {
+            return Err("Already in flight.".to_owned());
+        }
+        self.mode = Mode::Flight;
+        self.position = [0.0, 0.0, -500.0];
+        self.velocity = [0.0; 3];
+        self.yaw = 0.0;
+        self.pitch = 0.0;
+        Ok("Launched. Station is ahead; D requests docking.")
+    }
+
+    pub fn request_docking(&mut self) -> Result<&'static str, String> {
+        if self.mode != Mode::Flight {
+            return Err("Already docked.".to_owned());
+        }
+        self.docking_requested = !self.docking_requested;
+        Ok(if self.docking_requested {
+            "Docking requested: range <80, speed <20, face station."
+        } else {
+            "Docking request cancelled."
+        })
+    }
+
+    pub fn buy(&mut self) -> Result<&'static str, String> {
+        self.require_docked()?;
+        if self.cargo == CARGO_CAPACITY {
+            return Err("Cargo hold full.".to_owned());
+        }
+        if self.stock == 0 {
+            return Err("Station out of stock.".to_owned());
+        }
+        if self.credits < BUY_PRICE {
+            return Err("Insufficient credits.".to_owned());
+        }
+        self.credits -= BUY_PRICE;
+        self.cargo += 1;
+        self.stock -= 1;
+        Ok("Bought one unit of food.")
+    }
+
+    pub fn sell(&mut self) -> Result<&'static str, String> {
+        self.require_docked()?;
+        if self.cargo == 0 {
+            return Err("No cargo to sell.".to_owned());
+        }
+        if self.stock >= 1000 {
+            return Err("Station storage full.".to_owned());
+        }
+        let credits = self
+            .credits
+            .checked_add(SELL_PRICE)
+            .filter(|value| *value <= 1_000_000_000)
+            .ok_or("Credit limit reached.")?;
+        self.credits = credits;
+        self.cargo -= 1;
+        self.stock += 1;
+        Ok("Sold one unit of food.")
+    }
+
+    fn require_docked(&self) -> Result<(), String> {
+        if self.mode != Mode::Docked {
+            Err("Trading requires docking.".to_owned())
+        } else {
+            Ok(())
+        }
+    }
+
+    pub fn step(&mut self, input: Controls) -> Result<Option<&'static str>, String> {
+        if ![input.thrust, input.yaw, input.pitch]
+            .iter()
+            .all(|v| v.is_finite() && v.abs() <= 1.0)
+        {
+            return Err("Invalid flight control input.".to_owned());
+        }
+        if self.mode == Mode::Docked {
+            self.thrust = 0.0;
+            return Ok(None);
+        }
+        self.thrust = input.thrust;
+        self.yaw = (self.yaw + input.yaw * STEP).rem_euclid(std::f64::consts::TAU);
+        self.pitch = (self.pitch + input.pitch * STEP).clamp(-1.4, 1.4);
+        let forward = self.forward();
+        for (axis, direction) in forward.into_iter().enumerate() {
+            self.velocity[axis] += direction * input.thrust * 30.0 * STEP;
+            if input.brake {
+                self.velocity[axis] *= 0.94;
+            }
+        }
+        let speed = self.speed();
+        if speed > 250.0 {
+            for velocity in &mut self.velocity {
+                *velocity *= 250.0 / speed;
+            }
+        }
+        for axis in 0..3 {
+            self.position[axis] += self.velocity[axis] * STEP;
+        }
+        self.ticks = self.ticks.wrapping_add(1);
+        Ok(self.finish_step())
+    }
+
+    /// What follows a step of either flight model: the prototype boundary,
+    /// docking and the station safety reset. Returns the message when one fired.
+    pub fn finish_step(&mut self) -> Option<&'static str> {
+        if self.system_flight {
+            return None;
+        }
+        let forward = self.forward();
+        if self
+            .position
+            .iter()
+            .any(|number| number.abs() > 1_000_000.0)
+        {
+            self.mode = Mode::Docked;
+            self.position = [0.0, 0.0, -60.0];
+            self.velocity = [0.0; 3];
+            self.docking_requested = false;
+            return Some("Prototype boundary reached: returned to station.");
+        }
+        let distance = self.distance();
+        let facing = if distance > 0.0 {
+            -forward
+                .iter()
+                .zip(self.position)
+                .map(|(a, b)| a * b)
+                .sum::<f64>()
+                / distance
+        } else {
+            1.0
+        };
+        if self.docking_requested && distance < 80.0 && self.speed() < 20.0 && facing > 0.95 {
+            self.mode = Mode::Docked;
+            self.position = [0.0, 0.0, -60.0];
+            self.velocity = [0.0; 3];
+            self.docking_requested = false;
+            return Some("Docked. B buys food, N sells; F5 saves.");
+        }
+        if distance < 45.0 {
+            self.position = [0.0, 0.0, -180.0];
+            self.velocity = [0.0; 3];
+            self.yaw = 0.0;
+            self.pitch = 0.0;
+            return Some("Unsafe approach: station safety reset. Slow down and request docking.");
+        }
+        None
+    }
+
+    /// Give the damage words the values object set-up gives a ship: F1533
+    /// (`ffe.asm:90970`) stores the descriptor mass word times four in
+    /// `+0xe4`, and the shield maximum (`+0xe2`) is `0x40` per fitted shield
+    /// generator (F413 adds, F415 removes). A save from before the damage
+    /// model loads with `[0, 0]` and takes the full hull here; an existing
+    /// damaged ship keeps its words while its full value matches, and a change
+    /// of hull (or of generators) resets them. A new hull also carries a fresh
+    /// set of thruster limits and no damaged equipment.
+    pub fn ensure_damage(&mut self, hull_full: u16) {
+        if hull_full != 0 && self.hull[1] != hull_full {
+            self.hull = [hull_full, hull_full];
+            self.damage = Damage::default();
+        }
+        let shield_max = self.loadout.shield_max();
+        if shield_max != self.shields[1] {
+            self.shields = [shield_max, shield_max];
+        }
+    }
+
+    /// Fill the six thruster limits from the ship's statistics when the save
+    /// predates them (object set-up, the routine at 0x125c0).
+    pub fn ensure_thrusters(&mut self, stats: &crate::ships::ShipStats) {
+        self.damage.ensure_thrusters(stats);
+    }
+
+    /// F441's reset when a hull is bought: the pylons, lasers and equipment are
+    /// emptied, the energy pool gets one tonne (`mov dword [ebx+0x11e],
+    /// 0x20000000`) and the drive byte the hull's statistics name. A pool left at
+    /// zero fails the engine on the first thrust (F929): the set speed moves but
+    /// the ship never does. The object set-up reads the six thruster words from
+    /// the new hull's statistics, so the old hull's words (and an engine failure)
+    /// do not carry over. The second-event clock and the laser's heat are not the
+    /// hull's and stay.
+    pub fn install_hull_combat(&mut self, drive: u8) {
+        self.combat = crate::combat::Combat {
+            lasers: [0; 4],
+            missiles: [0; ffe_core::missile::PYLONS],
+            energy: crate::damage::ENERGY_PER_TONNE,
+            drive,
+            cooling_booster: false,
+            ..self.combat
+        };
+        self.damage.thrusters = None;
+        self.damage.engine_failed = false;
+    }
+
+    /// The six limit words the flight model clamps against: F929's engine
+    /// failure zeroes them all, otherwise the saved words (object set-up's
+    /// values, less any destroyed thrusters).
+    pub fn limits(&self, stats: Option<&crate::ships::ShipStats>) -> ffe_core::thrust::Limits {
+        if self.damage.engine_failed {
+            return ffe_core::thrust::Limits::default();
+        }
+        self.damage
+            .limits()
+            .or_else(|| stats.map(crate::ships::ShipStats::limits))
+            .unwrap_or(crate::original_flight::FALLBACK_LIMITS)
+    }
+
+    /// The sum of the three thrust words, F938's engine load (`|x|+|y|+|z|`).
+    pub fn thrust_sum(&self, thrust_words: [i16; 3]) -> i32 {
+        thrust_words
+            .iter()
+            .fold(0i32, |sum, word| sum.wrapping_add(i32::from(*word).abs()))
+    }
+
+    /// F938 (`ffe.asm:70122`) for a whole-second event: shield recharge
+    /// (`max * seconds / 32`, halved without the Energy Booster) and the Hull
+    /// Auto-Repair System (`+0xc8` bit 31) adding `seconds` hull points up to the
+    /// full hull.
+    pub fn recharge(&mut self, seconds: u32, hull_full: u16) {
+        if self.shields[0] != self.shields[1] {
+            // F938: IMUL keeps the low dword, SAR is signed, the optional
+            // halving is logical, and the clamp compares the wrapped sum.
+            let mut added = (i32::from(self.shields[1]).wrapping_mul(seconds as i32) >> 5) as u32;
+            if !self.loadout.energy_booster() {
+                added >>= 1;
+            }
+            self.shields[0] =
+                if u32::from(self.shields[0]).wrapping_add(added) > u32::from(self.shields[1]) {
+                    self.shields[1]
+                } else {
+                    self.shields[0].wrapping_add(added as u16)
+                };
+        }
+        if hull_full != 0 && self.hull[1] == 0 {
+            // An uninitialised new ship is intact. F938 runs before the
+            // HUD's ensure_damage on the first frame; setting only the maximum
+            // would make that later call preserve a zero hull and trigger death.
+            self.hull = [hull_full, hull_full];
+        }
+        if self.loadout.hull_auto_repair() && self.hull[0] != hull_full {
+            let total = u32::from(self.hull[0]).wrapping_add(seconds) as i32;
+            self.hull[0] = if i32::from(hull_full) < total {
+                hull_full
+            } else {
+                self.hull[0].wrapping_add(seconds as u16)
+            };
+        }
+    }
+
+    /// F953's hull-damage tail (`ffe.asm:71289-71311`): a hit at least a
+    /// quarter of the remaining hull, or one whose proportional random draw
+    /// fires, calls F952's subsystem roll. The original's outer F952 test also
+    /// compares `F922(cargo space)` with `DATA_008889`; that word is the
+    /// player's combat score, which the port does not carry.
+    pub fn take_damage_with_systems(
+        &mut self,
+        damage: u32,
+        mass: u16,
+    ) -> (ffe_core::laser::Damage, Option<SystemEvent>) {
+        let result = self.take_damage(damage, mass);
+        if result != ffe_core::laser::Damage::Hull {
+            return (result, None);
+        }
+        let quarter = (u32::from(self.hull[0]) / 4).max(1);
+        let proportional = damage
+            .saturating_mul(0x8000)
+            .checked_div(quarter)
+            .unwrap_or(u32::MAX)
+            .min(0xffff);
+        if damage < quarter && self.rng.bounded(0x1_0000) >= proportional {
+            return (result, None);
+        }
+        let roll = self.rng.bounded(0x1_0000) as u16;
+        let thruster = self.rng.bounded(6) as u8;
+        (result, self.apply_subsystem_roll(roll, thruster))
+    }
+
+    /// [`Flight::take_damage_with_systems`] with explicit F950 draws, for tests
+    /// and for callers that keep their own random stream. The hull hit is
+    /// applied; the subsystem roll always runs.
+    pub fn take_damage_roll(
+        &mut self,
+        damage: u32,
+        mass: u16,
+        roll: u16,
+        thruster: u8,
+    ) -> (ffe_core::laser::Damage, Option<SystemEvent>) {
+        let result = self.take_damage(damage, mass);
+        if result != ffe_core::laser::Damage::Hull {
+            return (result, None);
+        }
+        (result, self.apply_subsystem_roll(roll, thruster))
+    }
+
+    /// F950 for one draw (`F1530` 0..0xffff) and thruster index (`F922(6)`).
+    pub fn apply_subsystem_roll(&mut self, roll: u16, thruster: u8) -> Option<SystemEvent> {
+        let event = if roll >= 0x5555 {
+            self.damage
+                .break_equipment(&mut self.loadout.general, &mut self.rng)
+                .map(SystemEvent::EquipmentDamaged)
+        } else if roll < 0x888 {
+            self.destroy_drive();
+            Some(SystemEvent::DriveDamaged)
+        } else if roll < 0x1c71 {
+            self.degrade_drive();
+            Some(SystemEvent::DriveDamaged)
+        } else if self.damage.break_thruster(usize::from(thruster)) {
+            Some(SystemEvent::ThrusterDamaged(thruster))
+        } else {
+            None
+        };
+        // F950/F944/F943 leave F929's empty-tank latch alone: only F289's
+        // refuel from the hold and F408's drive fitting clear it.
+        event
+    }
+
+    /// F946: `tonnes` of Rubbish into the hold (`DATA_008904`, a word added
+    /// with wrapping). The capacity (`DATA_008889`) and the tonnes used
+    /// (`DATA_008891`) rise by the same amount in the source; here capacity
+    /// follows the fitted drive's record (whose masses are `DATA_007210`'s) and
+    /// the tonnes used are the hold's sum.
+    fn add_rubbish(&mut self, tonnes: i32) {
+        let slot = ffe_core::hyperspace::RUBBISH;
+        self.hold.resize(self.hold.len().max(slot + 1), 0);
+        self.hold[slot] = self.hold[slot].wrapping_add(tonnes as u16);
+    }
+
+    /// F947 (and F934's drive branch): the drive is destroyed, its energy
+    /// gone, and its mass (`DATA_007210`) becomes Rubbish in the hold.
+    pub fn destroy_drive(&mut self) {
+        let class = usize::from(self.combat.drive);
+        self.combat.drive = 0;
+        self.loadout.drive = 0;
+        self.combat.energy = 0;
+        let mass = ffe_core::hyperspace::DRIVE_MASSES
+            .get(class)
+            .copied()
+            .unwrap_or(0);
+        self.add_rubbish(mass as i32);
+    }
+
+    /// F948: a fitted drive is reduced to class 1; its mass less class 1's
+    /// 4 t (`DATA_007210`) becomes Rubbish. No drive, no change.
+    pub fn degrade_drive(&mut self) {
+        let class = usize::from(self.combat.drive);
+        if class == 0 {
+            return;
+        }
+        self.combat.drive = 1;
+        self.loadout.drive = 1;
+        let mass = ffe_core::hyperspace::DRIVE_MASSES
+            .get(class)
+            .copied()
+            .unwrap_or(0);
+        self.add_rubbish(mass as i32 - 4);
+    }
+
+    /// F911: a mis-jump destroys the drive and leaves class 1 in its place; the
+    /// record's mass (`DATA_007188`) less 4 t becomes Rubbish when it is not
+    /// negative. (F911 stores that amount as the capacity with `mov`, where
+    /// F946 and F934 add it; the port keeps the capacity rule of the others,
+    /// see `docs/DEVIATIONS.md`.)
+    pub fn misjump_drive(&mut self) {
+        let class = usize::from(self.combat.drive);
+        let mass = ffe_core::hyperspace::DRIVE_RECORD_MASSES
+            .get(class)
+            .copied()
+            .unwrap_or(0) as i32
+            - 4;
+        if mass >= 0 {
+            self.add_rubbish(mass);
+        }
+        self.combat.drive = 1;
+        self.loadout.drive = 1;
+    }
+
+    /// F950's roll: two thirds break a fitted general item (F945/F933), then
+    /// the drive (F947/F948) and finally a thruster (F949) as the draw falls.
+    pub fn subsystem_roll(&mut self) -> Option<SystemEvent> {
+        let roll = self.rng.bounded(0x1_0000) as u16;
+        let thruster = self.rng.bounded(6) as u8;
+        self.apply_subsystem_roll(roll, thruster)
+    }
+
+    /// F929's fuel slot: hydrogen for drives below class 10, military fuel
+    /// (`ffe_core::hyperspace::MILITARY_FUEL`) from class 10 up.
+    pub fn fuel_slot(&self) -> usize {
+        if self.combat.drive >= ffe_core::hyperspace::MILITARY_CLASS as u8 {
+            ffe_core::hyperspace::MILITARY_FUEL
+        } else {
+            ffe_core::hyperspace::HYDROGEN
+        }
+    }
+
+    /// Burn one tonne of fuel from the hold. Returns false when the slot is
+    /// empty (F929's `+0x15a`/`+0x15c` test).
+    pub fn burn_fuel(&mut self) -> bool {
+        let slot = self.fuel_slot();
+        let Some(tonnes) = self.hold.get_mut(slot).filter(|tonnes| **tonnes > 0) else {
+            return false;
+        };
+        *tonnes -= 1;
+        if slot == ffe_core::hyperspace::MILITARY_FUEL {
+            // F929 exchanges one tonne for one tonne of waste; unlike hydrogen,
+            // military refuelling does not free cargo space.
+            self.hold.resize(
+                self.hold.len().max(ffe_core::hyperspace::RADIOACTIVES + 1),
+                0,
+            );
+            let waste = &mut self.hold[ffe_core::hyperspace::RADIOACTIVES];
+            *waste = waste.wrapping_add(1);
+        }
+        true
+    }
+
+    /// F289, the cargo page's Refuel button ('r'): stop with "Internal fuel
+    /// tank full" (`0x99e3`) within `0x1999999` of the drive's tank
+    /// (`DATA_005111`), do nothing without fuel, else burn a tonne (F929's
+    /// slots), clear the empty/engine-failure state and add `0x20000000`,
+    /// stopping at the tank with the same message.
+    pub fn refuel_from_hold(&mut self) -> Refuel {
+        let tank = FUEL_TANK
+            .get(usize::from(self.combat.drive))
+            .copied()
+            .unwrap_or(0);
+        let before = self.combat.energy;
+        if before >= tank.wrapping_sub(0x0199_9999) {
+            return Refuel::TankFull;
+        }
+        if !self.burn_fuel() {
+            return Refuel::NoFuel;
+        }
+        self.damage.fuel_empty = false;
+        self.damage.engine_failed = false;
+        let after = before.wrapping_add(crate::damage::ENERGY_PER_TONNE);
+        if tank >= after && before < after {
+            self.combat.energy = after;
+            Refuel::Refuelled { full: false }
+        } else {
+            self.combat.energy = tank;
+            Refuel::Refuelled { full: true }
+        }
+    }
+
+    /// F291's hold side of a jettison: one tonne of `commodity` leaves the
+    /// hold. False when there is none.
+    pub fn jettison(&mut self, commodity: usize) -> bool {
+        match self.hold.get_mut(commodity).filter(|tonnes| **tonnes > 0) {
+            Some(tonnes) => {
+                *tonnes -= 1;
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// F929 for the player: charge `cost` to the energy pool (`+0x11e`).
+    /// While the pool holds more than the cost it is paid and the six thrust
+    /// limits are restored from their stored copy (`DATA_008935`: the engine
+    /// works again). Otherwise the pool is emptied and the cost is not carried
+    /// over: with the Auto Refueller (`+0xc8` bit 1) and fuel in the hold one
+    /// tonne becomes `0x20000000` energy (hydrogen frees its tonne; military
+    /// fuel leaves a tonne of waste), the limits staying as they were. Without
+    /// either, the engine fails (the limits are zeroed) and, unless the latch
+    /// (`DATA_008860` bit 0) is already set, the latch is set and the result
+    /// asks for the "Internal Fuel Tank Empty" warning (0x9907).
+    pub fn charge_energy(&mut self, cost: u32) -> bool {
+        if self.combat.energy > cost {
+            self.combat.energy -= cost;
+            self.damage.engine_failed = false;
+            return false;
+        }
+        self.combat.energy = 0;
+        if self.loadout.auto_refueller() && self.burn_fuel() {
+            self.combat.energy = self
+                .combat
+                .energy
+                .wrapping_add(crate::damage::ENERGY_PER_TONNE);
+            return false;
+        }
+        self.damage.engine_failed = true;
+        if self.damage.fuel_empty {
+            return false;
+        }
+        self.damage.fuel_empty = true;
+        true
+    }
+
+    /// F930's shot through F929: the laser has already taken `cost` from a pool
+    /// that held `before` (`laser::fire` empties it when the cost is not less),
+    /// so this settles F929's two branches. Returns true for the warning.
+    pub fn charge_shot(&mut self, before: u32, cost: u32) -> bool {
+        self.combat.energy = before;
+        self.charge_energy(cost)
+    }
+
+    /// F938's thrust energy (`mass * sum |thrust words| >> 9 * seconds`) through
+    /// F929. Returns true when F929 asks for the empty-tank warning.
+    pub fn spend_thrust_energy(&mut self, seconds: u32, mass: u16, thrust_sum: i32) -> bool {
+        // F938 uses signed model mass and the low 32 bits of both IMULs.
+        let cost = (i32::from(mass as i16).wrapping_mul(thrust_sum) >> 9)
+            .wrapping_mul(seconds as i32) as u32;
+        self.charge_energy(cost)
+    }
+
+    /// F408's drive-service stamp when a drive is fitted: the drive's service
+    /// counter (`DATA_008924`) is 500 days, its service date (`DATA_008926`)
+    /// today, and F929's empty-tank latch is cleared.
+    pub fn drive_fitted(&mut self, day: u32) {
+        self.reset_service(Service::Drive, day);
+        self.damage.fuel_empty = false;
+    }
+
+    /// F933/F934's daily servicing: the counters fall by one a day; when a
+    /// 0..255 draw beats the counter, one fitted item (F933) or the drive
+    /// fails from lack of servicing.
+    pub fn service_day(&mut self, day: u32) -> Vec<SystemEvent> {
+        let last = *self.last_service_day.get_or_insert(day);
+        if day <= last {
+            return Vec::new();
+        }
+        self.last_service_day = Some(day);
+        let mut events = Vec::new();
+        for _ in 0..(day - last).min(4096) {
+            events.extend(self.service_events(86_400));
+        }
+        events
+    }
+
+    /// F934, called by event 6 before F938 in every player mode. This is a
+    /// signed countdown comparison and one renewal per dispatch, not a calendar
+    /// day loop. F1530 low bytes and wrapping service counters are intentional.
+    pub fn service_events(&mut self, seconds: u32) -> Vec<SystemEvent> {
+        let left = self.damage.service_timer;
+        if (seconds as i32) < (left as i32) {
+            self.damage.service_timer = left.wrapping_sub(seconds);
+            return Vec::new();
+        }
+        self.damage.service_timer = left.wrapping_add(0x1a5e0).wrapping_sub(seconds);
+        self.damage.service_counters[0] = self.damage.service_counters[0].wrapping_sub(1);
+        self.damage.service_counters[1] = self.damage.service_counters[1].wrapping_sub(1);
+        if self.rng.advance() & 0xff > self.damage.service_counters[0] {
+            if let Some(bit) = self
+                .damage
+                .break_equipment(&mut self.loadout.general, &mut self.rng)
+            {
+                return vec![SystemEvent::EquipmentFailure(bit)];
+            }
+        }
+        if self.rng.advance() & 0xff > self.damage.service_counters[1] && self.combat.drive != 0 {
+            self.destroy_drive();
+            return vec![SystemEvent::DriveFailure];
+        }
+        Vec::new()
+    }
+
+    /// F1007's mode-independent event-6 work. The active module may be a map,
+    /// station, or parked view; only the source mode-2 branch suppresses F938.
+    pub fn player_events(
+        &mut self,
+        seconds: u32,
+        mode: u8,
+        stats: &crate::ships::ShipStats,
+        thrust: i32,
+    ) -> (Vec<SystemEvent>, bool) {
+        if seconds == 0 {
+            return (Vec::new(), false);
+        }
+        self.hull_display = self.hull_display.saturating_sub(seconds & 0xffff);
+        self.hull_heat = crate::damage::cool(self.hull_heat, seconds, self.heat_shielded());
+        let failures = self.service_events(seconds);
+        let events = crate::combat::f938_events(seconds, mode);
+        self.ensure_thrusters(stats);
+        self.combat.cooling_booster = self.loadout.cooling_booster();
+        self.combat.tick(0, events);
+        self.recharge(events, stats.mass.saturating_mul(4));
+        let warning = events != 0 && self.spend_thrust_energy(events, stats.mass, thrust);
+        (failures, warning)
+    }
+
+    /// F449/F450/F451/F452: reset one service's counter to 500 days and date
+    /// it today. The counters are `[DATA_008923 equipment, DATA_008924 drive]`
+    /// and the dates `[DATA_008926 drive, DATA_008925 equipment]`.
+    pub fn reset_service(&mut self, service: Service, day: u32) {
+        let (counter, date) = match service {
+            Service::Equipment => (0, 1),
+            Service::Drive => (1, 0),
+        };
+        self.damage.service_counters[counter] = crate::damage::SERVICE_DAYS;
+        self.service_days[date] = day;
+    }
+
+    /// F446: repair one general-equipment bit (clear `+0xcc`, set `+0xc8`).
+    pub fn repair_equipment(&mut self, bit: u8) -> bool {
+        self.damage.repair_equipment(bit, &mut self.loadout.general)
+    }
+
+    /// F447/F448: repair `points` hull points, up to the full hull.
+    pub fn repair_hull(&mut self, points: u16) {
+        if self.hull[1] != 0 {
+            self.hull[0] = self.hull[0].saturating_add(points).min(self.hull[1]);
+        }
+    }
+
+    /// F1033: add one tonne of hydrogen to the hold, if there is space.
+    /// Returns the new hydrogen count.
+    pub fn scoop_hydrogen(&mut self, capacity: u32) -> Option<u16> {
+        let used: u32 = self.hold.iter().map(|tonnes| u32::from(*tonnes)).sum();
+        if used >= capacity {
+            return None;
+        }
+        if self.hold.len() < ffe_core::market::NAMES {
+            self.hold.resize(ffe_core::market::NAMES, 0);
+        }
+        let slot = &mut self.hold[ffe_core::hyperspace::HYDROGEN];
+        *slot = slot.saturating_add(1);
+        Some(*slot)
+    }
+
+    /// Atmospheric Shielding (`ship+0xcb & 0x40`, general bit 30).
+    pub fn heat_shielded(&self) -> bool {
+        self.loadout.general & (1 << 30) != 0
+    }
+
+    /// F953 with -1: the hull burnt up (F1014/F1033's overheating).
+    pub fn burn_up(&mut self) {
+        if self.hull[1] == 0 {
+            self.hull = [0, 1];
+        }
+        self.hull[0] = 0;
+    }
+
+    /// Whether the player's hull has been used up (F942 destroys the object).
+    pub fn destroyed(&self) -> bool {
+        self.hull[1] != 0 && self.hull[0] == 0
+    }
+
+    /// F953 (`ffe.asm:71190`) on the player: the shields absorb first (`+0xe0`
+    /// against `+0xe2`), then the hull (`+0xe4`, mass * 4). `mass` is the ship
+    /// statistics' mass word. The first hit records the full hull from it, so a
+    /// save from before the damage model (hull `[0, 0]`) still shows F1099's
+    /// hull line; a fitted shield generator fills the shield maximum when the
+    /// frame has not run [`Flight::ensure_damage`] yet.
+    pub fn take_damage(&mut self, damage: u32, mass: u16) -> ffe_core::laser::Damage {
+        let full = mass.max(1).saturating_mul(4);
+        if self.hull[1] == 0 {
+            self.hull = [full, full];
+        }
+        if self.shields[1] == 0 {
+            let shield_max = self.loadout.shield_max();
+            if shield_max != 0 {
+                self.shields = [shield_max, shield_max];
+            }
+        }
+        self.apply_hit(damage)
+    }
+
+    /// The equipment slice's entry point: [`Flight::ensure_damage`] has already
+    /// filled the words, so this applies one F953 hit to them. Kept for its
+    /// callers and tests; it shares [`Flight::take_damage`]'s path.
+    pub fn hit(&mut self, damage: u32) -> ffe_core::laser::Damage {
+        self.apply_hit(damage)
+    }
+
+    fn apply_hit(&mut self, damage: u32) -> ffe_core::laser::Damage {
+        // F953's message 11 (event 1) reaches F1102, which shows the hull line
+        // for 30 seconds whenever the player's own ship is hit.
+        self.hull_display = crate::hud::HULL_DISPLAY_SECONDS;
+        let mut state = ffe_core::laser::DamageState {
+            shields: self.shields[0].min(self.shields[1]),
+            shields_max: self.shields[1],
+            hull: self.hull[0].min(self.hull[1]),
+            mass: self.hull[1] / 4,
+        };
+        let result = ffe_core::laser::apply_damage(&mut state, damage);
+        self.shields[0] = state.shields;
+        self.hull[0] = state.hull;
+        result
+    }
+    /// F953's amount from F575's surface contact: the damage the bounce handed
+    /// to F953 (`+0xc` in `DATA_008548`), applied to the shields and then the
+    /// hull like a laser hit. `None` when the contact carried no damage (a soft
+    /// landing, or a touch whose F953 amount was zero or negative: F953 raises a
+    /// negative amount to `0x7fffffff`, but F575 only passes the bounce's
+    /// non-negative product, and -1 comes from the missile branch of another
+    /// body, not the player's).
+    pub fn take_contact_damage(
+        &mut self,
+        contact: &ffe_core::collision::Contact,
+        mass: u16,
+    ) -> Option<ffe_core::laser::Damage> {
+        match contact.damage {
+            damage if damage > 0 => {
+                Some(self.take_damage(damage.min(i64::from(u32::MAX)) as u32, mass))
+            }
+            _ => None,
+        }
+    }
+}
+
+fn length(vector: [f64; 3]) -> f64 {
+    vector
+        .iter()
+        .map(|number| number * number)
+        .sum::<f64>()
+        .sqrt()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ffe_core::collision::Contact;
+    use ffe_core::laser::Damage;
+
+    /// F1102: any F953 hit on the player's ship, shield-only included, starts
+    /// the 30-second hull line; a new game has none (`DATA_008886 == 0`).
+    #[test]
+    fn a_bought_hull_has_a_tonne_of_energy_and_its_own_thrusters() {
+        // A purchase used to leave the energy pool at zero: the first thrust
+        // failed the engine (zero limits), so the set speed moved and the ship
+        // stayed on the pad.
+        let mut flight = Flight {
+            combat: crate::combat::Combat::new_game(),
+            ..Flight::default()
+        };
+        flight.damage.thrusters = Some([1; 6]);
+        flight.damage.engine_failed = true;
+        flight.install_hull_combat(2);
+        assert_eq!(flight.combat.energy, crate::damage::ENERGY_PER_TONNE);
+        assert_eq!(flight.combat.lasers, [0; 4]);
+        assert_eq!(flight.combat.missiles, [0; ffe_core::missile::PYLONS]);
+        assert_eq!(flight.combat.drive, 2);
+        assert_eq!(flight.damage.thrusters, None);
+        assert!(!flight.damage.engine_failed);
+        // A second of thrust at a Turner's mass is paid from the pool.
+        assert!(!flight.spend_thrust_energy(1, 300, 12_000));
+        assert!(!flight.damage.engine_failed);
+    }
+
+    #[test]
+    fn a_hit_shows_the_hull_line_for_thirty_seconds() {
+        let mut flight = Flight::default();
+        assert_eq!(flight.hull_display, 0);
+        flight.shields = [100, 100];
+        assert_eq!(flight.take_damage(10, 100), Damage::Shields);
+        assert_eq!(flight.hull_display, 30);
+    }
+
+    #[test]
+    fn f289_refuels_a_tonne_up_to_the_drive_tank() {
+        let hydrogen = ffe_core::hyperspace::HYDROGEN;
+        let mut state = Flight::free_flight();
+        state.combat.drive = 3;
+        state.hold = vec![0; ffe_core::market::NAMES];
+        state.hold[hydrogen] = 2;
+        state.combat.energy = 0;
+        // No room left: the message, and nothing burned.
+        state.combat.energy = FUEL_TANK[3] - 0x0100_0000;
+        assert_eq!(state.refuel_from_hold(), Refuel::TankFull);
+        assert_eq!(state.hold[hydrogen], 2);
+        // A tonne goes in and the hold loses it.
+        state.combat.energy = 0;
+        assert_eq!(state.refuel_from_hold(), Refuel::Refuelled { full: false });
+        assert_eq!(state.combat.energy, 0x2000_0000);
+        assert_eq!(state.hold[hydrogen], 1);
+        // The next tonne would pass the class 3 tank: it stops there.
+        state.combat.energy = 0x3000_0000;
+        assert_eq!(state.refuel_from_hold(), Refuel::Refuelled { full: true });
+        assert_eq!(state.combat.energy, FUEL_TANK[3]);
+        assert_eq!(state.hold[hydrogen], 0);
+        // An empty hold does nothing.
+        state.combat.energy = 0;
+        assert_eq!(state.refuel_from_hold(), Refuel::NoFuel);
+        assert_eq!(state.combat.energy, 0);
+    }
+
+    #[test]
+    fn f291_jettisons_one_tonne() {
+        let mut state = Flight::free_flight();
+        state.hold = vec![0; ffe_core::market::NAMES];
+        state.hold[4] = 1;
+        assert!(state.jettison(4));
+        assert_eq!(state.hold[4], 0);
+        assert!(!state.jettison(4));
+    }
+
+    /// F575's bounce damage reaches F953 as `contact.damage`; the Saker's hull is
+    /// the descriptor mass (28) times four.
+    fn contact(damage: i64) -> Contact {
+        Contact {
+            flags: 0x83,
+            distance: -1,
+            object: 2,
+            pad: 0,
+            touch: Some(ffe_core::landing::Touch::Crash {
+                damage: damage as i32,
+            }),
+            damage,
+        }
+    }
+
+    fn saker() -> Flight {
+        let mut state = Flight {
+            mode: Mode::Flight,
+            ..Flight::default()
+        };
+        state.ensure_damage(112);
+        state
+    }
+
+    #[test]
+    fn a_surface_crash_applies_f953_to_the_hull() {
+        let mut state = saker();
+        // The bounce's minimum for a 28 t hull is the mass word itself; a
+        // sub-lethal hit takes it off the hull (the Saker has no generator).
+        assert_eq!(
+            state.take_contact_damage(&contact(28), 28),
+            Some(Damage::Hull)
+        );
+        assert_eq!(state.hull, [84, 112]);
+        assert!(!state.destroyed());
+    }
+
+    #[test]
+    fn shields_absorb_the_crash_before_the_hull() {
+        let mut state = saker();
+        state.shields = [64, 64];
+        assert_eq!(
+            state.take_contact_damage(&contact(80), 28),
+            Some(Damage::Hull)
+        );
+        assert_eq!(state.shields, [0, 64]);
+        assert_eq!(state.hull, [96, 112]);
+        // At or below the current shields nothing reaches the hull.
+        let mut state = saker();
+        state.shields = [64, 64];
+        assert_eq!(
+            state.take_contact_damage(&contact(64), 28),
+            Some(Damage::Shields)
+        );
+        assert_eq!((state.shields, state.hull), ([0, 64], [112, 112]));
+    }
+
+    #[test]
+    fn a_lethal_crash_uses_the_hull_up_and_destroys_the_ship() {
+        // A hull-speed impact (about 2,200 velocity units) gives F953 more than
+        // the Saker's 112 t of hull: F942 destroys the object and F1104 starts
+        // the death hold.
+        let mut state = saker();
+        assert_eq!(
+            state.take_contact_damage(&contact(112), 28),
+            Some(Damage::Destroyed)
+        );
+        assert!(state.destroyed());
+        assert_eq!(state.hull, [0, 112]);
+        assert!(state.death.is_none(), "F1104 is the caller's step");
+    }
+
+    #[test]
+    fn a_landing_or_an_empty_touch_deals_no_damage() {
+        let mut state = saker();
+        let mut landing = contact(0);
+        landing.flags = 0x42;
+        landing.touch = Some(ffe_core::landing::Touch::Landing);
+        assert_eq!(state.take_contact_damage(&landing, 28), None);
+        // The missile branch of another body passes F953 -1; the player's body
+        // never takes that path, and F575's squeeze is not damage to this ship.
+        assert_eq!(state.take_contact_damage(&contact(-1), 28), None);
+        assert_eq!(state.hull, [112, 112]);
+        assert!(!state.destroyed());
+    }
+
+    /// PAR-03: the drive byte (`+0xd0`) is the one drive state; destroying,
+    /// degrading, a failed service and a mis-jump each set it with the
+    /// equipment copy, and leave the drive's mass in the hold as Rubbish (F946,
+    /// F911), so the hold's free space stays what it was (F947/F948/F934).
+    fn with_drive(class: u8) -> Flight {
+        let mut state = Flight::default();
+        state.combat.drive = class;
+        state.loadout.drive = class;
+        state.combat.energy = 0x2000_0000;
+        state.hold = vec![0; 32];
+        state
+    }
+
+    /// The free hold as the market sees it: capacity from the fitted loadout
+    /// against a 100 t ship delivered with `delivered`'s drive, less the tonnes used.
+    fn free(state: &Flight, delivered: u8) -> i32 {
+        let base = ffe_core::equipment::Loadout {
+            drive: delivered,
+            ..ffe_core::equipment::Loadout::default()
+        };
+        let capacity = state.loadout.capacity(100, &base, &state.combat.lasers);
+        let used: i32 = state.hold.iter().map(|t| i32::from(*t)).sum();
+        capacity - used
+    }
+
+    #[test]
+    fn a_destroyed_drive_becomes_rubbish_and_burns_nothing() {
+        use ffe_core::hyperspace::{HYDROGEN, MILITARY_FUEL, RUBBISH};
+        for class in 1..=13u8 {
+            let mut state = with_drive(class);
+            let before = free(&state, class);
+            state.destroy_drive();
+            assert_eq!((state.combat.drive, state.loadout.drive), (0, 0));
+            assert_eq!(state.combat.energy, 0);
+            assert_eq!(
+                u32::from(state.hold[RUBBISH]),
+                ffe_core::hyperspace::DRIVE_MASSES[usize::from(class)],
+                "class {class}"
+            );
+            assert_eq!(
+                free(&state, class),
+                before,
+                "class {class}: F946 adds to both"
+            );
+            assert_eq!(state.fuel_slot(), HYDROGEN);
+            let _ = MILITARY_FUEL;
+        }
+    }
+
+    #[test]
+    fn a_degraded_drive_is_class_1_and_the_rest_rubbish() {
+        use ffe_core::hyperspace::{HYDROGEN, MILITARY_FUEL, RUBBISH};
+        let mut state = with_drive(12);
+        assert_eq!(state.fuel_slot(), MILITARY_FUEL);
+        let before = free(&state, 12);
+        state.degrade_drive();
+        assert_eq!((state.combat.drive, state.loadout.drive), (1, 1));
+        assert_eq!(state.hold[RUBBISH], 24 - 4);
+        assert_eq!(free(&state, 12), before);
+        assert_eq!(state.fuel_slot(), HYDROGEN, "class 1 burns hydrogen");
+        assert_eq!(state.combat.energy, 0x2000_0000, "F948 keeps the energy");
+        // No drive: F948 changes nothing.
+        let mut empty = with_drive(0);
+        empty.degrade_drive();
+        assert_eq!((empty.combat.drive, empty.hold[RUBBISH]), (0, 0));
+        // Through F950's roll: below 0x888 destroys, below 0x1c71 degrades.
+        let mut rolled = with_drive(3);
+        assert_eq!(
+            rolled.apply_subsystem_roll(0x887, 0),
+            Some(SystemEvent::DriveDamaged)
+        );
+        assert_eq!((rolled.combat.drive, rolled.hold[RUBBISH]), (0, 25));
+        let mut rolled = with_drive(3);
+        assert_eq!(
+            rolled.apply_subsystem_roll(0x1c70, 0),
+            Some(SystemEvent::DriveDamaged)
+        );
+        assert_eq!((rolled.combat.drive, rolled.hold[RUBBISH]), (1, 21));
+    }
+
+    #[test]
+    fn daily_service_initializes_once_and_counts_each_day_once() {
+        let mut state = with_drive(4);
+        state.damage.service_counters = [500; 2];
+        let rng = state.rng;
+        assert!(state.service_day(100).is_empty());
+        assert_eq!(state.last_service_day, Some(100));
+        assert_eq!(state.damage.service_counters, [500; 2]);
+        assert_eq!(state.rng, rng);
+        assert!(state.service_day(101).is_empty());
+        assert_eq!(state.damage.service_counters, [499; 2]);
+        let rng = state.rng;
+        assert!(state.service_day(101).is_empty());
+        assert!(state.service_day(100).is_empty());
+        assert_eq!(state.damage.service_counters, [499; 2]);
+        assert_eq!(state.rng, rng);
+    }
+
+    #[test]
+    fn a_failed_service_destroys_the_drive() {
+        use ffe_core::hyperspace::RUBBISH;
+        let mut state = with_drive(4);
+        // The drive's counter at zero: every 0..255 draw but 0 beats it.
+        state.damage.service_counters = [u32::MAX, 1];
+        state.last_service_day = Some(0);
+        let mut failed = false;
+        for day in 1..=8 {
+            let events = state.service_day(day);
+            if events.contains(&SystemEvent::DriveFailure) {
+                failed = true;
+                break;
+            }
+        }
+        assert!(failed);
+        assert_eq!(
+            (state.combat.drive, state.loadout.drive, state.combat.energy),
+            (0, 0, 0)
+        );
+        assert_eq!(state.hold[RUBBISH], 45);
+    }
+
+    #[test]
+    fn a_misjump_leaves_class_1_and_the_records_mass_less_4() {
+        use ffe_core::hyperspace::RUBBISH;
+        // F911 reads DATA_007188's record: class 3 weighs 12 t there.
+        let mut state = with_drive(3);
+        state.misjump_drive();
+        assert_eq!((state.combat.drive, state.loadout.drive), (1, 1));
+        assert_eq!(state.hold[RUBBISH], 12 - 4);
+        assert_eq!(state.combat.energy, 0x2000_0000, "F911 keeps the energy");
+        // Class 1: nothing left over.
+        let mut small = with_drive(1);
+        small.misjump_drive();
+        assert_eq!((small.combat.drive, small.hold[RUBBISH]), (1, 0));
+    }
+
+    #[test]
+    fn the_drive_and_its_rubbish_survive_a_save() {
+        use ffe_core::hyperspace::RUBBISH;
+        let mut state = with_drive(5);
+        state.degrade_drive();
+        let json = serde_json::to_string(&state).unwrap();
+        let loaded: Flight = serde_json::from_str(&json).unwrap();
+        assert_eq!((loaded.combat.drive, loaded.loadout.drive), (1, 1));
+        assert_eq!(loaded.hold[RUBBISH], 80 - 4);
+    }
+}

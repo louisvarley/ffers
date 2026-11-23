@@ -1,0 +1,509 @@
+//! The CD 1.01 videos, loaded from the `FMVs` folder beside the data root.
+//!
+//! The launcher (or `ffe-tools export-media`) copies the CD's `DATA\*.AVI` and
+//! `*.BMP` into `FMVs` with a `manifest.json` of names, sizes and SHA-256
+//! digests. The library is offered only when the game's content was built from
+//! the CD 1.01 executable, so a floppy installation never picks up another
+//! release's videos. Each clip is checked against the manifest's size before
+//! [`ffe_convert::avi::decode_avi`] decodes it.
+//!
+//! The station screens choose the clip ([`ffe_core::fmv_select`], JJFFE's
+//! F333/F382/F384/F442), and [`Player`] shows it as F120 does: the 120 x 120
+//! picture at (1, 17) of the 320 x 200 screen at the clip's own rate (15
+//! frames a second), its sound beside the effects, until it ends or any key or
+//! click ends it early (F120 hands that input on to the screen).
+
+use ffe_convert::avi::{decode_avi, Video, MAX_AVI_BYTES};
+use serde::Deserialize;
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+
+/// The source profile whose installation has videos.
+pub const CD_PROFILE: &str = "ffe-cd-1.01-en";
+/// The folder name beside the data root.
+pub const FOLDER: &str = "FMVs";
+/// Where F120 draws the picture (`FUNC_extravideo`'s x 1, y 0x11).
+pub const ORIGIN: (usize, usize) = (1, 0x11);
+/// The largest manifest read.
+const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
+
+fn is_avi(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|extension| extension.eq_ignore_ascii_case("avi"))
+}
+
+/// How many `*.AVI` files are directly inside `dir` (0 when it cannot be read).
+pub fn count_avi(dir: &Path) -> usize {
+    std::fs::read_dir(dir).map_or(0, |entries| {
+        entries
+            .filter_map(Result::ok)
+            .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
+            .filter(|entry| is_avi(&entry.path()))
+            .count()
+    })
+}
+
+/// The `DATA` folder of an installed game (the CD's videos live there), found
+/// without regard to case.
+pub fn data_folder(game: &Path) -> Option<PathBuf> {
+    std::fs::read_dir(game)
+        .ok()?
+        .filter_map(Result::ok)
+        .find(|entry| {
+            entry.file_type().is_ok_and(|kind| kind.is_dir())
+                && entry
+                    .file_name()
+                    .to_string_lossy()
+                    .eq_ignore_ascii_case("DATA")
+        })
+        .map(|entry| entry.path())
+}
+
+/// The folder that holds the clips for a folder the player picked: the folder
+/// itself when it has videos, else its `DATA` child when that has some, else
+/// the picked folder unchanged.
+pub fn video_folder(picked: &Path) -> PathBuf {
+    if count_avi(picked) > 0 {
+        return picked.to_path_buf();
+    }
+    match data_folder(picked) {
+        Some(data) if count_avi(&data) > 0 => data,
+        _ => picked.to_path_buf(),
+    }
+}
+
+/// Where the game's videos are: the folder chosen with `--videos` (resolved by
+/// [`video_folder`]), else the installation's own `DATA` folder, else the older
+/// `FMVs` copy beside the data root. `Ok(None)`: none found (the videos are
+/// optional); `Err`: a chosen or listed folder is unusable.
+pub fn locate(
+    root: &Path,
+    game: &Path,
+    chosen: Option<&Path>,
+    profile: &str,
+) -> Result<Option<Library>, String> {
+    if let Some(chosen) = chosen {
+        let folder = video_folder(chosen);
+        return match Library::from_dir(&folder)? {
+            Some(library) => Ok(Some(library)),
+            None => Err(format!("{} has no AVI files", folder.display())),
+        };
+    }
+    if let Some(data) = data_folder(game) {
+        if let Some(library) = Library::from_dir(&data)? {
+            return Ok(Some(library));
+        }
+    }
+    Library::find(root, profile)
+}
+
+#[derive(Deserialize)]
+struct Manifest {
+    files: Vec<ManifestFile>,
+}
+
+#[derive(Deserialize)]
+struct ManifestFile {
+    path: String,
+    size: u64,
+}
+
+/// The CD's videos: clip name (upper case, no extension) to file and size.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Library {
+    dir: PathBuf,
+    clips: BTreeMap<String, (PathBuf, u64)>,
+}
+
+impl Library {
+    /// The library for content built from `profile`, if that is the CD release
+    /// and `root/FMVs/manifest.json` lists videos that are all present with
+    /// their recorded sizes. `Ok(None)`: no videos apply (not the CD, or no
+    /// folder). `Err`: the folder is there but does not match its manifest.
+    pub fn find(root: &Path, profile: &str) -> Result<Option<Library>, String> {
+        if profile != CD_PROFILE {
+            return Ok(None);
+        }
+        let dir = root.join(FOLDER);
+        let manifest = dir.join("manifest.json");
+        if !manifest.is_file() {
+            return Ok(None);
+        }
+        let size = std::fs::metadata(&manifest)
+            .map_err(|error| format!("{}: {error}", manifest.display()))?
+            .len();
+        if size > MAX_MANIFEST_BYTES {
+            return Err(format!("{} is too large", manifest.display()));
+        }
+        let text = std::fs::read_to_string(&manifest)
+            .map_err(|error| format!("{}: {error}", manifest.display()))?;
+        let parsed: Manifest = serde_json::from_str(&text)
+            .map_err(|error| format!("{}: {error}", manifest.display()))?;
+        let mut clips = BTreeMap::new();
+        for file in parsed.files {
+            let name = Path::new(&file.path);
+            let is_video = name
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("avi"));
+            if !is_video {
+                continue;
+            }
+            // Manifest entries are bare file names; anything else is refused.
+            if name.components().count() != 1 {
+                return Err(format!(
+                    "{}: {} is not a file name",
+                    manifest.display(),
+                    file.path
+                ));
+            }
+            let path = dir.join(name);
+            let actual = std::fs::metadata(&path)
+                .map_err(|error| format!("{}: {error}", path.display()))?
+                .len();
+            if actual != file.size {
+                return Err(format!(
+                    "{} is {actual} bytes, not the {} the manifest records",
+                    path.display(),
+                    file.size
+                ));
+            }
+            let stem = name
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .ok_or_else(|| format!("{}: unreadable name", file.path))?
+                .to_ascii_uppercase();
+            clips.insert(stem, (path, file.size));
+        }
+        if clips.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Library { dir, clips }))
+    }
+
+    /// The library of every `*.AVI` directly inside `dir`. No manifest is
+    /// needed: this reads a CD's `DATA` folder (or any folder of its clips)
+    /// where it is. `Ok(None)`: the folder has no videos. Names that are not
+    /// plain file names are skipped; files are never copied or changed.
+    pub fn from_dir(dir: &Path) -> Result<Option<Library>, String> {
+        let mut clips = BTreeMap::new();
+        for entry in
+            std::fs::read_dir(dir).map_err(|error| format!("{}: {error}", dir.display()))?
+        {
+            let Ok(entry) = entry else { continue };
+            if !entry.file_type().is_ok_and(|kind| kind.is_file()) {
+                continue;
+            }
+            let path = entry.path();
+            if !is_avi(&path) {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let size = entry
+                .metadata()
+                .map_err(|error| format!("{}: {error}", path.display()))?
+                .len();
+            clips.insert(stem.to_ascii_uppercase(), (path, size));
+        }
+        if clips.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(Library {
+            dir: dir.to_path_buf(),
+            clips,
+        }))
+    }
+
+    pub fn dir(&self) -> &Path {
+        &self.dir
+    }
+
+    pub fn len(&self) -> usize {
+        self.clips.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.clips.is_empty()
+    }
+
+    /// Whether clip `name` (`BB1`, `ST12`, case-insensitive) is present.
+    pub fn contains(&self, name: &str) -> bool {
+        self.clips.contains_key(&name.to_ascii_uppercase())
+    }
+
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.clips.keys().map(String::as_str)
+    }
+
+    /// Read and decode clip `name`.
+    pub fn load(&self, name: &str) -> Result<Video, String> {
+        let (path, size) = self
+            .clips
+            .get(&name.to_ascii_uppercase())
+            .ok_or_else(|| format!("no video {name} in {}", self.dir.display()))?;
+        if *size > MAX_AVI_BYTES as u64 {
+            return Err(format!(
+                "{} is larger than the decoder accepts",
+                path.display()
+            ));
+        }
+        let bytes = std::fs::read(path).map_err(|error| format!("{}: {error}", path.display()))?;
+        if bytes.len() as u64 != *size {
+            return Err(format!(
+                "{} changed size since it was listed",
+                path.display()
+            ));
+        }
+        decode_avi(&bytes).map_err(|error| format!("{}: {error}", path.display()))
+    }
+}
+
+/// A clip being shown, advanced by the game loop's real time.
+#[derive(Debug, Clone)]
+pub struct Player {
+    name: String,
+    video: Video,
+    seconds: f64,
+    /// The palette as the screen's `0x00RRGGBB` words, `None` for a colour
+    /// F121 leaves transparent.
+    colours: Vec<Option<u32>>,
+}
+
+/// Whether F121 draws a clip colour. F115 cuts each palette entry to four bits
+/// a channel (`>> 4`) and maps the 12-bit colour through `DATA_007770` (the
+/// fixed colour map) to a game palette index; F121 skips any pixel whose
+/// index is 0. In the fixed map only colour 0x000 is index 0, so a colour is
+/// transparent when all three channels are below 16.
+pub fn transparent([r, g, b]: [u8; 3]) -> bool {
+    r >> 4 == 0 && g >> 4 == 0 && b >> 4 == 0
+}
+
+impl Player {
+    pub fn new(name: &str, video: Video) -> Self {
+        let colours = video
+            .palette
+            .iter()
+            .map(|&rgb| {
+                let [r, g, b] = rgb;
+                (!transparent(rgb)).then_some(u32::from(r) << 16 | u32::from(g) << 8 | u32::from(b))
+            })
+            .collect();
+        Player {
+            name: name.to_owned(),
+            video,
+            seconds: 0.0,
+            colours,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// The clip's sound as 16-bit mono samples at its rate, if it has any at
+    /// the mixer's 22,050 Hz.
+    pub fn sound(&self) -> Option<std::sync::Arc<Vec<i16>>> {
+        let audio = self.video.audio.as_ref()?;
+        if audio.channels != 1 || audio.bits != 16 || audio.rate != 22_050 {
+            return None;
+        }
+        Some(std::sync::Arc::new(
+            audio
+                .pcm
+                .chunks_exact(2)
+                .map(|pair| i16::from_le_bytes([pair[0], pair[1]]))
+                .collect(),
+        ))
+    }
+
+    /// Move on by `seconds` of real time. False once the last frame's time
+    /// has passed.
+    pub fn advance(&mut self, seconds: f64) -> bool {
+        self.seconds += seconds.max(0.0);
+        !self.finished()
+    }
+
+    pub fn finished(&self) -> bool {
+        self.seconds >= self.video.seconds()
+    }
+
+    /// The frame to show now.
+    pub fn frame_index(&self) -> usize {
+        let per_frame = f64::from(self.video.frame_micros) / 1_000_000.0;
+        ((self.seconds / per_frame) as usize).min(self.video.frames.len() - 1)
+    }
+
+    /// Draw the current frame into a `width`-wide screen of `0x00RRGGBB`
+    /// words with its top-left at [`ORIGIN`], clipped to the screen. The
+    /// [`transparent`] colours leave the screen beneath.
+    pub fn draw(&self, screen: &mut [u32], width: usize) {
+        let frame = &self.video.frames[self.frame_index()];
+        let (w, h) = (self.video.width as usize, self.video.height as usize);
+        let height = screen.len() / width.max(1);
+        for row in 0..h {
+            let y = ORIGIN.1 + row;
+            if y >= height {
+                break;
+            }
+            for column in 0..w.min(width.saturating_sub(ORIGIN.0)) {
+                let index = frame[row * w + column];
+                if let Some(colour) = self.colours[usize::from(index)] {
+                    screen[y * width + ORIGIN.0 + column] = colour;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn folder(files: &[(&str, &[u8])], manifest: &str) -> tempfile::TempDir {
+        let root = tempfile::tempdir().unwrap();
+        let dir = root.path().join(FOLDER);
+        std::fs::create_dir(&dir).unwrap();
+        for (name, bytes) in files {
+            std::fs::write(dir.join(name), bytes).unwrap();
+        }
+        std::fs::write(dir.join("manifest.json"), manifest).unwrap();
+        root
+    }
+
+    #[test]
+    fn only_the_cd_profile_with_a_matching_folder_has_videos() {
+        let root = folder(
+            &[("BB1.AVI", b"abcd"), ("BB1.BMP", b"xy")],
+            r#"{"format":"ffe-cd-media","version":1,"files":[
+                {"path":"BB1.AVI","size":4,"sha256":""},
+                {"path":"BB1.BMP","size":2,"sha256":""}]}"#,
+        );
+        let library = Library::find(root.path(), CD_PROFILE).unwrap().unwrap();
+        assert_eq!(library.len(), 1);
+        assert!(library.contains("bb1"));
+        // Not a decodable clip: reported, not played.
+        assert!(library.load("BB1").is_err());
+        assert!(library.load("ST1").is_err());
+        // The floppy release never takes the CD's videos.
+        assert_eq!(
+            Library::find(root.path(), "ffe-floppy-1.02-en").unwrap(),
+            None
+        );
+        // No folder: nothing to play.
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(Library::find(empty.path(), CD_PROFILE).unwrap(), None);
+    }
+
+    #[test]
+    fn videos_are_read_in_place_from_a_data_folder_or_a_chosen_one() {
+        let game = tempfile::tempdir().unwrap();
+        let root = tempfile::tempdir().unwrap();
+        // No DATA folder (a floppy install) and no choice: nothing to play.
+        assert!(locate(root.path(), game.path(), None, "ffe-floppy-1.02-en")
+            .unwrap()
+            .is_none());
+        // The installation's own DATA folder is used where it is, in any case.
+        let data = game.path().join("Data");
+        std::fs::create_dir(&data).unwrap();
+        std::fs::write(data.join("BB1.avi"), b"abcd").unwrap();
+        std::fs::write(data.join("BB1.BMP"), b"xy").unwrap();
+        std::fs::write(data.join("ST2.AVI"), b"ab").unwrap();
+        assert_eq!(count_avi(&data), 2);
+        let found = locate(root.path(), game.path(), None, "ffe-floppy-1.02-en")
+            .unwrap()
+            .unwrap();
+        assert_eq!(found.len(), 2);
+        assert!(found.contains("bb1") && found.contains("ST2"));
+        assert_eq!(found.dir(), data.as_path());
+        // A chosen folder wins, and a CD root resolves to its DATA folder.
+        let cd = tempfile::tempdir().unwrap();
+        let cd_data = cd.path().join("DATA");
+        std::fs::create_dir(&cd_data).unwrap();
+        std::fs::write(cd_data.join("G1.AVI"), b"x").unwrap();
+        assert_eq!(video_folder(cd.path()), cd_data);
+        let chosen = locate(
+            root.path(),
+            game.path(),
+            Some(cd.path()),
+            "ffe-floppy-1.02-en",
+        )
+        .unwrap()
+        .unwrap();
+        assert_eq!(chosen.len(), 1);
+        assert!(chosen.contains("G1"));
+        // A chosen folder without videos is reported, not ignored.
+        let empty = tempfile::tempdir().unwrap();
+        assert!(locate(root.path(), game.path(), Some(empty.path()), "x").is_err());
+    }
+
+    #[test]
+    fn a_folder_that_differs_from_its_manifest_is_an_error() {
+        let root = folder(
+            &[("BB1.AVI", b"abc")],
+            r#"{"files":[{"path":"BB1.AVI","size":4,"sha256":""}]}"#,
+        );
+        assert!(Library::find(root.path(), CD_PROFILE).is_err());
+        let escape = folder(
+            &[],
+            r#"{"files":[{"path":"../X.AVI","size":1,"sha256":""}]}"#,
+        );
+        assert!(Library::find(escape.path(), CD_PROFILE).is_err());
+    }
+
+    fn clip(frames: usize) -> Video {
+        Video {
+            width: 2,
+            height: 2,
+            frame_micros: 66_666,
+            palette: (0..=255u8).map(|i| [i, 0, 255 - i]).collect(),
+            frames: (0..frames).map(|f| vec![f as u8; 4]).collect(),
+            audio: Some(ffe_convert::avi::Audio {
+                channels: 1,
+                rate: 22_050,
+                bits: 16,
+                pcm: vec![1, 0, 0xff, 0xff],
+            }),
+        }
+    }
+
+    /// The frame follows the real time at 15 a second and the clip ends after
+    /// its last frame; the picture lands at (1, 17) in the screen's colours.
+    #[test]
+    fn the_player_shows_frames_at_the_clips_rate() {
+        let mut player = Player::new("BB1", clip(3));
+        assert_eq!(player.frame_index(), 0);
+        assert!(player.advance(0.07));
+        assert_eq!(player.frame_index(), 1);
+        assert!(player.advance(0.07));
+        assert_eq!(player.frame_index(), 2);
+        assert!(!player.advance(0.07), "three frames are 0.2 s");
+        assert_eq!(player.sound().unwrap().as_slice(), [1, -1]);
+        let mut screen = vec![0u32; 320 * 200];
+        player.draw(&mut screen, 320);
+        let at = |x: usize, y: usize| screen[y * 320 + x];
+        assert_eq!(at(1, 17), 2 << 16 | 253);
+        assert_eq!(at(2, 18), 2 << 16 | 253);
+        assert_eq!((at(0, 17), at(3, 17), at(1, 16), at(1, 19)), (0, 0, 0, 0));
+    }
+
+    /// F121 leaves pixels whose colour is black at four bits a channel, so
+    /// the station screen shows through the clip's background.
+    #[test]
+    fn a_clips_black_background_is_transparent() {
+        assert!(transparent([0, 0, 0]));
+        assert!(transparent([15, 15, 15]));
+        assert!(!transparent([16, 0, 0]));
+        assert!(!transparent([0, 0, 16]));
+        let mut video = clip(1);
+        video.palette[0] = [8, 3, 15];
+        video.palette[1] = [200, 100, 50];
+        video.frames = vec![vec![0, 1, 0, 1]];
+        let player = Player::new("BB1", video);
+        let mut screen = vec![0x00ab_cdefu32; 320 * 200];
+        player.draw(&mut screen, 320);
+        let at = |x: usize, y: usize| screen[y * 320 + x];
+        assert_eq!(at(1, 17), 0x00ab_cdef, "background shows through");
+        assert_eq!(at(2, 17), 200 << 16 | 100 << 8 | 50);
+    }
+}

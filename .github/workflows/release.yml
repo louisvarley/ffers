@@ -1,0 +1,320 @@
+name: Release
+
+# Every push to main that changes the program publishes a new release by itself:
+#
+#   1. tools/next-version.py picks the version: the first release is the Cargo version as it is;
+#      after that the latest v* tag is bumped, patch by default, minor or major when the commit
+#      message holds #minor or #major (or when "Run workflow" asks for it). A version someone
+#      raised by hand in Cargo.toml is released as it is.
+#   2. The bumped version is committed to main ("Release vX.Y.Z", which does not trigger another
+#      release) so the binaries, ffe-rs --version, the tag and the launcher's updater all agree.
+#   3. Windows, Linux and macOS packages are built on their own platforms and smoke-tested.
+#   4. The GitHub release vX.Y.Z is created on that commit with every package attached.
+#
+# The packages (none contains game data):
+#
+#   ffers-<tag>-Windows-x64.zip       MyRecomp-<tag>-Windows-x64.zip
+#   ffers-<tag>-x86_64.AppImage       MyRecomp-<tag>-x86_64.AppImage
+#   ffers-<tag>-macOS.zip             MyRecomp-<tag>-macOS.zip
+#
+# The MyRecomp files are for RecompLauncher (recomplauncher.json): the zips hold their files at the
+# top level rather than in a folder, and the AppImage is the same file. The launcher's built-in
+# updater installs the Windows `ffers-` zip.
+#
+# Pushing a tag such as v1.0.0 by hand still works: that tag is released as it is, with no bump.
+# Pushes that only change documents, the dashboard or licence/attribute files do not release.
+# "Run workflow" builds everything as downloadable run artifacts, and with "publish" ticked also
+# releases. Releasing writes to main: if main is protected, allow github-actions to push to it.
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths-ignore:
+      - "docs/**"
+      - "dashboard/**"
+      - "**/*.md"
+      - "LICENSE"
+      - ".gitignore"
+      - ".gitattributes"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump (auto reads #minor / #major in the last commit message)"
+        type: choice
+        options: [auto, patch, minor, major]
+        default: auto
+      publish:
+        description: "Commit the version, tag it and publish a release (off: build run artifacts only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One release at a time, in push order.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Version
+    # The release commit this workflow makes must not release again.
+    if: ${{ !(github.event_name == 'push' && github.ref_type == 'branch' && startsWith(github.event.head_commit.message, 'Release v')) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      tag: ${{ steps.next.outputs.tag }}
+      sha: ${{ steps.commit.outputs.sha }}
+      publish: ${{ steps.mode.outputs.publish }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Check the repository holds no forbidden files
+        run: python ci/check_forbidden.py
+
+      - name: Decide whether this run publishes
+        id: mode
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "publish=${{ inputs.publish }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "publish=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Pick the version
+        id: next
+        env:
+          MESSAGE: ${{ github.event.head_commit.message }}
+          REQUESTED: ${{ inputs.bump }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            # A tag pushed by hand is released as it is; the crates must already say so.
+            version="${GITHUB_REF_NAME#v}"
+            cargo=$(sed -n 's/^version *= *"\(.*\)"/\1/p' crates/ffe-rs/Cargo.toml | head -1)
+            if [ "$version" != "$cargo" ]; then
+              echo "The tag is $GITHUB_REF_NAME but the crates are version $cargo." >&2
+              exit 1
+            fi
+            { echo "version=$version"; echo "tag=v$version"; echo "changed=false"; } | tee -a "$GITHUB_OUTPUT"
+          else
+            if [ -z "$MESSAGE" ]; then MESSAGE=$(git log -1 --format=%B); fi
+            apply=""
+            if [ "${{ steps.mode.outputs.publish }}" = "true" ]; then apply="--apply"; fi
+            python tools/next-version.py --bump "${REQUESTED:-auto}" --message "$MESSAGE" $apply | tee -a "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check both crates carry the version
+        run: |
+          rs=$(sed -n 's/^version *= *"\(.*\)"/\1/p' crates/ffe-rs/Cargo.toml | head -1)
+          launcher=$(sed -n 's/^version *= *"\(.*\)"/\1/p' crates/ffe-launcher/Cargo.toml | head -1)
+          if [ "$rs" != "$launcher" ]; then
+            echo "ffe-rs is $rs but ffe-launcher is $launcher; they must match." >&2
+            exit 1
+          fi
+          if [ "${{ steps.mode.outputs.publish }}" = "true" ] && [ "$rs" != "${{ steps.next.outputs.version }}" ]; then
+            echo "The crates are $rs but the release is ${{ steps.next.outputs.version }}." >&2
+            exit 1
+          fi
+
+      - name: Commit the version
+        id: commit
+        run: |
+          if [ "${{ steps.next.outputs.changed }}" = "true" ] && [ "${{ steps.mode.outputs.publish }}" = "true" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add crates/ffe-rs/Cargo.toml crates/ffe-launcher/Cargo.toml Cargo.lock
+            git commit -m "Release ${{ steps.next.outputs.tag }}"
+            git push origin HEAD:main
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  windows:
+    name: Windows x64
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build and package
+        shell: pwsh
+        run: |
+          ./tools/package.ps1 -Name "ffers-${{ needs.version.outputs.tag }}-Windows-x64"
+          ./tools/package.ps1 -NoBuild -Flat -Name "MyRecomp-${{ needs.version.outputs.tag }}-Windows-x64"
+
+      - name: Smoke test the packaged game
+        shell: pwsh
+        run: |
+          $dir = "dist/ffers-${{ needs.version.outputs.tag }}-Windows-x64"
+          & "$dir/ffe-rs.exe" --version
+          if ($LASTEXITCODE -ne 0) { throw 'ffe-rs.exe --version failed.' }
+          & "$dir/ffe-rs.exe" --help | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw 'ffe-rs.exe --help failed.' }
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*.zip
+          if-no-files-found: error
+
+  linux:
+    name: Linux x86_64 AppImage
+    needs: version
+    # The oldest runner image, so the AppImage runs on older distributions too.
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+
+      - name: Install build dependencies
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build the AppImage
+        run: |
+          bash tools/package-appimage.sh "ffers-${{ needs.version.outputs.tag }}-x86_64"
+          cp "dist/ffers-${{ needs.version.outputs.tag }}-x86_64.AppImage" \
+             "dist/MyRecomp-${{ needs.version.outputs.tag }}-x86_64.AppImage"
+
+      - name: Smoke test the packaged game
+        run: |
+          "dist/ffers-${{ needs.version.outputs.tag }}-x86_64.AppDir/usr/bin/ffe-rs" --version
+          "dist/ffers-${{ needs.version.outputs.tag }}-x86_64.AppDir/usr/bin/ffe-rs" --help > /dev/null
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*.AppImage
+          if-no-files-found: error
+
+  macos:
+    name: macOS
+    needs: version
+    runs-on: macos-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Build the app
+        run: |
+          bash tools/package-macos.sh "ffers-${{ needs.version.outputs.tag }}-macOS"
+          bash tools/package-macos.sh "MyRecomp-${{ needs.version.outputs.tag }}-macOS" --no-build --flat
+
+      - name: Smoke test the packaged game
+        run: |
+          "dist/ffers-${{ needs.version.outputs.tag }}-macOS/ffers.app/Contents/MacOS/ffe-rs" --version
+          "dist/ffers-${{ needs.version.outputs.tag }}-macOS/ffers.app/Contents/MacOS/ffe-rs" --help > /dev/null
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*.zip
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    if: ${{ needs.version.outputs.publish == 'true' }}
+    needs: [version, windows, linux, macos]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+
+      - name: Download the packages
+        uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ needs.version.outputs.tag }}"
+          version="${{ needs.version.outputs.version }}"
+          ls -l packages
+          (cd packages && sha256sum * > SHA256SUMS.txt)
+          cat > release-notes.md <<EOF
+          ## ffe-rs $version
+
+          A native Rust reimplementation of Frontier: First Encounters. **No package contains game data**: you need your own installed copy of the game (the floppy English 1.02 or CD English 1.01 release).
+
+          | Platform | Download |
+          |---|---|
+          | Windows x64 | \`ffers-$tag-Windows-x64.zip\` |
+          | Linux x86_64 | \`ffers-$tag-x86_64.AppImage\` |
+          | macOS | \`ffers-$tag-macOS.zip\` (unsigned: first start, right-click > Open) |
+
+          The \`MyRecomp-$tag-...\` files are the same builds for RecompLauncher (files at the top level of each zip).
+
+          **Windows:** unzip, put your game in a folder named \`game\` beside \`ffe-launcher.exe\`, and run it. Existing installs update themselves from the launcher's footer.
+          **Linux:** \`chmod +x\` the AppImage and run it, with a \`game\` folder beside the AppImage file.
+          **macOS:** open \`ffers.app\` and choose your game folder in the launcher.
+
+          \`SHA256SUMS.txt\` lists the checksum of every download.
+          EOF
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            target="--verify-tag"
+          else
+            target="--target ${{ needs.version.outputs.sha }}"
+          fi
+          gh release create "$tag" packages/* --title "ffe-rs $version" \
+             --notes-file release-notes.md --generate-notes $target

@@ -1,0 +1,533 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "Frontier: First Encounters (ffe-rs)",
+  "repo": "louisvarley/ffe-rs-classic",
+  "inputs": [
+    {
+      "id": "game",
+      "label": "Your installed Frontier: First Encounters",
+      "role": "game",
+      "formats": [
+        {
+          "type": "folder"
+        }
+      ],
+      "check": {
+        "file": "FIRSTENC.EXE"
+      }
+    }
+  ],
+  "prepare": {
+    "program": [
+      "ffe-rs.exe",
+      "ffers.app/Contents/MacOS/ffe-rs",
+      "ffers.AppImage"
+    ],
+    "args": [
+      "--prepare-music",
+      "--game",
+      "{input:game}",
+      "--root",
+      "{data}"
+    ],
+    "label": "Rendering the music",
+    "done": [
+      "{data}/music.bin"
+    ]
+  },
+  "start": {
+    "program": [
+      "ffe-rs.exe",
+      "ffers.app/Contents/MacOS/ffe-rs",
+      "ffers.AppImage"
+    ],
+    "args": [
+      "--game",
+      "{input:game}",
+      "--root",
+      "{data}"
+    ]
+  },
+  "config": [
+    {
+      "id": "main",
+      "format": "ini",
+      "file": [
+        {
+          "path": "{data}/saves/config.cfg"
+        }
+      ]
+    }
+  ],
+  "folders": {
+    "saves": [
+      {
+        "path": "{data}/saves"
+      }
+    ],
+    "logs": [
+      {
+        "path": "{data}/saves"
+      }
+    ]
+  },
+  "saves": [
+    "{data}/saves"
+  ],
+  "groups": [
+    {
+      "id": "Game"
+    },
+    {
+      "id": "Controls"
+    },
+    {
+      "id": "Display"
+    },
+    {
+      "id": "Enhancements"
+    }
+  ],
+  "settings": [
+    {
+      "id": "start",
+      "label": "Starting location",
+      "help": "Where a new game begins.",
+      "in": "args",
+      "group": "Game",
+      "choices": [
+        {
+          "label": "Gateway (Hope)",
+          "args": [
+            "--start",
+            "0"
+          ]
+        },
+        {
+          "label": "Ross 154",
+          "args": [
+            "--start",
+            "1"
+          ]
+        },
+        {
+          "label": "Sol (Mars)",
+          "args": [
+            "--start",
+            "2"
+          ]
+        },
+        {
+          "label": "Lave Station",
+          "args": [
+            "--start",
+            "3"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "skip_intro",
+      "label": "Skip intro",
+      "help": "Go straight to the game.",
+      "in": "args",
+      "group": "Game",
+      "choices": [
+        {
+          "label": "Off",
+          "args": []
+        },
+        {
+          "label": "On",
+          "args": [
+            "--skip-intro"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "controls",
+      "label": "Control keys",
+      "help": "Classic is the original's keys (hold the right mouse button to steer); Modern is W/S and the arrows.",
+      "in": "main",
+      "group": "Controls",
+      "defaults": {
+        "controls": "modern"
+      },
+      "choices": [
+        {
+          "label": "Modern",
+          "set": {
+            "controls": "modern"
+          }
+        },
+        {
+          "label": "Classic",
+          "set": {
+            "controls": "classic"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fullscreen",
+      "label": "Full screen",
+      "help": "Start borderless full screen (Alt+Enter switches in game).",
+      "in": "main",
+      "group": "Display",
+      "defaults": {
+        "fullscreen": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "fullscreen": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "fullscreen": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "filter",
+      "label": "Video filter",
+      "help": "Nearest is the original's sharp square pixels; the others smooth the scaling.",
+      "in": "main",
+      "group": "Display",
+      "defaults": {
+        "filter": "nearest"
+      },
+      "choices": [
+        {
+          "label": "Nearest",
+          "set": {
+            "filter": "nearest"
+          }
+        },
+        {
+          "label": "Linear",
+          "set": {
+            "filter": "linear"
+          }
+        },
+        {
+          "label": "xBRZ 2x",
+          "set": {
+            "filter": "xbrz-2x"
+          }
+        },
+        {
+          "label": "Scale2x",
+          "set": {
+            "filter": "scale2x"
+          }
+        }
+      ]
+    },
+    {
+      "id": "scanlines",
+      "label": "CRT scanlines",
+      "help": "A scanline effect over the picture.",
+      "in": "main",
+      "group": "Display",
+      "defaults": {
+        "scanlines": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "scanlines": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "scanlines": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.turrets_paused",
+      "label": "Turrets turn while time is paused",
+      "help": "Combat & missiles: Turrets keep tracking their target while time is paused.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.turrets_paused": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.turrets_paused": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.turrets_paused": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.missile_launch",
+      "label": "Missiles ignore their launcher on launch",
+      "help": "Combat & missiles: A missile's collision ray ignores the ship that fired it, so it never hits its own launcher as it leaves.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.missile_launch": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.missile_launch": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.missile_launch": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.missile_swept",
+      "label": "Missiles use swept collision",
+      "help": "Combat & missiles: A missile's collision is tested along its whole path for the frame, so a fast missile cannot step past a thin target.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.missile_swept": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.missile_swept": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.missile_swept": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.ecm_nn500",
+      "label": "ECM can disable NN500 missiles",
+      "help": "Combat & missiles: The ECM can stop NN500-series missiles as well as the standard models.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.ecm_nn500": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.ecm_nn500": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.ecm_nn500": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.autopilot_waypoint",
+      "label": "Autopilot offsets its waypoint",
+      "help": "Autopilot: Before each leg the autopilot tests the path against nearby bodies and adds an offset waypoint when the direct path would hit one.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.autopilot_waypoint": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.autopilot_waypoint": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.autopilot_waypoint": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.autopilot_braking",
+      "label": "Autopilot braking uses retro thrust and gravity",
+      "help": "Autopilot: The braking point is calculated from the weaker retro thrust minus the local gravity, so approaches do not crash.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.autopilot_braking": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.autopilot_braking": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.autopilot_braking": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.autopilot_collisions",
+      "label": "Autopilot avoids every nearby body",
+      "help": "Autopilot: The autopilot tests collisions against every body in range, not just the current reference body.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.autopilot_collisions": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.autopilot_collisions": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.autopilot_collisions": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.mission_fixes",
+      "label": "Mission fixes",
+      "help": "Mission fixes: Assassination kill credit, hitch-hiker completion, early medals, the hidden Alioth deadline, blocked docking bays, and mission dialogues under accelerated time.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.mission_fixes": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.mission_fixes": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.mission_fixes": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.npc_speed",
+      "label": "NPC relative speed",
+      "help": "Combat display: The selected NPC's hull and shield display also shows its speed relative to the player.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.npc_speed": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.npc_speed": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.npc_speed": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.npc_labels",
+      "label": "Combat Targeting Computer",
+      "help": "Combat display: Adds a dashboard button for seeing local ships and auto targeting them.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.npc_labels": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.npc_labels": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.npc_labels": "on"
+          }
+        }
+      ]
+    },
+    {
+      "id": "enhancement.edge_indicator",
+      "label": "Edge target indicator",
+      "help": "Combat display: An arrow shows the direction to the selected target when it is out of view.",
+      "in": "main",
+      "group": "Enhancements",
+      "defaults": {
+        "enhancement.edge_indicator": "off"
+      },
+      "choices": [
+        {
+          "label": "Off",
+          "set": {
+            "enhancement.edge_indicator": "off"
+          }
+        },
+        {
+          "label": "On",
+          "set": {
+            "enhancement.edge_indicator": "on"
+          }
+        }
+      ]
+    }
+  ],
+  "system": {
+    "windows": {
+      "version": "10"
+    },
+    "linux": {
+      "glibc": "2.35"
+    },
+    "macos": {
+      "version": "11"
+    }
+  }
+}

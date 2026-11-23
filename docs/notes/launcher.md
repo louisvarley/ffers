@@ -1,0 +1,26 @@
+# Classic launcher
+
+Run `launcher.bat` to build the Classic game and launcher and open it. The launcher uses the artwork from the sibling ffe-rs launcher. The game executable must sit beside the launcher.
+
+Play has two rows, then the starting location, Skip intro and a full-width rounded Launch button matching the original olive gradient.
+
+- **Game files.** The original game folder, its Browse and open-folder buttons and the verification status. The icon and the line under the title say which release was found: a disc for the CD-ROM release 1.01, a floppy disk for the floppy release 1.02 and a download tray for the Elite Club shareware 1.06 (`checks::release_of`, from the executable's fingerprint). Browsing an extracted release folder detects FIRSTENC.EXE within three levels. Verification uses ffe_tools::inspect_game.
+- **Game videos (FMV).** A film-strip icon, "Verified" and the number of AVI files found, or "Not found" (the videos are optional). The launcher looks in the game folder's own `DATA` folder (any case); Browse picks another folder, and a disc's root resolves to its `DATA` folder. A chosen folder is saved as `videos=` in `saves/launcher.cfg`; Settings > Game options > Game videos goes back to the game's `DATA` folder. Nothing is copied: the launcher passes `--videos <folder>` and the game reads the clips where they are (`ffe_rs::fmv::locate`). Verified means AVI files were found, not that they were decoded.
+
+Settings offers Display and Game options. Display: window size, Full screen (the game starts borderless full screen; Alt+Enter still switches in game and is not saved), every video filter with a line on each (Nearest, Linear, xBRZ 2x, Scale2x), fit, pixel aspect and the scanline effect with its strength. Game options: the video folder, the control keys (the line under the Classic/Modern choice changes with it: Classic is the original's keys with the right mouse button steering, Modern is W/S and the arrows), other options and the galaxy map. Settings use the same saves/config.cfg as the game and preserve key remaps (`fullscreen=on` is the launcher's key). Editing is disabled while the game runs and preferences reload when it closes. No rendering engine, FFED3D, sound, shape detail, space colour or font controls are exposed.
+
+The sidebar is a rounded panel; its GitHub entry opens https://github.com/louisvarley/ffe-rs-classic, and About repeats the link. `ffe-rs.exe` carries the launcher's icon (a rounded square like the Launch button) (`crates/ffe-rs/build.rs`) and sets it on its window.
+
+Launcher choices use saves/launcher.cfg. About shows the verification report and links to saves and the last game log. No game content is copied or bundled.
+
+## Elite Club shareware identification
+
+The supplied 2001 English shareware release (floppy 1.06) is identified by exact size and SHA-256. Browse accepts its outer folder and finds `game/FIRSTENC.DAT`, or the same executable named `FIRSTENC.EXE`. Inspection never renames files. The supplied installation passes all 48 file checks. The shareware is floppy 1.06 ("English Release 1.1 (Remastered Version)"). Its data locations are mapped (`tools/reference/map-layouts.py`) and it imports and plays. Its galaxy table has 339 systems against floppy 1.02's 329; the system tables now take any record count, moving the generator tables after a longer galaxy table. Besides the ten systems, 1.06 differs from 1.02 in 35 models (model 89's program now decodes), the ship statistics, the mission scripts and the version strings. JJFFE 2.8a7's own data has the same 339 systems and strings, so this release is the closest data match to the gameplay reference.
+
+Changing the selected game installation removes `assets.bin` from the launcher data root before saving the new folder. Re-selecting the same resolved directory leaves it alone. If deletion fails, the folder change is rejected and the error is shown.
+
+## Updates (2026-11-22)
+
+`update.rs` asks `https://api.github.com/repos/louisvarley/ffe-rs-classic/releases/latest` (through `curl`) when the launcher opens, unless `check_updates=off` in `saves/launcher.cfg` (About > Updates has the toggle and a *Check for updates* button). A tag newer than the launcher's version shows an **Update to vX.Y.Z** button in the footer. On a packaged Windows install it downloads the release's `*-Windows-x64.zip` (the project's `ffers-` file, not the `MyRecomp-` copy), unpacks it with PowerShell, checks every file against the package's `SHA256SUMS.txt` (a file not listed, a mismatch or a path outside the install folder, or under `game`, `saves`, `recordings`, `FMVs`, is refused before anything is written), renames each running program to `<name>.old`, copies the new files in and starts the new launcher; any failure puts the old files back. The `.old` files are removed at the next start. A cargo checkout (a `Cargo.toml` above the launcher) and the non-Windows builds never self-install: the button opens the release page.
+
+Where the launcher keeps its files: beside the program, beside the `.AppImage` file on Linux (`$APPIMAGE`), and for a macOS app bundle beside the `.app` when that folder already holds `game` or `saves`, else in `~/Library/Application Support/ffe-rs`.

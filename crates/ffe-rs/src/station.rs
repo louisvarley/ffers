@@ -1,0 +1,1758 @@
+//! The original's docked station screens (the BBS module, F320-F362).
+//!
+//! The screens are the 40-byte entries of `DATA_005304` in `ffedat.asm`; the
+//! strings are the `0x98xx` messages of `DATA_005299` (each `0x9800 + n`).
+//! The layout below is taken from those tables and checked against a real
+//! 320x200 frame of the DOS release (see `docs/notes/station.md`):
+//!
+//! | screen | index | header | entry x | pitch | buttons | back |
+//! |---|---|---|---|---|---|---|
+//! | services | 0 | - | 140 | 33 | one | no |
+//! | comms | 1 | Suggested Responses | 140 | 10 | one | no |
+//! | bulletin board | 2 | - | 140 | 33 | one | yes |
+//! | stockmarket | 3 | Buy Sell Item ... | 152 | 10 | two | no |
+//! | upgrades | 4 | Fit Remove Item ... | 152 | 10 | two | yes |
+//! | ships | 5/6 | Buy View Ship ... | 152 | 10 | two | yes |
+//! | repairs | 8 | Repair Item ... | 140 | 10 | one | yes |
+//!
+//! The row buttons are `F328` hot rectangles of 8x9 at x 124 and 136; the
+//! up/down arrows are at (124, 147) and (136, 147), "More..." at (148, 148) and
+//! "Go Back..." at (210, 147). The screen name is drawn at (4, 6), the column
+//! header at y 2, entry text at the row's y + 1 and the second line at +10. The
+//! cash/cargo/cabins line is at (1, 138) and (1, 148) (`F558`, message 0x98e8).
+
+use crate::flight::Flight;
+use crate::ships::ShipStats;
+
+/// The docked screens. The variants are the original screen indices, except that
+/// the services root and the shipyard share index 0 (F333 and F382).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Screen {
+    #[default]
+    Services,
+    Shipyard,
+    Market,
+    Upgrades,
+    Repairs,
+    Ships,
+    Bulletin,
+    /// F552's "Contact Local Police" conversation (the fines office).
+    Police,
+    /// The port's journal page: the accepted contracts and their source
+    /// completion pages (F303/F306/F307), after the original's ship-library
+    /// journal viewer (F76/F78/F81). Opened with `J` while docked.
+    Journal,
+    /// The port's comms page: the mission reply/completion messages (F349),
+    /// with F306's rank page and F307's medal page. Opened with `C`.
+    Comms,
+    /// F490/F491/F493's military mission list: the package offers from
+    /// F623/F629-F632. Reachable from the 0x9827/0x9828 recruitment ads.
+    Military,
+    /// F521/F523's reply page: the passenger/parcel advertisement's request
+    /// (`0x991d`) and the thirteen suggested responses (`0x9833..0x983f`) on
+    /// F331's screen 1 (`Suggested Responses`).
+    Reply,
+    /// F508/F495/F496/F506's military briefing: the offer's description on the
+    /// console (F352) and its suggested responses (`0x9858..0x9868`) on F523's
+    /// screen 1.
+    Briefing,
+    /// A screen the mission scripts opened (F331): their title, header and
+    /// response entries on the comms layout (`docs/notes/mission-scripts.md`).
+    Script,
+}
+
+impl Screen {
+    pub const ALL: [Screen; 14] = [
+        Screen::Services,
+        Screen::Shipyard,
+        Screen::Market,
+        Screen::Upgrades,
+        Screen::Repairs,
+        Screen::Ships,
+        Screen::Bulletin,
+        Screen::Police,
+        Screen::Journal,
+        Screen::Comms,
+        Screen::Military,
+        Screen::Reply,
+        Screen::Briefing,
+        Screen::Script,
+    ];
+
+    /// The original's `DATA_009054` screen number while this page is shown:
+    /// F327 writes it as the screen draws and F326 dispatches on it, so the
+    /// mission scripts hear F342's clear and each screen's own signal
+    /// (`docs/notes/mission-scripts.md`). `None` for the port's own pages
+    /// (the journal, comms and script conversations), which have no F326
+    /// entry.
+    pub fn script_screen(self) -> Option<i32> {
+        match self {
+            // F333/F382 open the services and shipyard roots on screen 0.
+            Screen::Services | Screen::Shipyard => Some(0),
+            // F453's bulletin board.
+            Screen::Bulletin => Some(2),
+            // F538's market.
+            Screen::Market => Some(3),
+            // F384/F385's upgrades page.
+            Screen::Upgrades => Some(4),
+            // F437's ship list.
+            Screen::Ships => Some(5),
+            // F493's military office.
+            Screen::Military => Some(7),
+            // F521/F523's reply page is F331's screen 1, which F326 redraws
+            // with F523's list.
+            Screen::Reply => Some(1),
+            // F508/F495/F496/F506 also show F523's screen 1.
+            Screen::Briefing => Some(1),
+            // F444/F445's repairs page.
+            Screen::Repairs => Some(8),
+            // F552 picks screen 0 or 7 by the fine; the port's police page
+            // draws its own conversation, so it sends nothing.
+            Screen::Police | Screen::Journal | Screen::Comms | Screen::Script => None,
+        }
+    }
+}
+
+/// What activating a row does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    Launch,
+    Open(Screen),
+    Trade {
+        buy: bool,
+        row: usize,
+    },
+    Back,
+    /// F386's left button: fit the offered equipment row.
+    Fit {
+        row: usize,
+    },
+    /// F386's right button: remove the offered (fitted) equipment row.
+    Remove {
+        row: usize,
+    },
+    /// F438/F442's left button: buy the offered hull (part exchange).
+    BuyShip {
+        row: usize,
+    },
+    /// F438/F439's right button: view the offered hull.
+    ViewShip {
+        row: usize,
+    },
+    /// F444/F446-F452's row button: run the repair or service.
+    Repair {
+        row: usize,
+    },
+    /// F544: pay the local jurisdiction's fine from the police screen.
+    PayFine,
+    /// F453/F523: select a bulletin-board row. A contract offer is accepted
+    /// (F534/F535); any other advertisement is shown in full.
+    Post {
+        row: usize,
+    },
+    /// F306/F307: read one of the comms pages (the rank page starts song 7,
+    /// the medal page song 10).
+    ReadPage {
+        row: usize,
+    },
+    /// F493/F509: accept a military package offer.
+    MilitaryPost {
+        row: usize,
+    },
+    /// F508/F495/F496/F506/F361: answer one of the briefing's suggested
+    /// responses.
+    MilitaryReply {
+        row: usize,
+    },
+    /// F521/F523/F527: answer a suggested response on the reply page.
+    Reply {
+        row: usize,
+    },
+    /// The service exists but its data or routine is not ported. The text is
+    /// reported on the console, never drawn into the station screen.
+    NotPorted(&'static str),
+}
+
+/// A row of a menu screen, in the original's order.
+pub struct Entry {
+    pub title: &'static str,
+    pub detail: Option<&'static str>,
+    pub action: Action,
+}
+
+/// One line of F383's Upgrades list: the equipment record, its tech-scaled fit
+/// and removal prices, its mass and whether the ship already has it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UpgradeRow {
+    pub index: usize,
+    pub name: &'static str,
+    pub price: u32,
+    pub removal: u32,
+    pub mass: u32,
+    pub fitted: bool,
+}
+
+/// F383's rows for a starport at `tech_level`: `equipment::outfitting` already
+/// filters by the record's `+0x13` against `DATA_008995` and applies F383's tech
+/// multiplier, and `loadout`/`lasers` supply F392's fitted flags.
+pub fn upgrades(
+    tech_level: u16,
+    loadout: &ffe_core::equipment::Loadout,
+    lasers: &[u8; 4],
+) -> Vec<UpgradeRow> {
+    upgrades_with(tech_level, loadout, lasers, None)
+}
+
+/// [`upgrades`] with the mission scripts' F383 multiplier
+/// ([`DockState::price_multiplier`]).
+pub fn upgrades_with(
+    tech_level: u16,
+    loadout: &ffe_core::equipment::Loadout,
+    lasers: &[u8; 4],
+    scripted: Option<u32>,
+) -> Vec<UpgradeRow> {
+    ffe_core::equipment::outfitting_with(tech_level, loadout, lasers, scripted)
+        .into_iter()
+        .filter_map(|row| {
+            ffe_core::equipment::get(row.index).map(|item| UpgradeRow {
+                index: row.index,
+                name: item.name,
+                price: row.price,
+                removal: row.removal,
+                mass: row.mass,
+                fitted: row.fitted,
+            })
+        })
+        .collect()
+}
+
+/// F444's per-row action (`F446`-`F452`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RepairAction {
+    /// `F450`: the deluxe service, both counters and dates (`0x9815`).
+    Deluxe,
+    /// `F451`: drive only (`0x9816`).
+    DriveService,
+    /// `F452`: equipment only (`0x9817`).
+    EquipmentService,
+    /// `F447`: 250 kg of hull (`0x9813`).
+    HullQuarter,
+    /// `F448`: the entire hull (`0x9818`).
+    HullAll,
+    /// `F446`: one damaged general-equipment bit (`0x9812`).
+    Item(u8),
+    /// `F449`: one damaged thruster (`0x9814`).
+    Thruster(u8),
+}
+
+/// One line of F444's Repairs and Servicing list. The three service rows are
+/// always built for a drive-fitted ship; the hull, thruster and equipment rows
+/// come from the player's damage state.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RepairRow {
+    pub title: String,
+    /// F444's `$<cost>` (whole credits in row `+0xc`; the action charges ten
+    /// times it, as the player's cash is in tenths).
+    pub cost: u32,
+    pub action: RepairAction,
+}
+
+/// The three service rows for an undamaged ship: `mass` is the ship
+/// statistics' `+0xa` (F444's service cost word), `drive` is `ship+0xd0`, and
+/// the two strings are the stored service dates (`DATA_008926`/`DATA_008925`).
+/// The costs are `mass * 80`, `mass * 50` and `mass * 50`.
+pub fn repairs(mass: u32, drive: bool, last_drive: &str, last_equipment: &str) -> Vec<RepairRow> {
+    repairs_for(
+        mass,
+        drive,
+        [0, 0],
+        0,
+        [false; 6],
+        last_drive,
+        last_equipment,
+    )
+}
+
+/// F444's full list: the three service rows (`0x9815`-`0x9817`), the two hull
+/// rows when the hull is damaged (`0x9813`/`0x9818`), a row for each destroyed
+/// thruster (`0x9814`) and one for each damaged general-equipment bit
+/// (`0x9812`).
+#[allow(clippy::too_many_arguments)]
+pub fn repairs_for(
+    mass: u32,
+    drive: bool,
+    hull: [u16; 2],
+    equipment: u32,
+    thrusters: [bool; 6],
+    last_drive: &str,
+    last_equipment: &str,
+) -> Vec<RepairRow> {
+    let mut rows = vec![RepairRow {
+        title: "Deluxe service (drive and equipment)".to_owned(),
+        cost: mass.saturating_mul(80),
+        action: RepairAction::Deluxe,
+    }];
+    if drive {
+        rows.push(RepairRow {
+            title: format!("Drive Only service (last: {last_drive})"),
+            cost: mass.saturating_mul(50),
+            action: RepairAction::DriveService,
+        });
+    }
+    rows.push(RepairRow {
+        title: format!("Equipment Only service (last: {last_equipment})"),
+        cost: mass.saturating_mul(50),
+        action: RepairAction::EquipmentService,
+    });
+    let damage = hull
+        .get(1)
+        .copied()
+        .unwrap_or(0)
+        .saturating_sub(hull.first().copied().unwrap_or(0));
+    if damage != 0 {
+        // 0x9813: "Repair 250kg of hull (<n>t total damage)", one hull point
+        // (250 kg) per click for $10.
+        rows.push(RepairRow {
+            title: format!(
+                "Repair 250kg of hull ({:.2}t total damage)",
+                f64::from(damage) * 0.25
+            ),
+            cost: 10,
+            action: RepairAction::HullQuarter,
+        });
+        // 0x9818: "Repair entire hull", $10 per hull point.
+        rows.push(RepairRow {
+            title: "Repair entire hull".to_owned(),
+            cost: u32::from(damage).saturating_mul(10),
+            action: RepairAction::HullAll,
+        });
+    }
+    for (index, damaged) in thrusters.iter().enumerate() {
+        if *damaged {
+            let name = crate::damage::THRUSTER_NAMES
+                .get(index)
+                .copied()
+                .unwrap_or("");
+            rows.push(RepairRow {
+                title: format!("Repair {name} thruster"),
+                cost: crate::damage::THRUSTER_REPAIR_COST,
+                action: RepairAction::Thruster(index as u8),
+            });
+        }
+    }
+    for bit in 0..32u8 {
+        if equipment & (1u32 << bit) == 0 {
+            continue;
+        }
+        let Some(item) = ffe_core::equipment::general_for_bit(bit) else {
+            continue;
+        };
+        rows.push(RepairRow {
+            title: format!("Repair {}", item.name),
+            cost: ffe_core::equipment::repair_cost(item),
+            action: RepairAction::Item(bit),
+        });
+    }
+    rows
+}
+
+/// F446-F452 for one repair row: charge ten times the whole-credit cost (the
+/// player's cash is in tenths), apply the action and return the original's
+/// message (`0x98f1`-`0x98f3`). F440's refusal is ported as the port's own
+/// "You cannot afford" wording, as elsewhere in the station code.
+pub fn apply_repair(
+    state: &mut Flight,
+    stats: Option<&ShipStats>,
+    row: &RepairRow,
+    day: u32,
+) -> Result<&'static str, String> {
+    let cost = row.cost.saturating_mul(10);
+    if state.credits < cost {
+        return Err(format!("You cannot afford {}.", row.title));
+    }
+    state.credits -= cost;
+    match row.action {
+        RepairAction::Deluxe => {
+            state.reset_service(crate::flight::Service::Drive, day);
+            state.reset_service(crate::flight::Service::Equipment, day);
+            Ok("Your deluxe service has been completed, and payment deducted.")
+        }
+        RepairAction::DriveService => {
+            state.reset_service(crate::flight::Service::Drive, day);
+            Ok("Your service has been completed, and payment deducted.")
+        }
+        RepairAction::EquipmentService => {
+            state.reset_service(crate::flight::Service::Equipment, day);
+            Ok("Your service has been completed, and payment deducted.")
+        }
+        RepairAction::HullQuarter => {
+            state.repair_hull(1);
+            Ok("Your repair has been completed, and payment deducted.")
+        }
+        RepairAction::HullAll => {
+            state.hull[0] = state.hull[1];
+            Ok("Your repair has been completed, and payment deducted.")
+        }
+        RepairAction::Item(bit) => {
+            state.repair_equipment(bit);
+            Ok("Your repair has been completed, and payment deducted.")
+        }
+        RepairAction::Thruster(index) => {
+            if let Some(stats) = stats {
+                state.damage.repair_thruster(usize::from(index), stats);
+            }
+            Ok("Your repair has been completed, and payment deducted.")
+        }
+    }
+}
+
+/// The services root `F333` adds: Launch Request, then (unless the system's
+/// allegiance is Thargoid, `w[D8996] == 4`) Shipyard, Bulletin Board and
+/// Stockmarket. The port has no Thargoid systems, so the four rows always apply.
+pub const SERVICES: [Entry; 4] = [
+    Entry {
+        title: "Launch Request",
+        detail: Some("(Request launch permission from traffic control)"),
+        action: Action::Launch,
+    },
+    Entry {
+        title: "Shipyard",
+        detail: Some("(Ships refitted, repaired, bought and sold)"),
+        action: Action::Open(Screen::Shipyard),
+    },
+    Entry {
+        title: "Bulletin Board",
+        detail: Some("(Advertisements for goods and services)"),
+        action: Action::Open(Screen::Bulletin),
+    },
+    Entry {
+        title: "Stockmarket",
+        detail: Some("(Direct trading on the local market)"),
+        action: Action::Open(Screen::Market),
+    },
+];
+
+/// The shipyard root `F382` (its title is the station's Shipyard, and it adds
+/// these four entries to the services layout).
+pub const SHIPYARD: [Entry; 4] = [
+    Entry {
+        title: "Upgrades",
+        detail: Some("(Ship equipment fitted while you wait)"),
+        action: Action::Open(Screen::Upgrades),
+    },
+    Entry {
+        title: "Repairs and Servicing",
+        detail: Some("(in our fully automated workshop)"),
+        action: Action::Open(Screen::Repairs),
+    },
+    Entry {
+        title: "New and Reconditioned Ships",
+        detail: Some("(Ships part exchanged)"),
+        action: Action::Open(Screen::Ships),
+    },
+    Entry {
+        title: "Contact Local Police",
+        detail: Some("(for paying fines, etc)"),
+        action: Action::Open(Screen::Police),
+    },
+];
+
+/// The messages the screen's header/console uses. The DOS release prints the
+/// currency as a font glyph the port's 116-glyph cache does not carry; `$` is
+/// the closest ASCII stand-in and is called out in `docs/notes/station.md`.
+pub const SERVICES_HINT: &str = "Which service do you require?";
+pub const BULLETIN_EMPTY: &str = "Sorry, no advertisements have been placed.";
+pub const MARKET_HINT: &str = "Choose Buy or Sell to trade one unit.";
+pub const UPGRADES_HINT: &str = "Choose Fit or Remove for required item.";
+pub const SHIPS_EMPTY: &str = "We have no ship hulls for sale, at the moment.";
+pub const SHIPS_HINT: &str =
+    "Select Buy to part exchange your ship for a ship with no extra equipment, or View to see the ship with suggested options fitted.";
+pub const REPAIRS_HINT: &str = "Select desired repair or service. Remember servicing AT LEAST once a year is a wise precaution.";
+/// F552's police contact opens with this console line until the officer speaks.
+pub const POLICE_HINT: &str = "Contact Local Police.";
+
+/// The visible entry area ends at y 148 (`F327`: `height + y < 0x94`).
+pub const LIST_BOTTOM: i32 = 148;
+/// First entry's top row: the header height of 15 (`DATA_005306`).
+pub const LIST_TOP: i32 = 15;
+
+/// The original's per-screen geometry (the tables at `DATA_005304`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Layout {
+    pub pitch: i32,
+    pub entry_x: i32,
+    pub buttons: i32,
+    pub back: bool,
+}
+
+impl Layout {
+    /// The rows that fit between `LIST_TOP` and `LIST_BOTTOM`.
+    pub fn visible(self) -> usize {
+        let mut rows = 0;
+        let mut y = LIST_TOP;
+        while y + self.pitch < LIST_BOTTOM {
+            rows += 1;
+            y += self.pitch;
+        }
+        rows
+    }
+}
+
+/// F1398's greedy word wrap: a word longer than `width` is kept whole, as the
+/// original's `StringDrawWrapShadow` does. `measure` is the font's width.
+pub fn wrap_words(text: &str, width: i32, measure: impl Fn(&str) -> usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current.push_str(word);
+            continue;
+        }
+        let candidate = format!("{current} {word}");
+        if measure(&candidate) <= usize::try_from(width).unwrap_or(0) {
+            current = candidate;
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(word);
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+/// F329's row height for every entry in `texts`, from the first row of the
+/// list. F329 returns `y + 10 * StringDrawWrapShadow`'s line count and F327
+/// advances by the larger of that and the screen's pitch
+/// (`if (eax > ebx) ebx = eax`). The wrap width is the entry text's
+/// `0x140 - 3 - x`; the port's journal/comms paragraph pages use 312.
+pub fn row_heights<'a>(
+    screen: Screen,
+    texts: impl IntoIterator<Item = &'a str>,
+    measure: impl Fn(&str) -> usize,
+) -> Vec<i32> {
+    let layout = layout(screen);
+    let width = if matches!(screen, Screen::Journal | Screen::Comms) {
+        312
+    } else {
+        0x140 - 3 - layout.entry_x
+    };
+    texts
+        .into_iter()
+        .map(|text| {
+            let lines = wrap_words(text, width, &measure).len().max(1);
+            (10 * i32::try_from(lines).unwrap_or(1)).max(layout.pitch)
+        })
+        .collect()
+}
+
+/// The entries of `heights` (starting at the window's first row) that fit
+/// before `LIST_BOTTOM`: F327's `[edi] + ebx < 0x94` test with each row's
+/// F329 height.
+pub fn visible_rows(pitch: i32, heights: &[i32]) -> usize {
+    let mut rows = 0;
+    let mut y = LIST_TOP;
+    for height in heights {
+        if y + pitch >= LIST_BOTTOM {
+            break;
+        }
+        rows += 1;
+        y += (*height).max(pitch);
+    }
+    rows
+}
+
+pub fn layout(screen: Screen) -> Layout {
+    match screen {
+        Screen::Services
+        | Screen::Shipyard
+        | Screen::Bulletin
+        | Screen::Police
+        | Screen::Military => Layout {
+            pitch: 33,
+            entry_x: 140,
+            buttons: 1,
+            back: matches!(screen, Screen::Bulletin | Screen::Police | Screen::Military),
+        },
+        Screen::Market => Layout {
+            pitch: 10,
+            entry_x: 152,
+            buttons: 2,
+            back: false,
+        },
+        // Layout row 1 (F343's comms): ten-pixel rows with one button; the
+        // scripts' own entries ("Hang up.") are the way out.
+        Screen::Script => Layout {
+            pitch: 10,
+            entry_x: 140,
+            buttons: 1,
+            back: false,
+        },
+        // F331's screen 1, F523's reply page (`DATA_005304` row 1): ten-pixel
+        // rows, one button, no Go Back (the "Hang up." reply is the way out).
+        Screen::Reply => Layout {
+            pitch: 10,
+            entry_x: 140,
+            buttons: 1,
+            back: false,
+        },
+        // F508/F495/F496/F506's briefing is F523's screen 1 as well; the
+        // "Return to Mission List" row is the way out.
+        Screen::Briefing => Layout {
+            pitch: 10,
+            entry_x: 140,
+            buttons: 1,
+            back: false,
+        },
+        Screen::Upgrades => Layout {
+            pitch: 10,
+            entry_x: 152,
+            buttons: 2,
+            back: true,
+        },
+        Screen::Ships => Layout {
+            pitch: 10,
+            entry_x: 152,
+            buttons: 2,
+            back: true,
+        },
+        Screen::Repairs => Layout {
+            pitch: 10,
+            entry_x: 140,
+            buttons: 1,
+            back: true,
+        },
+        // The journal/comms pages are text pages: three wrapped lines in each
+        // 33-pixel paragraph, no row button, the Go Back arrow (F566).
+        Screen::Journal | Screen::Comms => Layout {
+            pitch: 33,
+            entry_x: 4,
+            buttons: 0,
+            back: true,
+        },
+    }
+}
+
+/// The screen name: `0x98d2` services, `0x98d3` shipyard (also the title of the
+/// shipyard's sub-screens), `0x98d5` bulletin board, `0x98d6` stockmarket.
+pub fn title(screen: Screen, station: &str) -> String {
+    let name = match screen {
+        Screen::Services => "Services",
+        Screen::Shipyard | Screen::Upgrades | Screen::Repairs | Screen::Ships => "Shipyard",
+        Screen::Market => "Stockmarket",
+        Screen::Bulletin => "Bulletin Board",
+        // F521 calls F331(1, D9052, ...): the reply page keeps the board's
+        // name (0x98d5).
+        Screen::Reply => "Bulletin Board",
+        Screen::Police => "Contact Local Police",
+        // The original journal viewer's own titles (DATA_002304/5): the ship
+        // library, not a station service.
+        Screen::Journal => "Ship Library Archives",
+        Screen::Comms => "Communications",
+        // F493's list page follows the 0x9908/0x9909 HQ page.
+        Screen::Military => "Military Missions",
+        // The briefing keeps DATA_009052's F490/F491 HQ title.
+        Screen::Briefing => "Military Missions",
+        // The scripts' title code is expanded by the caller.
+        Screen::Script => "",
+    };
+    match screen {
+        Screen::Journal | Screen::Comms | Screen::Military | Screen::Briefing => name.to_owned(),
+        _ => format!("{station} {name}"),
+    }
+}
+
+/// The column header drawn at y 2 (`0x98e0`, `0x98f5`, `0x98f6`, `0x98f4`).
+/// The x positions are the tab stops the original's `0xfd` glyph produces, read
+/// from the captured frames.
+pub fn header(screen: Screen) -> &'static [(i32, &'static str)] {
+    match screen {
+        Screen::Market => &[
+            (120, "Buy Sell Item"),
+            (213, "Price per t"),
+            (255, "Stock"),
+            (286, "Cargo"),
+        ],
+        Screen::Upgrades => &[
+            (120, "Fit Remove"),
+            (152, "Item"),
+            (225, "$ to Fit"),
+            (265, "$ for Removal"),
+            (308, "Wt"),
+        ],
+        Screen::Ships => &[
+            (120, "Buy View"),
+            (142, "Ship"),
+            (228, "Cost"),
+            (258, "Pt.Exchg"),
+            (306, "Cap."),
+        ],
+        Screen::Repairs => &[(120, "Repair"), (152, "Item"), (286, "Cost")],
+        // F327's screen 1 header (0x98da) at DATA_005305's x 120.
+        Screen::Reply | Screen::Briefing => &[(120, "Suggested Responses")],
+        _ => &[],
+    }
+}
+
+/// The market's column x positions for a row's price, stock and cargo.
+pub const MARKET_PRICE_X: i32 = 214;
+pub const MARKET_STOCK_X: i32 = 254;
+pub const MARKET_CARGO_X: i32 = 290;
+
+/// The Upgrades row's `$ to Fit`, `$ for Removal` and `Wt` columns, read from the
+/// reference frame (`docs/evidence/station/equipment.png`): the values start at
+/// x 242, 272 and 302, under the 0x98f5 header.
+pub const UPGRADE_PRICE_X: i32 = 242;
+pub const UPGRADE_REMOVAL_X: i32 = 272;
+pub const UPGRADE_MASS_X: i32 = 302;
+
+/// The repairs list's `Cost` column (the 0x98f4 header's value column, measured
+/// from the reference frame `docs/evidence/station/repairs.png`).
+pub const REPAIR_COST_X: i32 = 292;
+
+/// F437's Cost, Pt.Exchg and Cap. columns, measured from the reference frame
+/// (`docs/evidence/station/ships.png`).
+pub const SHIP_COST_X: i32 = 228;
+pub const SHIP_EXCHANGE_X: i32 = 258;
+pub const SHIP_CAPACITY_X: i32 = 306;
+
+/// Position of the status line's labels and values (`F558`, message 0x98e8).
+pub const STATUS_ROW_1: i32 = 138;
+pub const STATUS_ROW_2: i32 = 148;
+pub const STATUS_LABEL_X: i32 = 1;
+pub const STATUS_VALUE_X: i32 = 44;
+pub const STATUS_CASH_LABEL_X: i32 = 82;
+pub const STATUS_CASH_RIGHT: i32 = 96;
+
+/// The cash/cargo/cabins values of the docked screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Status {
+    pub cargo_used: i32,
+    pub cargo_capacity: i32,
+    pub cash: i32,
+    /// The original's `Cabins used : total`; the port has no passenger cabins
+    /// yet, so both are zero as in a fresh commander's ship.
+    pub cabins_used: i32,
+    pub cabins_total: i32,
+}
+
+/// One drawn row: the entry's two lines (menus) or the item and its columns
+/// (market). `columns` are absolute x positions and their colours.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DockRow {
+    pub main: String,
+    pub detail: Option<String>,
+    pub columns: Vec<(i32, String, u8)>,
+    /// Upgrades only: F383 stores F392's fitted flag at row `+0x18` bit 0, and
+    /// F329 draws the second (Remove) button only when it is set.
+    pub fitted: bool,
+}
+
+/// The rows and status the docked screen draws for one frame.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DockView {
+    pub screen: Screen,
+    pub title: String,
+    pub rows: Vec<DockRow>,
+    pub status: Status,
+    pub scroll: usize,
+    pub selected: usize,
+    /// The number of entries in the whole list (not just this window).
+    pub total: usize,
+}
+
+impl DockView {
+    /// The down arrow is drawn while entries remain below the window; the up
+    /// arrow while the window is scrolled.
+    pub fn more(&self) -> bool {
+        self.total > self.scroll + layout(self.screen).visible()
+    }
+}
+
+/// The docked screen the player is on and the row the keyboard is on.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct DockState {
+    pub screen: Screen,
+    pub selected: usize,
+    pub scroll: usize,
+    /// F454's illegal-goods market mask (the screen is still F536's market).
+    pub black_market: bool,
+    /// F640's fake advertisement: a row action is F542's police trap.
+    pub fake_market: bool,
+    /// The `0x98d7` company-name seed from the advertisement.
+    pub company_seed: Option<u32>,
+    /// F428's pending "Select Mounting." choice for an Upgrades laser row.
+    pub mounting: Option<Mounting>,
+    /// F383's multiplier as the mission scripts left it when the Upgrades
+    /// screen was built (global 0xa after signal 0xb).
+    pub price_multiplier: Option<u32>,
+    /// The ship library journal being read (F81's choice `0x31 + slot`);
+    /// `None` is the list of journals.
+    pub journal: Option<usize>,
+    /// F439's View page of the New and Reconditioned Ships row (the stock's row
+    /// index). The list is the one row meanwhile; `view_saved` is the keyboard
+    /// row and scroll to put back when Go Back returns to the list.
+    pub view_ship: Option<usize>,
+    pub view_saved: (usize, usize),
+    /// F521's reply conversation: the advertisement being negotiated and its
+    /// `DATA_009059`/`DATA_009060` state. `None` outside the reply page.
+    pub reply: Option<ffe_core::missions::Negotiation>,
+    /// F508/F495/F496/F506's military briefing: the offer being discussed and
+    /// its console page. `None` outside the briefing page.
+    pub briefing: Option<ffe_core::missions::Briefing>,
+}
+
+/// F428's mounting choice: the Upgrades row, Fit or Remove, and which of the
+/// four mountings (`0x9870 + k`) the player may pick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Mounting {
+    pub row: usize,
+    pub remove: bool,
+    pub mounts: [bool; 4],
+}
+
+impl Mounting {
+    /// The 0x9902 prompt F334 writes through F352 (the console line); the
+    /// candidates are the list's rows ([`Self::rows`]).
+    pub fn prompt(&self) -> &'static str {
+        "Select Mounting."
+    }
+
+    /// The mountings F428 offers, in the order F348 listed them (0x9870 + k).
+    pub fn slots(&self) -> Vec<usize> {
+        (0..4).filter(|k| self.mounts[*k]).collect()
+    }
+
+    /// F428's entries: F342 clears the screen's lists and F348 adds one entry per
+    /// candidate, named by its mounting (0x9870..0x9873). They take the Upgrades
+    /// list's place, with a single button each.
+    pub fn rows(&self) -> Vec<DockRow> {
+        self.slots()
+            .into_iter()
+            .map(|slot| DockRow {
+                main: crate::outfitting::MOUNT_NAMES[slot].to_owned(),
+                ..DockRow::default()
+            })
+            .collect()
+    }
+}
+
+impl DockState {
+    pub fn open(&mut self, screen: Screen) {
+        self.screen = screen;
+        self.selected = 0;
+        self.scroll = 0;
+        self.black_market = false;
+        self.fake_market = false;
+        self.company_seed = None;
+        self.mounting = None;
+        self.price_multiplier = None;
+        self.journal = None;
+        self.view_ship = None;
+        self.reply = None;
+        self.briefing = None;
+    }
+
+    /// F521/F523: show the reply page for board row `row` of `offer`.
+    /// `closed` is F520's refusal page, whose only entry is "Hang up.".
+    pub fn open_reply(&mut self, offer: &ffe_core::missions::Offer, row: usize, closed: bool) {
+        self.open(Screen::Reply);
+        self.reply = Some(ffe_core::missions::Negotiation::open(offer, row, closed));
+    }
+
+    /// F508/F495/F496/F506/F523: show the military briefing for `offer`.
+    pub fn open_briefing(&mut self, briefing: ffe_core::missions::Briefing) {
+        self.open(Screen::Briefing);
+        self.briefing = Some(briefing);
+    }
+
+    /// F439: show the View page of stock row `row`.
+    pub fn open_ship_view(&mut self, row: usize) {
+        if self.view_ship.is_none() {
+            self.view_saved = (self.selected, self.scroll);
+        }
+        self.view_ship = Some(row);
+        self.selected = 0;
+        self.scroll = 0;
+    }
+
+    /// F454: the stockmarket screen with F538's `0x80` illegal-goods mask.
+    pub fn open_black_market(&mut self, fake: bool, seed: Option<u32>) {
+        self.open(Screen::Market);
+        self.black_market = true;
+        self.fake_market = fake;
+        self.company_seed = seed;
+    }
+
+    /// Go back one level, as the "Go Back..." arrow does. Screens without the
+    /// arrow in the original (services, shipyard, market) return to the
+    /// services root here; `Backspace` is the port's way out of them.
+    pub fn back(&mut self) {
+        // The View page goes back to the list it was opened from.
+        if self.view_ship.take().is_some() {
+            (self.selected, self.scroll) = self.view_saved;
+            return;
+        }
+        self.open(match self.screen {
+            Screen::Upgrades | Screen::Repairs | Screen::Ships | Screen::Police => Screen::Shipyard,
+            // F497/F515 return the military briefing to F493's mission list;
+            // F460's removal conversation has no list, so it returns to F453.
+            Screen::Briefing => match self.briefing.as_ref() {
+                Some(briefing) if briefing.is_removal() => Screen::Bulletin,
+                _ => Screen::Military,
+            },
+            Screen::Military | Screen::Script | Screen::Reply => Screen::Bulletin,
+            Screen::Services => Screen::Services,
+            _ => Screen::Services,
+        });
+    }
+
+    /// Move the keyboard row and keep it inside the visible window.
+    pub fn step(&mut self, delta: i32, rows: usize) {
+        let visible = layout(self.screen).visible();
+        self.step_visible(delta, rows, visible);
+    }
+
+    /// [`Self::step`] with F329's window size: a wrapped ten-pixel row makes
+    /// fewer entries fit, so the scroll bound follows the drawn heights.
+    pub fn step_visible(&mut self, delta: i32, rows: usize, visible: usize) {
+        if rows == 0 {
+            self.selected = 0;
+            self.scroll = 0;
+            return;
+        }
+        let visible = visible.max(1);
+        self.selected = (self.selected as i32 + delta).rem_euclid(rows as i32) as usize;
+        if self.selected < self.scroll {
+            self.scroll = self.selected;
+        } else if self.selected >= self.scroll + visible {
+            self.scroll = self.selected + 1 - visible;
+        }
+        self.scroll = self.scroll.min(rows.saturating_sub(visible));
+    }
+}
+
+/// What a hot area asks for. The rectangles are the original's `F328` hot
+/// areas (8x9 at the button); clicks on the text do nothing in the original.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hot {
+    Row(usize),
+    /// Buy (left) or sell (right) the row.
+    Market {
+        buy: bool,
+        row: usize,
+    },
+    /// The Upgrades list's Fit (left) and Remove (right) buttons (`F386`).
+    Outfit {
+        remove: bool,
+        row: usize,
+    },
+    /// The Ships list's Buy (left) and View (right) buttons (`F438`).
+    Ship {
+        view: bool,
+        row: usize,
+    },
+    More,
+    Up,
+    Down,
+    Back,
+}
+
+/// A rectangle in logical pixels, inclusive edges (the mouse poll's test).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HotArea {
+    pub x0: i32,
+    pub y0: i32,
+    pub x1: i32,
+    pub y1: i32,
+    pub hot: Hot,
+}
+
+impl HotArea {
+    pub fn contains(self, x: i32, y: i32) -> bool {
+        (self.x0..=self.x1).contains(&x) && (self.y0..=self.y1).contains(&y)
+    }
+}
+
+/// The hot areas of `screen` for the rows starting at `scroll`. `rows` is the
+/// total number of entries. The original adds them in row order, then the
+/// arrows, then "Go Back"; a click on overlapping areas takes the last, as the
+/// original's list does.
+pub fn hot_areas(screen: Screen, scroll: usize, rows: usize) -> Vec<HotArea> {
+    hot_areas_with_fitted(screen, scroll, rows, None)
+}
+
+/// [`hot_areas`] with the Upgrades list's fitted flags: F329 adds the right
+/// (Remove) button's hot area only when F383 set the row's fitted bit, so a
+/// click where the button is not drawn does nothing, as in the original.
+pub fn hot_areas_with_fitted(
+    screen: Screen,
+    scroll: usize,
+    rows: usize,
+    fitted: Option<&[bool]>,
+) -> Vec<HotArea> {
+    hot_areas_with_heights(screen, scroll, rows, fitted, None)
+}
+
+/// [`hot_areas_with_fitted`] with F329's per-row heights, starting at `scroll`.
+/// F327 advances the next row's top by the larger of the pitch and F329's
+/// `10 * lines`, so a wrapped ten-pixel row moves every row below it.
+pub fn hot_areas_with_heights(
+    screen: Screen,
+    scroll: usize,
+    rows: usize,
+    fitted: Option<&[bool]>,
+    heights: Option<&[i32]>,
+) -> Vec<HotArea> {
+    let layout = layout(screen);
+    let mut areas = Vec::new();
+    let mut y = LIST_TOP;
+    let mut drawn = 0;
+    for row in scroll..rows {
+        if y + layout.pitch >= LIST_BOTTOM {
+            break;
+        }
+        let height = heights
+            .and_then(|heights| heights.get(row - scroll).copied())
+            .unwrap_or(layout.pitch)
+            .max(layout.pitch);
+        let x0 = 124;
+        if layout.buttons > 0 {
+            let hot = match screen {
+                Screen::Market => Hot::Market { buy: true, row },
+                Screen::Upgrades => Hot::Outfit { remove: false, row },
+                Screen::Ships => Hot::Ship { view: false, row },
+                _ => Hot::Row(row),
+            };
+            areas.push(HotArea {
+                x0,
+                y0: y,
+                x1: x0 + 7,
+                y1: y + 8,
+                hot,
+            });
+        }
+        if layout.buttons >= 2 {
+            if screen == Screen::Upgrades
+                && fitted.is_some_and(|fitted| !fitted.get(row).copied().unwrap_or(false))
+            {
+                y += height;
+                drawn += 1;
+                continue;
+            }
+            let hot = match screen {
+                Screen::Market => Hot::Market { buy: false, row },
+                Screen::Upgrades => Hot::Outfit { remove: true, row },
+                Screen::Ships => Hot::Ship { view: true, row },
+                _ => Hot::Row(row),
+            };
+            areas.push(HotArea {
+                x0: 136,
+                y0: y,
+                x1: 143,
+                y1: y + 8,
+                hot,
+            });
+        }
+        y += height;
+        drawn += 1;
+    }
+    if rows > scroll + drawn {
+        areas.push(HotArea {
+            x0: 124,
+            y0: 147,
+            x1: 131,
+            y1: 155,
+            hot: Hot::More,
+        });
+    }
+    if scroll > 0 {
+        areas.push(HotArea {
+            x0: 136,
+            y0: 147,
+            x1: 143,
+            y1: 155,
+            hot: Hot::Up,
+        });
+    }
+    if layout.back {
+        areas.push(HotArea {
+            x0: 200,
+            y0: 147,
+            x1: 207,
+            y1: 155,
+            hot: Hot::Back,
+        });
+    }
+    areas
+}
+
+/// The hot area under a point, last added first.
+pub fn click(screen: Screen, scroll: usize, rows: usize, x: i32, y: i32) -> Option<Hot> {
+    click_with_fitted(screen, scroll, rows, None, x, y)
+}
+
+/// [`click`] with the Upgrades fitted flags (the Remove button's hot area only
+/// exists on a fitted row).
+pub fn click_with_fitted(
+    screen: Screen,
+    scroll: usize,
+    rows: usize,
+    fitted: Option<&[bool]>,
+    x: i32,
+    y: i32,
+) -> Option<Hot> {
+    click_with_heights(screen, scroll, rows, fitted, None, x, y)
+}
+
+/// [`click_with_fitted`] with F329's per-row heights (starting at `scroll`).
+pub fn click_with_heights(
+    screen: Screen,
+    scroll: usize,
+    rows: usize,
+    fitted: Option<&[bool]>,
+    heights: Option<&[i32]>,
+    x: i32,
+    y: i32,
+) -> Option<Hot> {
+    hot_areas_with_heights(screen, scroll, rows, fitted, heights)
+        .into_iter()
+        .rev()
+        .find(|area| area.contains(x, y))
+        .map(|area| area.hot)
+}
+
+/// The action of the row at `index`, for menus. Market rows are handled by the
+/// caller (their goods are dynamic).
+pub fn menu_entry(screen: Screen, index: usize, bulletin_rows: usize) -> Option<&'static Entry> {
+    match screen {
+        Screen::Services => SERVICES.get(index),
+        Screen::Shipyard => SHIPYARD.get(index),
+        Screen::Bulletin if index < bulletin_rows => None,
+        _ => None,
+    }
+}
+
+/// F326's row texts for a screen that mixes the station's own entries with the
+/// scripts' (F453's board and F493's military list): `native` supplies each
+/// station entry's text by its index and `scripted` the scripts' entries in
+/// menu order. F346 can put a script entry among the station's and move the
+/// displaced entry to the end, so the menu's order is the row order.
+pub fn menu_rows(
+    entries: &[ffe_core::script::menu::Entry],
+    native: &[String],
+    scripted: &[String],
+) -> Vec<String> {
+    let mut scripted = scripted.iter();
+    entries
+        .iter()
+        .map(|entry| match crate::scripts::native_index(entry) {
+            Some(index) => native.get(index).cloned().unwrap_or_default(),
+            None => scripted.next().cloned().unwrap_or_default(),
+        })
+        .collect()
+}
+
+/// The number of rows a screen shows, given the dynamic BBS/market/upgrade,
+/// repair and hull sizes.
+#[allow(clippy::too_many_arguments)]
+pub fn row_count(
+    screen: Screen,
+    bulletin_rows: usize,
+    market_rows: usize,
+    upgrade_rows: usize,
+    repair_rows: usize,
+    ship_rows: usize,
+    journal_rows: usize,
+    comms_rows: usize,
+    military_rows: usize,
+) -> usize {
+    match screen {
+        Screen::Services => SERVICES.len(),
+        Screen::Shipyard => SHIPYARD.len(),
+        // The caller passes the scripts' entry count as the board's rows.
+        Screen::Script => bulletin_rows,
+        // F521's page: the caller passes the reply's own row count here.
+        Screen::Reply => bulletin_rows,
+        Screen::Bulletin => bulletin_rows,
+        Screen::Market => market_rows,
+        Screen::Upgrades => upgrade_rows,
+        Screen::Repairs => repair_rows,
+        Screen::Ships => ship_rows,
+        Screen::Police => 1,
+        Screen::Journal => journal_rows,
+        Screen::Comms => comms_rows,
+        Screen::Military => military_rows,
+        // F508/F495/F496/F506: the caller passes the briefing's row count.
+        Screen::Briefing => military_rows,
+    }
+}
+
+/// Is `text` one of the station screens' prompts ([`hint`])?
+pub fn is_prompt(text: &str) -> bool {
+    !text.is_empty()
+        && Screen::ALL
+            .iter()
+            .any(|screen| (0..2).any(|rows| (0..2).any(|ships| hint(*screen, rows, ships) == text)))
+}
+
+/// The title of the console line shown when a screen opens.
+pub fn hint(screen: Screen, bulletin_rows: usize, ship_rows: usize) -> &'static str {
+    match screen {
+        Screen::Services | Screen::Shipyard => SERVICES_HINT,
+        Screen::Script => "",
+        // The console line is F521's own 0x991d page, posted as the page opens.
+        Screen::Reply => "",
+        // F352 posts the offer's description as the briefing opens.
+        Screen::Briefing => "",
+        Screen::Market => MARKET_HINT,
+        Screen::Upgrades => UPGRADES_HINT,
+        Screen::Ships => {
+            if ship_rows == 0 {
+                SHIPS_EMPTY
+            } else {
+                SHIPS_HINT
+            }
+        }
+        Screen::Repairs => REPAIRS_HINT,
+        Screen::Police => POLICE_HINT,
+        Screen::Bulletin => {
+            if bulletin_rows == 0 {
+                BULLETIN_EMPTY
+            } else {
+                "Please choose advertisement. Direct link will be made with advertiser."
+            }
+        }
+        Screen::Journal => "Journal Entries. Contract details and their completion messages.",
+        Screen::Comms => "Messages received. Select one to read it.",
+        Screen::Military => {
+            if bulletin_rows == 0 {
+                "There are no missions currently available for someone with your security and combat ratings."
+            } else {
+                "Listed above are mercenary missions on offer appropriate to your current security and combat ratings with us."
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn screens_have_the_original_geometry() {
+        for (screen, pitch, x, buttons, back) in [
+            (Screen::Services, 33, 140, 1, false),
+            (Screen::Shipyard, 33, 140, 1, false),
+            (Screen::Bulletin, 33, 140, 1, true),
+            (Screen::Market, 10, 152, 2, false),
+            (Screen::Upgrades, 10, 152, 2, true),
+            (Screen::Ships, 10, 152, 2, true),
+            (Screen::Repairs, 10, 140, 1, true),
+            (Screen::Military, 33, 140, 1, true),
+        ] {
+            let layout = layout(screen);
+            assert_eq!(layout.pitch, pitch, "{screen:?}");
+            assert_eq!(layout.entry_x, x, "{screen:?}");
+            assert_eq!(layout.buttons, buttons, "{screen:?}");
+            assert_eq!(layout.back, back, "{screen:?}");
+        }
+        assert_eq!(layout(Screen::Services).visible(), 4);
+        assert_eq!(layout(Screen::Market).visible(), 13);
+    }
+
+    #[test]
+    fn a_wrapped_ten_pixel_row_moves_the_rows_below_it() {
+        // F329/F327: the row's text wraps at `0x140 - 3 - 140` = 177 pixels,
+        // and the next row's top moves by `max(pitch, 10 * lines)`.
+        let long = "aaaaaaaaaa ".repeat(20);
+        let heights = row_heights(Screen::Reply, [long.trim(), "\"Hang up.\""], |text| {
+            text.len()
+        });
+        assert_eq!(heights, vec![20, 10]);
+        assert_eq!(visible_rows(layout(Screen::Reply).pitch, &heights), 2);
+        let areas = hot_areas_with_heights(Screen::Reply, 0, 2, None, Some(&heights));
+        assert_eq!((areas[0].y0, areas[1].y0), (LIST_TOP, LIST_TOP + 20));
+        // With the source pitch the second button would be ten pixels higher.
+        assert_eq!(
+            hot_areas(Screen::Reply, 0, 2)[1].y0,
+            LIST_TOP + layout(Screen::Reply).pitch
+        );
+        // A 33-pixel bulletin row needs four wrapped lines before it grows.
+        assert_eq!(
+            row_heights(Screen::Bulletin, ["advert"], |text| text.len()),
+            vec![33]
+        );
+    }
+
+    #[test]
+    fn titles_and_headers_are_the_original_strings() {
+        assert_eq!(
+            title(Screen::Services, "Sirocco Station"),
+            "Sirocco Station Services"
+        );
+        assert_eq!(
+            title(Screen::Shipyard, "Sirocco Station"),
+            "Sirocco Station Shipyard"
+        );
+        assert_eq!(
+            title(Screen::Market, "Sirocco Station"),
+            "Sirocco Station Stockmarket"
+        );
+        assert_eq!(
+            title(Screen::Bulletin, "Sirocco Station"),
+            "Sirocco Station Bulletin Board"
+        );
+        assert_eq!(
+            title(Screen::Upgrades, "Sirocco Station"),
+            "Sirocco Station Shipyard"
+        );
+        assert_eq!(header(Screen::Market)[0], (120, "Buy Sell Item"));
+        assert_eq!(header(Screen::Market)[1], (213, "Price per t"));
+        assert_eq!(header(Screen::Repairs)[2], (286, "Cost"));
+        assert_eq!(header(Screen::Services), &[]);
+    }
+
+    #[test]
+    fn police_contact_is_f552s_fines_screen() {
+        assert_eq!(SHIPYARD[3].action, Action::Open(Screen::Police));
+        let layout = layout(Screen::Police);
+        assert_eq!((layout.pitch, layout.entry_x, layout.buttons), (33, 140, 1));
+        assert!(layout.back);
+        assert_eq!(
+            title(Screen::Police, "Sirocco Station"),
+            "Sirocco Station Contact Local Police"
+        );
+        assert_eq!(hint(Screen::Police, 0, 0), POLICE_HINT);
+        assert_eq!(row_count(Screen::Police, 0, 0, 0, 0, 0, 0, 0, 0), 1);
+        let mut dock = DockState::default();
+        dock.open(Screen::Police);
+        dock.back();
+        assert_eq!(dock.screen, Screen::Shipyard);
+    }
+
+    #[test]
+    fn services_rows_are_the_original_four_in_order() {
+        let titles: Vec<_> = SERVICES.iter().map(|entry| entry.title).collect();
+        assert_eq!(
+            titles,
+            [
+                "Launch Request",
+                "Shipyard",
+                "Bulletin Board",
+                "Stockmarket"
+            ]
+        );
+        assert_eq!(
+            SERVICES[0].detail,
+            Some("(Request launch permission from traffic control)")
+        );
+        assert_eq!(
+            SERVICES[3].detail,
+            Some("(Direct trading on the local market)")
+        );
+        let titles: Vec<_> = SHIPYARD.iter().map(|entry| entry.title).collect();
+        assert_eq!(
+            titles,
+            [
+                "Upgrades",
+                "Repairs and Servicing",
+                "New and Reconditioned Ships",
+                "Contact Local Police"
+            ]
+        );
+    }
+
+    #[test]
+    fn row_buttons_are_eight_by_nine_at_the_original_columns() {
+        let areas = hot_areas(Screen::Services, 0, 4);
+        assert_eq!(
+            areas[0],
+            HotArea {
+                x0: 124,
+                y0: 15,
+                x1: 131,
+                y1: 23,
+                hot: Hot::Row(0)
+            }
+        );
+        assert_eq!(areas[1].y0, 48);
+        assert_eq!(areas[2].y0, 81);
+        assert_eq!(areas[3].y0, 114);
+        assert!(!areas.iter().any(|area| area.hot == Hot::Back));
+
+        let areas = hot_areas(Screen::Market, 0, 33);
+        assert_eq!(areas[0].hot, Hot::Market { buy: true, row: 0 });
+        assert_eq!(
+            areas[1],
+            HotArea {
+                x0: 136,
+                y0: 15,
+                x1: 143,
+                y1: 23,
+                hot: Hot::Market { buy: false, row: 0 }
+            }
+        );
+        assert_eq!(areas[2].y0, 25);
+        // 13 rows, the down arrow for the rest, no back arrow on the market.
+        assert_eq!(
+            areas
+                .iter()
+                .filter(|area| matches!(area.hot, Hot::Market { .. }))
+                .count(),
+            26
+        );
+        assert!(areas.iter().any(|area| area.hot == Hot::More));
+        assert!(!areas.iter().any(|area| area.hot == Hot::Back));
+    }
+
+    #[test]
+    fn back_arrows_and_scrolling_follow_the_screen_tables() {
+        let areas = hot_areas(Screen::Upgrades, 0, 42);
+        assert!(areas.iter().any(|area| area.hot == Hot::Back));
+        assert!(areas.iter().any(|area| area.hot == Hot::More));
+        assert!(!areas.iter().any(|area| area.hot == Hot::Up));
+        let areas = hot_areas(Screen::Upgrades, 4, 42);
+        assert!(areas.iter().any(|area| area.hot == Hot::Up));
+        assert_eq!(click(Screen::Upgrades, 0, 42, 204, 150), Some(Hot::Back));
+        assert_eq!(
+            click(Screen::Upgrades, 0, 42, 127, 17),
+            Some(Hot::Outfit {
+                remove: false,
+                row: 0
+            })
+        );
+        assert_eq!(
+            click(Screen::Upgrades, 0, 42, 139, 17),
+            Some(Hot::Outfit {
+                remove: true,
+                row: 0
+            })
+        );
+        assert_eq!(click(Screen::Upgrades, 0, 42, 150, 17), None);
+    }
+
+    #[test]
+    fn the_black_market_is_the_market_screen_with_the_advertisement_title() {
+        let mut dock = DockState::default();
+        dock.open(Screen::Market);
+        assert!(!dock.black_market);
+        dock.open_black_market(false, Some(0x1234));
+        assert_eq!(dock.screen, Screen::Market);
+        assert!(dock.black_market);
+        assert!(!dock.fake_market);
+        assert_eq!(dock.company_seed, Some(0x1234));
+        dock.open_black_market(true, None);
+        assert!(dock.fake_market);
+        assert_eq!(dock.company_seed, None);
+        // Any other screen clears F454's mask.
+        dock.open(Screen::Services);
+        assert!(!dock.black_market && !dock.fake_market);
+        assert_eq!(dock.company_seed, None);
+    }
+
+    #[test]
+    fn selection_stays_inside_the_visible_window() {
+        let mut dock = DockState::default();
+        dock.open(Screen::Market);
+        for _ in 0..20 {
+            dock.step(1, 33);
+        }
+        assert_eq!(dock.selected, 20);
+        assert_eq!(dock.scroll, 20 + 1 - 13);
+        dock.step(-1, 33);
+        assert_eq!(dock.selected, 19);
+        dock.open(Screen::Shipyard);
+        dock.step(1, 4);
+        assert_eq!(dock.selected, 1);
+        dock.back();
+        assert_eq!(dock.screen, Screen::Services);
+    }
+
+    #[test]
+    fn every_menu_row_has_an_action() {
+        for screen in [Screen::Services, Screen::Shipyard] {
+            for index in 0..row_count(screen, 0, 0, 0, 0, 0, 0, 0, 0) {
+                assert!(menu_entry(screen, index, 0).is_some(), "{screen:?} {index}");
+            }
+        }
+        assert!(menu_entry(Screen::Services, 4, 0).is_none());
+        assert!(menu_entry(Screen::Market, 0, 0).is_none());
+    }
+
+    #[test]
+    fn upgrades_rows_are_f383s_available_records_at_ross_154s_tech() {
+        use ffe_core::equipment::{self, Loadout};
+        // Ross 154's record byte +5 is 0xfd (F869/F622 -> DATA_008995). The
+        // reference Sirocco frame shows this list; the 0xff records (Dummy Mine
+        // etc.) are above the station and are not offered.
+        let rows = upgrades(0xfd, &Loadout::new_game(), &[0x88, 0, 0, 0]);
+        assert_eq!(rows[0].name, "XB74 Proximity Mine");
+        assert_eq!(rows[0].index, 1);
+        let laser = rows
+            .iter()
+            .find(|row| row.name == "1MW Pulse Laser")
+            .expect("the reference frame's seventh row");
+        assert_eq!(laser.price, equipment::get(21).unwrap().price * 12);
+        assert_eq!(laser.removal, equipment::get(21).unwrap().removal * 12);
+        assert_eq!(laser.mass, 1);
+        assert!(laser.fitted, "0x88 is the new game's front laser");
+        assert!(
+            !rows
+                .iter()
+                .find(|row| row.name == "Missile Viewer")
+                .unwrap()
+                .fitted
+        );
+        assert!(!rows.iter().any(|row| row.name == "XB13 Dummy Prox. Mine"));
+        // A low-tech port offers only the tech <= 0x16 record.
+        assert_eq!(upgrades(0x16, &Loadout::default(), &[0; 4]).len(), 1);
+    }
+
+    #[test]
+    fn upgrades_buttons_are_fit_on_the_left_and_remove_on_the_right() {
+        let areas = hot_areas(Screen::Upgrades, 0, 66);
+        assert_eq!(
+            areas[0].hot,
+            Hot::Outfit {
+                remove: false,
+                row: 0
+            }
+        );
+        assert_eq!(
+            areas[1].hot,
+            Hot::Outfit {
+                remove: true,
+                row: 0
+            }
+        );
+        assert_eq!(
+            click(Screen::Upgrades, 0, 66, 127, 17),
+            Some(Hot::Outfit {
+                remove: false,
+                row: 0
+            })
+        );
+        assert_eq!(
+            click(Screen::Upgrades, 0, 66, 139, 17),
+            Some(Hot::Outfit {
+                remove: true,
+                row: 0
+            })
+        );
+    }
+
+    #[test]
+    fn ship_buttons_are_buy_on_the_left_and_view_on_the_right() {
+        let areas = hot_areas(Screen::Ships, 0, ffe_core::shipyard::MAX_HULLS);
+        assert_eq!(
+            areas[0].hot,
+            Hot::Ship {
+                view: false,
+                row: 0
+            }
+        );
+        assert_eq!(areas[1].hot, Hot::Ship { view: true, row: 0 });
+        assert_eq!(
+            click(Screen::Ships, 0, 13, 127, 17),
+            Some(Hot::Ship {
+                view: false,
+                row: 0
+            })
+        );
+        assert_eq!(
+            click(Screen::Ships, 0, 13, 139, 17),
+            Some(Hot::Ship { view: true, row: 0 })
+        );
+        assert!(areas.iter().any(|area| area.hot == Hot::Back));
+        assert_eq!(row_count(Screen::Ships, 0, 0, 0, 0, 13, 0, 0, 0), 13);
+        assert_eq!(hint(Screen::Ships, 0, 13), SHIPS_HINT);
+        assert_eq!(hint(Screen::Ships, 0, 0), SHIPS_EMPTY);
+        assert_eq!(row_count(Screen::Bulletin, 18, 0, 0, 0, 0, 0, 0, 0), 18);
+        assert_eq!(
+            hint(Screen::Bulletin, 1, 0),
+            "Please choose advertisement. Direct link will be made with advertiser."
+        );
+    }
+
+    #[test]
+    fn the_journal_and_comms_pages_are_text_pages_with_a_back_arrow() {
+        for screen in [Screen::Journal, Screen::Comms] {
+            let layout = layout(screen);
+            assert_eq!(layout.pitch, 33);
+            assert_eq!(layout.entry_x, 4);
+            assert_eq!(layout.buttons, 0, "no row button");
+            assert!(layout.back, "Go Back arrow");
+            assert_eq!(layout.visible(), 4);
+            // No row hot area, but the back arrow is there.
+            let areas = hot_areas(screen, 0, 8);
+            assert!(!areas.iter().any(|area| matches!(area.hot, Hot::Row(_))));
+            assert!(areas.iter().any(|area| area.hot == Hot::Back));
+        }
+        assert_eq!(
+            title(Screen::Journal, "Sirocco Station"),
+            "Ship Library Archives"
+        );
+        assert_eq!(title(Screen::Comms, "Sirocco Station"), "Communications");
+        assert_eq!(
+            title(Screen::Military, "Sirocco Station"),
+            "Military Missions"
+        );
+        assert_eq!(layout(Screen::Military).pitch, 33);
+        assert_eq!(layout(Screen::Military).buttons, 1);
+        assert!(layout(Screen::Military).back);
+        // F523's screen 1, used by F508/F495/F496/F506's briefing.
+        assert_eq!(layout(Screen::Briefing).pitch, 10);
+        assert_eq!(layout(Screen::Briefing).entry_x, 140);
+        assert_eq!(layout(Screen::Briefing).buttons, 1);
+        assert!(!layout(Screen::Briefing).back);
+        assert_eq!(
+            title(Screen::Briefing, "Sirocco Station"),
+            "Military Missions"
+        );
+        assert_eq!(header(Screen::Briefing), &[(120, "Suggested Responses")]);
+        assert_eq!(row_count(Screen::Briefing, 0, 0, 0, 0, 0, 0, 0, 12), 12);
+        assert!(hint(Screen::Military, 1, 0).contains("mercenary missions"));
+        assert!(hint(Screen::Military, 0, 0).contains("no missions currently"));
+        assert_eq!(
+            hint(Screen::Journal, 0, 0),
+            "Journal Entries. Contract details and their completion messages."
+        );
+    }
+
+    #[test]
+    fn f326s_rows_keep_the_scripts_entries_in_the_menus_order() {
+        // F493 seeds its offers, then signal 3 inserts mission 23's 0xa9b9 by
+        // F346; the displaced offer moves to the end.
+        let entries = vec![
+            crate::scripts::native_entry(1, 0x9855),
+            ffe_core::script::menu::Entry {
+                code: 0xa9b9,
+                ..Default::default()
+            },
+            crate::scripts::native_entry(0, 0x9854),
+        ];
+        let offers = vec!["package".to_owned(), "photograph".to_owned()];
+        let scripted = vec!["Secret mission".to_owned()];
+        assert_eq!(
+            menu_rows(&entries, &offers, &scripted),
+            ["photograph", "Secret mission", "package"]
+        );
+    }
+
+    #[test]
+    fn repairs_rows_are_f444s_three_services_at_the_reference_costs() {
+        let rows = repairs(38, true, "1-Jan-3250", "1-Jan-3250");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].title, "Deluxe service (drive and equipment)");
+        assert_eq!(rows[0].cost, 3040);
+        assert_eq!(rows[1].title, "Drive Only service (last: 1-Jan-3250)");
+        assert_eq!(rows[1].cost, 1900);
+        assert_eq!(rows[2].title, "Equipment Only service (last: 1-Jan-3250)");
+        assert_eq!(rows[2].cost, 1900);
+        // F444 omits the Drive Only row when no drive is fitted.
+        assert_eq!(repairs(38, false, "", "1-Jan-3250").len(), 2);
+    }
+
+    #[test]
+    fn the_remove_button_exists_only_on_fitted_rows() {
+        let fitted = [false, true];
+        let areas = hot_areas_with_fitted(Screen::Upgrades, 0, 2, Some(&fitted));
+        // Row 0 (unfitted): Fit only. Row 1 (fitted): Fit and Remove.
+        assert_eq!(
+            areas[0].hot,
+            Hot::Outfit {
+                remove: false,
+                row: 0
+            }
+        );
+        assert_eq!(
+            areas[1].hot,
+            Hot::Outfit {
+                remove: false,
+                row: 1
+            }
+        );
+        assert_eq!(
+            areas[2].hot,
+            Hot::Outfit {
+                remove: true,
+                row: 1
+            }
+        );
+        assert_eq!(
+            click_with_fitted(Screen::Upgrades, 0, 2, Some(&fitted), 139, 17),
+            None
+        );
+        assert_eq!(
+            click_with_fitted(Screen::Upgrades, 0, 2, Some(&fitted), 139, 27),
+            Some(Hot::Outfit {
+                remove: true,
+                row: 1
+            })
+        );
+    }
+
+    #[test]
+    fn the_reply_page_is_f331s_screen_one() {
+        // F521: F331(1, 0x98d5, ...) keeps the board's name; the rows are
+        // F522's ten-pixel responses at x 140 with one button and no Go Back
+        // (the "Hang up." reply is the way out).
+        let layout = layout(Screen::Reply);
+        assert_eq!((layout.pitch, layout.entry_x, layout.buttons), (10, 140, 1));
+        assert!(!layout.back);
+        assert_eq!(layout.visible(), 13);
+        assert_eq!(
+            title(Screen::Reply, "Sirocco Station"),
+            "Sirocco Station Bulletin Board"
+        );
+        assert_eq!(header(Screen::Reply), &[(120, "Suggested Responses")]);
+        assert_eq!(row_count(Screen::Reply, 13, 0, 0, 0, 0, 0, 0, 0), 13);
+        let areas = hot_areas(Screen::Reply, 0, 13);
+        assert_eq!(areas[0].hot, Hot::Row(0));
+        assert_eq!(areas[12].hot, Hot::Row(12));
+        assert_eq!(click(Screen::Reply, 0, 13, 127, 17), Some(Hot::Row(0)));
+        assert!(!areas.iter().any(|area| area.hot == Hot::Back));
+        assert_eq!(hint(Screen::Reply, 0, 0), "");
+        // Backspace leaves the conversation for the board.
+        let mut dock = DockState::default();
+        dock.open(Screen::Reply);
+        dock.back();
+        assert_eq!(dock.screen, Screen::Bulletin);
+        assert!(dock.reply.is_none());
+    }
+
+    #[test]
+    fn each_station_page_names_its_f326_screen() {
+        // F327 writes DATA_009054 as each screen draws; F326 dispatches on it.
+        let numbered: Vec<_> = Screen::ALL
+            .into_iter()
+            .filter_map(|screen| screen.script_screen().map(|number| (screen, number)))
+            .collect();
+        assert_eq!(
+            numbered,
+            [
+                (Screen::Services, 0),
+                (Screen::Shipyard, 0),
+                (Screen::Market, 3),
+                (Screen::Upgrades, 4),
+                (Screen::Repairs, 8),
+                (Screen::Ships, 5),
+                (Screen::Bulletin, 2),
+                (Screen::Military, 7),
+                (Screen::Reply, 1),
+                (Screen::Briefing, 1),
+            ]
+        );
+        // The port-only pages have no F326 entry.
+        for screen in [
+            Screen::Police,
+            Screen::Journal,
+            Screen::Comms,
+            Screen::Script,
+        ] {
+            assert_eq!(screen.script_screen(), None, "{screen:?}");
+        }
+    }
+}

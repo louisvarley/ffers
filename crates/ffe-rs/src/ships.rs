@@ -1,0 +1,282 @@
+//! The flyable craft: original model table slots 14..=0x47 (ship indexes
+//! 0x0e..=0x47). A model's display name is not its table slot: the statistics
+//! block's `+0xe` word is a ship-name ffcode, expanded through `DATA_004682`
+//! (F437/F439/F282 -> F1345, cache v11). Slots named "Unknown", or holding text
+//! rather than a name, are left out, as are craft the viewer cannot draw on
+//! their own.
+use crate::model_viewer::ModelViewer;
+use ffe_content::VerifiedCache;
+
+/// First and last model table slots of the original's ship range: ship indexes
+/// 0x0e..=0x47 (`doc/srctools/shipidx.txt`).
+pub const FIRST_SHIP: u32 = 14;
+pub const LAST_SHIP: u32 = 0x47;
+/// The legacy fallback for a save without a ship field. Slot 20 (0x14) is the
+/// Falcon attack fighter; the Eagle long range fighter is slot 0x17 (23).
+pub const DEFAULT_SHIP: u32 = 20;
+
+/// The fields of a model's 48-byte statistics block (descriptor +0x38, cache v12)
+/// that object set-up (the routine at 0x125c0 in floppy 1.02) copies onto a ship.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShipStats {
+    /// +0x0, the forward thrust limit (object +0xc4).
+    pub forward_thrust: i16,
+    /// +0x2, the reverse thrust limit (object +0xc6; negated for +0xbc/+0xc0).
+    pub reverse_thrust: i16,
+    /// +0x4, gun mounts (object +0xd1, compared as a signed byte); F1 offers the
+    /// turret views above 2, and the bottom turret from 4.
+    pub gun_mounts: i8,
+    /// +0x5 bit 0: the model has a fuel-scoop mounting. `F394` tests
+    /// `word[+4] & 0x100` before fitting the Fuel Scoop ("Your ship does not
+    /// have a fuel scoop mounting."); the Saker Mk III has none.
+    pub fuel_scoop_mounting: bool,
+    /// +0x6, hull mass in tonnes (object +0xe4 holds it times 4).
+    pub mass: u16,
+    /// +0xa, the second mass word: F437's Cost is this times 1000 and F444's
+    /// service rows charge 80/50 times it (the reference Eagle's 38 gives
+    /// 3040/1900/1900).
+    pub price_mass: u16,
+    /// +0x8, the cargo space (tonnes, signed word) before the hyperdrive's mass.
+    pub cargo: i16,
+    /// +0xc, the shield-strength word the shipyard's View page shows (the
+    /// Cobra Mk III's is 150). F1099's in-flight readout uses the live object's
+    /// `+0xe0/+0xe2` words, not this one.
+    pub shield_strength: i16,
+    /// +0xe, the ship-name ffcode (`0x4000 | index`) F437/F439/F282 expand
+    /// through `DATA_004682` (F1345/F1348). It is not a shield word.
+    pub name_code: u16,
+    /// +0x12, missile mounts.
+    pub missiles: u16,
+    /// +0x14, the hyperdrive word: negative means a drive of the class in its low byte.
+    pub drive: i16,
+    /// +0x16, the Elite rating points F942 adds to `DATA_008911` when the
+    /// player destroys the ship.
+    pub rating: i16,
+    /// +0x18/+0x1a, the cockpit eye: along the forward axis, along the up axis
+    /// (FUNC_001054 front and rear views).
+    pub eye: [i16; 2],
+    /// +0x20/+0x22, the front gun's forward and up offsets (F931/F1776).
+    pub front_gun: [i16; 2],
+    /// +0x24/+0x26, the rear gun's offsets.
+    pub rear_gun: [i16; 2],
+    /// +0x28/+0x2a, the top turret's gun offsets (view 2; the eye is 0x3e above it).
+    pub top_turret: [i16; 2],
+    /// +0x2c/+0x2e, the bottom turret's gun offsets (view 3; the eye is 0x3e below it).
+    pub bottom_turret: [i16; 2],
+}
+
+impl ShipStats {
+    /// `None` for an all-zero block (a slot without statistics).
+    pub fn from_block(block: &[u8]) -> Option<Self> {
+        let word = |offset: usize| u16::from_le_bytes([block[offset], block[offset + 1]]);
+        (block.len() == 48 && block.iter().any(|b| *b != 0)).then(|| Self {
+            forward_thrust: word(0) as i16,
+            reverse_thrust: word(2) as i16,
+            gun_mounts: block[4] as i8,
+            fuel_scoop_mounting: block[5] & 1 != 0,
+            mass: word(6),
+            cargo: word(8) as i16,
+            price_mass: word(0xa),
+            shield_strength: word(0xc) as i16,
+            name_code: word(0xe),
+            missiles: word(0x12),
+            drive: word(0x14) as i16,
+            rating: word(0x16) as i16,
+            eye: [word(0x18) as i16, word(0x1a) as i16],
+            front_gun: [word(0x20) as i16, word(0x22) as i16],
+            rear_gun: [word(0x24) as i16, word(0x26) as i16],
+            top_turret: [word(0x28) as i16, word(0x2a) as i16],
+            bottom_turret: [word(0x2c) as i16, word(0x2e) as i16],
+        })
+    }
+
+    /// The limits object set-up gives the ship (the routine at 0x125c0): z from
+    /// the reverse limit up to the forward one, x and y symmetric at the
+    /// reverse limit's magnitude.
+    pub fn limits(&self) -> ffe_core::thrust::Limits {
+        let side = self.reverse_thrust.wrapping_neg();
+        ffe_core::thrust::Limits {
+            axes: [
+                [side, self.reverse_thrust],
+                [side, self.reverse_thrust],
+                [self.forward_thrust, self.reverse_thrust],
+            ],
+        }
+    }
+
+    /// The object's z thrust word (+0xba, model global 15) for a throttle in
+    /// -1..=1. F600 scales the requested thrust to fit the limits, so full
+    /// throttle gives the forward limit and full reverse the (negative) reverse
+    /// limit; between them the word is proportional.
+    pub fn thrust_word(&self, throttle: f64) -> u16 {
+        let throttle = throttle.clamp(-1.0, 1.0);
+        let limit = if throttle >= 0.0 {
+            f64::from(self.forward_thrust)
+        } else {
+            -f64::from(self.reverse_thrust)
+        };
+        ((throttle * limit) as i16) as u16
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ShipList {
+    ships: Vec<(u32, String)>,
+}
+
+/// F1345's `DATA_004682[code & 0x3fff]` lookup. The table is keyed by the
+/// ship-name ffcode, not by the model table slot: the same table holds UI and
+/// decal strings too, and the model-to-code mapping is the statistics block's
+/// `+0xe` word (see [`model_name`]).
+pub fn name_at(table: &[u8], code: u16) -> Option<String> {
+    let entry = table
+        .split(|byte| *byte == 0)
+        .nth(usize::from(code & 0x3fff))?;
+    let name = String::from_utf8_lossy(entry).trim().to_owned();
+    (!name.is_empty()).then_some(name)
+}
+
+/// A model's original display name: the ship-name ffcode in its statistics
+/// block (`+0xe`) expanded through `DATA_004682` (what F437, F439 and F282 do).
+/// `None` for a model without a statistics block or a code outside the table.
+pub fn model_name(cache: &VerifiedCache, model: u32) -> Option<String> {
+    let info = ffe_core::objects::ModelInfo::read(
+        cache.asset("base:model/records")?,
+        cache.asset("base:ship/stats")?,
+        model,
+    )?;
+    let stats = ShipStats::from_block(&info.stats?)?;
+    name_at(cache.asset("base:text/model-names")?, stats.name_code)
+}
+
+/// The NPC view of a ship model: its original name (the statistics `+0xe`
+/// ffcode, cache v11), F1533's radii and the statistics' mass and shield word
+/// (`+0xc`). `None` for a model without statistics (the original's traffic
+/// tables can name a model this cache does not).
+pub fn npc_spec(cache: &VerifiedCache, model: u32) -> Option<ffe_core::npc::Spec> {
+    let info = ffe_core::objects::ModelInfo::read(
+        cache.asset("base:model/records")?,
+        cache.asset("base:ship/stats")?,
+        model,
+    )?;
+    let stats = ShipStats::from_block(&info.stats?)?;
+    let names = cache.asset("base:text/model-names")?;
+    let name = name_at(names, stats.name_code).unwrap_or_else(|| format!("Ship {model}"));
+    Some(ffe_core::npc::Spec {
+        model,
+        name,
+        radius: info.radii().0,
+        collision_radius: info.radii().1,
+        class: ffe_core::objects::model_class(&info),
+        mass: stats.mass,
+        shield_strength: stats.shield_strength as u16,
+        thrust: stats.forward_thrust,
+        drive: stats.drive as u8,
+        gun_mounts: stats.gun_mounts,
+        missiles: stats.missiles,
+        cargo: u16::try_from(stats.cargo.max(0)).unwrap_or(0),
+        rating: stats.rating,
+        limits: Some(stats.limits()),
+    })
+}
+
+/// F1533's physics class (`+0x14c`) of an object of `model`.
+pub fn model_class(cache: &VerifiedCache, model: u32) -> Option<u8> {
+    let info = ffe_core::objects::ModelInfo::read(
+        cache.asset("base:model/records")?,
+        cache.asset("base:ship/stats")?,
+        model,
+    )?;
+    Some(ffe_core::objects::model_class(&info))
+}
+
+/// The NPC view of any model a mission script places (statements 48 and 50:
+/// F297's surface buildings and F40's objects): a ship's [`npc_spec`], else
+/// the model's radius with no drive or guns and a hull of `mass` tonnes.
+pub fn object_spec(cache: &VerifiedCache, model: u32, mass: u16) -> Option<ffe_core::npc::Spec> {
+    if let Some(spec) = npc_spec(cache, model) {
+        return Some(spec);
+    }
+    let info = ffe_core::objects::ModelInfo::read(
+        cache.asset("base:model/records")?,
+        cache.asset("base:ship/stats")?,
+        model,
+    )?;
+    Some(ffe_core::npc::Spec {
+        model,
+        name: format!("Object {model}"),
+        radius: info.radii().0.max(1),
+        collision_radius: info.radii().1.max(1),
+        class: ffe_core::objects::model_class(&info),
+        mass,
+        shield_strength: 0,
+        thrust: 0,
+        drive: 0,
+        gun_mounts: 0,
+        missiles: 0,
+        cargo: 0,
+        rating: 0,
+        limits: None,
+    })
+}
+
+impl ShipList {
+    /// Ships with an original name (the statistics `+0xe` ffcode expanded through
+    /// cache v11's `DATA_004682`) and a model the viewer can draw. Empty without
+    /// the name table or the statistics blocks.
+    pub fn from_cache(cache: &VerifiedCache, models: &ModelViewer) -> Self {
+        let (Some(table), Some(records), Some(stats)) = (
+            cache.asset("base:text/model-names"),
+            cache.asset("base:model/records"),
+            cache.asset("base:ship/stats"),
+        ) else {
+            return Self::default();
+        };
+        let ships = (FIRST_SHIP..=LAST_SHIP)
+            .filter_map(|index| {
+                let info = ffe_core::objects::ModelInfo::read(records, stats, index)?;
+                let model_stats = ShipStats::from_block(&info.stats?)?;
+                let name = name_at(table, model_stats.name_code)?;
+                let readable =
+                    name.chars().next().is_some_and(char::is_alphabetic) && name != "Unknown";
+                let drawable = models.find(index).and_then(|m| m.radius()).is_some();
+                (readable && drawable).then_some((index, name))
+            })
+            .collect();
+        Self { ships }
+    }
+
+    pub fn from_ships(ships: Vec<(u32, String)>) -> Self {
+        Self { ships }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.ships.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.ships.len()
+    }
+
+    pub fn name(&self, index: u32) -> Option<&str> {
+        self.ships
+            .iter()
+            .find(|(i, _)| *i == index)
+            .map(|(_, name)| name.as_str())
+    }
+
+    /// The ship `step` places after `current` in table order, wrapping; the first
+    /// ship when `current` is not in the list.
+    pub fn step(&self, current: u32, step: i32) -> Option<u32> {
+        let count = self.ships.len() as i32;
+        if count == 0 {
+            return None;
+        }
+        let position = self.ships.iter().position(|(i, _)| *i == current);
+        let next = match position {
+            Some(position) => (position as i32 + step).rem_euclid(count),
+            None => 0,
+        };
+        Some(self.ships[next as usize].0)
+    }
+}

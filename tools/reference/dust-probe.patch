@@ -1,0 +1,94 @@
+Local space-dust probe for the executed JJFFE 2.8a7 reference (docs/notes/dust.md,
+"Speed class and detail words"). Not part of the build: apply it to a private copy of
+`git show HEAD:tools/reference/headless.c` (LF line endings), rebuild that copy as
+`build-smoke.ps1` does for `jjffe-smoke.exe` (add -lm equivalents; it includes <math.h>), and
+run `--game-frame <frames> 0xff` with FFE_TAKEOFF=1 plus:
+
+  FFE_DUST_AT=<frame>     teleport the ship 2,000 km up along its up row and set its velocity
+  FFE_DUST_V=<km/s>       the velocity along its forward row (default 1000)
+  FFE_DUST_EVERY=<n>      print every n frames: speed, DATA_008865/9123/9013/8812/8813, and each
+                          live model-109 (dust) object's position relative to the ship, +0x7e,
+                          +0x88 class and age (default 25)
+  FFE_DUST_SPAN=<n>       how many frames to print for (default 400)
+  FFE_DUST_PPM=1          also write dust-<frame>.ppm at each print
+  FFE_DUST_DUMP=<frame>   dump PLAYER/DUST lines (position, 9 matrix dwords, +0x7e, age)
+  FFE_DUST_OFF=1          clear the "Space dust, clouds etc" option so two runs differ by dust only
+
+--- a/tools/reference/headless.c
++++ b/tools/reference/headless.c
+@@ -970,6 +970,75 @@
+             unsigned long *descriptor = model_index < 600 ? ref_model((int)model_index) : 0;
+             fprintf(stderr, "frame %lu flags %02x model %lu descriptor %p stats %08lx\n", frames, o[0x151], model_index, (void *)descriptor, descriptor ? descriptor[0x38 / 4] : 0);
+         }
++        {
++            const char *dust_at = getenv("FFE_DUST_AT");
++            unsigned char *pl = (unsigned char *)state_u32(0xc8);
++            if (dust_at && pl) {
++                unsigned long at = strtoul(dust_at, 0, 0);
++                double kms = getenv("FFE_DUST_V") ? atof(getenv("FFE_DUST_V")) : 1000.0;
++                unsigned long every = getenv("FFE_DUST_EVERY") ? strtoul(getenv("FFE_DUST_EVERY"), 0, 0) : 25;
++                unsigned long span = getenv("FFE_DUST_SPAN") ? strtoul(getenv("FFE_DUST_SPAN"), 0, 0) : 400;
++                if (getenv("FFE_DUST_OFF") && frames >= at) ref_state[0x3f51] = 0;
++                if (frames == at) {
++                    long *rows = (long *)pl;
++                    long long *pos = (long long *)(pl + 0x3e);
++                    long *vel = (long *)(pl + 0x8c);
++                    double units = kms * 1.0e6 / 97.07;
++                    int k;
++                    for (k = 0; k < 3; ++k) {
++                        pos[k] += (long long)((double)rows[3 + k] / 2147483648.0 * 2.0e9);
++                        vel[k] = (long)((double)rows[6 + k] / 2147483648.0 * units);
++                    }
++                    fprintf(stderr, "dust-probe: frame %lu teleport 2000 km up, velocity set to %.1f km/s\n", frames, kms);
++                }
++                if (frames >= at && (frames - at) % every == 0 && frames < at + span) {
++                    unsigned char *list = ref_pl_object_list;
++                    long long *pos = (long long *)(pl + 0x3e);
++                    long *vel = (long *)(pl + 0x8c);
++                    unsigned i, count = 0;
++                    double speed = sqrt((double)vel[0]*vel[0] + (double)vel[1]*vel[1] + (double)vel[2]*vel[2]) * 97.07 / 1.0e6;
++                    fprintf(stderr, "dust-frame %lu speed %.1f km/s D8865=%ld D9123=%ld D9013=%ld D8867=%ld accel %lu\n", frames, speed, (long)state_u32(0xd4), (long)state_u32(0x5570), (long)state_u32(0x3f48), (long)state_u32(0xdc), (unsigned long)ref_time_accel);
++                    for (i = 1; i <= 0x72; ++i) {
++                        unsigned char *o = list + i * 0x152 + 0x74;
++                        unsigned long model;
++                        if (o[0x87] == 0) continue;
++                        model = o[0x82] | o[0x83] << 8 | o[0x84] << 16 | o[0x85] << 24;
++                        if (model != 109) continue;
++                        {
++                            long long *op = (long long *)(o + 0x3e);
++                            fprintf(stderr, "  dust %u rel_km %.0f %.0f %.0f bias %d class %d age %lu\n", i,
++                                (double)(op[0]-pos[0])/1e6, (double)(op[1]-pos[1])/1e6, (double)(op[2]-pos[2])/1e6,
++                                *(int *)(o + 0x7e), (int)(signed char)o[0x88], *(unsigned long *)(o + 0xb0));
++                        }
++                        ++count;
++                    }
++                    if (getenv("FFE_DUST_DUMP") && frames == strtoul(getenv("FFE_DUST_DUMP"), 0, 0)) {
++                        long *pr = (long *)pl; int q;
++                        fprintf(stderr, "PLAYER %lld %lld %lld", pos[0], pos[1], pos[2]);
++                        for (q = 0; q < 9; ++q) fprintf(stderr, " %ld", pr[q]);
++                        fprintf(stderr, "\n");
++                        for (i = 1; i <= 0x72; ++i) {
++                            unsigned char *o = list + i * 0x152 + 0x74;
++                            long *r = (long *)o; long long *op = (long long *)(o + 0x3e);
++                            unsigned long model;
++                            if (o[0x87] == 0) continue;
++                            model = o[0x82] | o[0x83] << 8 | o[0x84] << 16 | o[0x85] << 24;
++                            if (model != 109) continue;
++                            fprintf(stderr, "DUST %lld %lld %lld", op[0], op[1], op[2]);
++                            for (q = 0; q < 9; ++q) fprintf(stderr, " %ld", r[q]);
++                            fprintf(stderr, " %d %lu\n", *(int *)(o + 0x7e), *(unsigned long *)(o + 0xb0));
++                        }
++                    }
++                    fprintf(stderr, "  detail D8812=%ld D8813=%ld radio=%u,%u,%u\n", (long)state_u32(0x10), (long)state_u32(0x14), (unsigned)ref_state[0x3f4c], (unsigned)ref_state[0x3f4d], (unsigned)ref_state[0x3f4e]);
++                    fprintf(stderr, "  dust count %u\n", count);
++                    if (getenv("FFE_DUST_PPM")) {
++                        char name[64];
++                        snprintf(name, sizeof name, "dust-%05lu.ppm", frames);
++                        write_ppm(name);
++                    }
++                }
++            }
++        }
+         /* a frame hash only: the trace stays small */
+         if (no_intro_start)
+             printf("{\"frame\":%lu,\"tics\":%lu,\"pixels_fnv1a64\":\"%016llx\"}\n", frames, state_u32(0), (unsigned long long)fingerprint(pixels, sizeof(pixels)));

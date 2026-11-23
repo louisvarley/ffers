@@ -1,0 +1,373 @@
+# Deviations from the reference / original
+
+> **Current owner requirement — 26 October 2026:** original source gameplay;
+> Port Options are the only general permitted extension. Historical SIM/EXP
+> rows below describe prior decisions and implemented scaffolding. They are
+> not waivers for altered gameplay under this requirement. In particular the
+> 7 t start, prototype docking, separate gameplay RNG streams, simplified AI,
+> incomplete persistence and transition substitutes require removal or source
+> parity, not acceptance as finished. Any earlier explicitly requested input
+> guard must remain disclosed and be reconciled in PAR-06; no new exception is
+> inferred. See [the audit](audits/gameplay-parity-2026-10-26.md).
+
+
+This is the register of intentional differences between `ffe-rs` and the selected
+reference: **JJFFE 2.8a7** (owner decision, 2026-10-20).
+FFED3D/Aniso was the earlier proposal, not the approved baseline.
+A behavior change without a row here is an unrecorded deviation.
+See [CLAUDE.MD](../CLAUDE.MD) for authoritative scope.
+
+Status values: **proposed** (awaiting owner approval), **approved**, **implemented**, **rejected**.
+
+---
+
+## 1. Simulation
+
+The faithful base simulation must match executed-reference evidence as it is
+ported; only numeric primitives currently have differential coverage. The separate
+experimental prototype below is not a substitute for faithful simulation.
+
+| ID | Deviation | Status | Rationale / scope |
+|---|---|---|---|
+| SIM-001 | Use FFED3D as simulation oracle. | rejected | Owner selected the separate JJFFE 2.8a7 tree; see SIM-009. |
+| SIM-002 | Inherit FFED3D's `FIX:`/`ANISO` behavior wholesale. | rejected | Changes must instead be justified against JJFFE and tested. |
+| SIM-003 | Exclude FFED3D-added content from base data. | approved | No additional ships/models/shaders/scripts supplied by the engine. |
+| SIM-004 | Exclude “Frontier 3500” extended-universe start in v1. | approved | Not the selected baseline. |
+| SIM-005 | Import legacy saves read-only; write atomic, versioned native saves. | approved | One-way compatibility is enough; original-save export not required. Preserve original files. |
+| SIM-006 | Allow verified bug fixes by default. | approved | Owner superseded the no-default-fixes proposal. Add regression tests and a specific deviation row for each fix. |
+| SIM-007 | Deterministic 20 ms/50 Hz harness timestep for traces; the real game still uses measured elapsed time. | proposed | Proves equivalence; does not change the game. |
+| SIM-008 | Gameplay mods can add/override/patch content. | deferred | V1 image packs cannot alter gameplay data or RNG. |
+| SIM-009 | Use supplied JJFFE 2.8a7 as gameplay reference. | approved | Keep unmodified reference traces and expected corrected behavior separately. |
+| SIM-010 | Model drawing (vertex jitter, opcodes 7/8) uses its own random stream; the simulation keeps the original generator separately. | approved | Owner decision 2026-10-23. Original F1476 is shared with about 35 simulation routines, so drawing changes outcomes there; isolating keeps replays, saves and graphics packs independent of what is on screen. Combat and AI rolls will not match the original roll for roll. |
+
+### Temporary experimental example (not an approved change to Classic)
+
+| ID | Deviation | Status | Rationale / scope |
+|---|---|---|---|
+| EXP-001 | Isolated playable development loop with synthetic flight/economy/world and software presentation. | implemented | Responds to the request for a playable example. Lives in `ffe-rs`, not verified `ffe-core`. Explicit experimental labels in title/help/HUD. Fixed 20 ms floating-point integration, 250-unit/s cap, simplified clearance/range/speed/alignment docking, collision/boundary safety resets, fixed one-item market. V0.2 uses original cabin/font/console art; station, stars, diagnostic layout and scanner math remain placeholders. Not original gameplay or completed phase 3. |
+| EXP-002 | Separate version-1 experimental JSON snapshots, no old-save import. | implemented (superseded by EXP-018 for new writes) | New-only numbered files, strict finite/range/state validation, bounded reads and exact float round trips. Previous snapshots never overwritten. Interrupted writes may leave an invalid newest file; loading reports the error, retains live state and never silently falls back. Version-1 documents are still read and migrate in memory; EXP-018 is the final native format for new saves. |
+| EXP-003 | Modern and Classic flight presets, no remapping. | implemented | Owner requested Modern W/S + arrows as the startup default in v0.8. F3 retains the original-key Classic preset: hold the right mouse button to steer, Enter/Shift raise/lower the set speed, A/Z pitch, comma/period yaw, [ ] roll; the port's shared fire/target/view/map bindings are unchanged. The presets do not share steering or thrust keys. `docs/CONTROLS.md` documents the actual controls; pause, the preference pages and focus loss stop simulation. Release and press controls afresh after modal/focus/preset changes. Independent of graphics. 2026-10-24: the Escape pages expose the same preset on their port-only `Port Options` page. 2026-10-25: F1038 mouse steering wired for Classic, and the choice persists in `saves/config.cfg`; the other preference values remain session-only. 2026-10-25: the port-only `?` help page, scenario menu, F11 screenshot and F12 model viewer/lab were removed from the player build; F1 is the source view cycle again, F12 is the source escape capsule, and the inspection tools are behind `--dev`. 2026-11-20: the `bind.*` lines of `config.cfg` apply a keyboard remap at the frame boundary, by game-key name (`bind.A=Up`) or preset-independent action name (`bind.pitch_up=NumPad8`); unknown names are ignored. The in-game remap screen remains unported (`docs/CONTROLS.md#remapping-keys`). |
+| EXP-006 | Trading at a station in the playable uses the original's market formulas with its own random stream and a simplified hold. | implemented | 2026-10-24. Prices and stock (F619, F620), the first market (F622), the daily drift (F633's market half; its 99 draws per place come from the shared pair in the original's order since 2026-11-18, the market values still from the station's own stream) and buying and selling (F555, F556) are the original's (`ffe_core::market`, `docs/notes/market.md`). Differences: each market is made from a stream seeded by the system and the station and drifted from its own stream, not the game's single interleaved stream (F633 also generates missions, which are not ported); the hold is the ship model's cargo statistic less its hyperdrive (equipment effects not modelled); only legal goods are listed (no black market); Shift trades ten tonnes per press; the prototype one-item trade remains for a playable without a station. The price and stock formulas match the executed original (8,192 cases). |
+| EXP-008 | The galaxy map is the original's scene with this port's controls, calendar and jump rule. | implemented | 2026-10-24. The scene (`ffe_rs::galaxy_map`) is the original's: F840's camera, the nine sectors' stars through model 0xab, the grid, sphere and marker, the selection nearest the centre, and the console text (`docs/notes/galaxy-map.md`); its pixels match the executed original's map frame in position (8,249 of 8,270). 2026-10-25: the map's original console page (F834/F840) is now drawn and keyed: records 0x1c..0x24 are overlaid on the flight console (its screen buttons, meter, scanner and lamps remain visible, as the executed original's F3 frame shows). While that page is showing, F5-F12 are map-local exactly as F840: F5 re-shows the controls page, F6 selects, F7 details, F8 picture, F9/F10 details with the next/previous image, F11 zooms in and F12 zooms out. The details and picture *screens* (F842/F844-F849) are not ported; their keys only light the original button and report that, and inside those unported screens F840's F11/F12 would toggle stalks/grid instead of zoom. Outside the map the port's global keys are unchanged: F5/Shift+F5 save/load, F6-F10 views, F11 screenshot and F12/Shift+F12 model viewer/lab; the port's Tab system map and `n` places list also keep them. The port-only map keys remain: arrows scroll, Page Up/Down or +/- zoom, drag turns, C centres, G or the F3 icon opens the map, H or Enter jumps. The date uses the plain calendar. A jump needs the selected star to be one of the systems on offer with bodies (the 12 hand-coded and four test systems plus, for a new game, the start system's galaxy-table neighbours within 30 LY; 2026-10-26); any other is refused as unexplored. The sphere is the drive's range for the player's ship (the port's Eagle has a class 10 drive; the original's new game starts with 10 ly). The "CORE" label's letters, and colours the original approximates in its runtime palette, differ. |
+| EXP-009 | The flight view gives planet surfaces a larger order queue than the original's 50,000 words. | implemented | 2026-10-24. F1876's triangles queue through F1778, whose buffer holds 50,000 words; the original exits when one more is asked for. Approaching a planet (3 to 2 radii, where the autopilot flies) needs 59,190 to 63,125 words, and the port drew only the entries queued before `Fault::QueueFull`, leaving a large unpainted (black) wedge. `ModelViewer::draw_surfaces` now uses `Queue::with_limit(0x2_0000)`; the queued words and their pixels are the same. `Queue::default`, the emitters and every reference oracle keep the original limit and fault, so the whole-table and surface oracles are unaffected. The original's behaviour at that range is to exit, which a playable cannot do. |
+| EXP-010 | The default boot is the original's new game at Gateway/Hope; the JJFFE front end is not ported, and the open-air takeoff still measures the climb from the pad. | implemented | 2026-10-25 (revised 2026-10-25). The default boot creates F998's start record 0 (`ffe_rs::navigation::new_game`): Gateway at absolute clock `0x121cf7.5` days, a Saker Mk III (model 31), 10,000 CR (unchanged) and the original's 7 t hold holding 1 t of hydrogen (EXP-019), player state 0x30 on Old Blackelk's F650 pad. `--start 1` is Ross 154's Eagle on Sirocco Station; `--start sol` keeps the Sol/Mars High sandbox. The pad seat is F994's: F650's offset plus the ship's collision radius (`+0x140`) along its up row. The DOS release is the source of truth: the nine-line JJFFE legal splash is **not** shown or modelled, the "English Release 1.1 (Remastered Version)" line is JJFFE-only (kept for the intro oracle), and start types 2-5 are unverified (they map to 1 with a notice). The open-air takeoff is the original's state path (`ffe_core::traffic::Takeoff`, `docs/notes/intro.md`): F654 provides clearance, the launch action (F1056's action 9, plain Tab; the port also accepts `L`, documented) starts F1013's `0x24`, the set-speed/altitude test hands over to F1031's `0x26`, and F1031's contact scan clears the starport's `0x20` effect region, puts the mode at `0x00` and F1032 releases the bay (F651). The pad contact runs the ported F575/F576 complex-shape scan in a persistent three-body world whose ship parent is the starport's planet (F994's `+0x56`), as the original's; that gives F603 its gravity (the planet's `+0xa4` from F880's `Placement`) and the reference's fall-back after the hand-off. A 120-frame grace after F1031 stops the port's separate approach/landing scan from re-settling the ship on the pad before it has left. The port's terrain contact reports the terrain's elevation rather than the height above it, so F1013's test still uses the climb measured from the pad seat along its up row (the only deviation left in this row). Both start records are tested end to end (`default_start_takes_off_from_hope`, `new_game_takes_off_from_the_pad_into_free_flight`). The earlier `begin_launch` refusal of an open-air starport is gone. Orbital stations keep the verified lift launch. `docs/notes/docking.md` records the traffic side. |
+| EXP-011 | A launch keeps the ship in the station until the outer door opens, and ignores the station's hull until it is clear. | implemented | 2026-10-24. F1088 copies the player's docked position (the station) to the ship when the door starts opening; F1089 puts it into flight when the door word reaches 0. The port now draws the launch's inside view from that seat (the station's own position, facing along the docking axis), animates the station's `+0x9e` door word (`docs/notes/docking.md`), and changes the mode to flight only on `LaunchDone`. The prototype's hull push would otherwise treat the launched ship as a collision at the station; it is skipped until the ship is past the slot. The lift scene, its models and the station's pixels are otherwise the original's. |
+| EXP-007 | Hyperspace jumps use the original's range, fuel and time but skip the jump itself. | implemented | 2026-10-24. Range, fuel, jump time and the system distances (F903, F833, F841, F853, F856, F861; `ffe_core::{hyperspace, sector}`) match the executed original. The playable then moves the ship to the new system at once: no countdown, no time acceleration, no hyperspace scene (F908-F910), no misjumps, no arrival procedure, and no restriction on where the jump starts (the original needs 12,000 km from the planet). The systems on offer are the 12 hand-coded ones, four test systems placed in real sectors near Sol, and (2026-10-26) the start system's real galaxy-table neighbours within 30 LY (`navigation::galaxy_around`): F852/F860 select each neighbouring star and its F841 type word, F832 derives seed/mass/stars from the F856 position and type word, and F830/F869 supply the name and population, so `new_game` can enter e.g. Titican (code `0x12a53716`, 4.42 LY from Gateway) and its generated station Argent. The development sandbox (`Navigator::new`, `--start sol`) keeps the 16-entry list. A new game starts with no fuel. |
+| EXP-004 | Separate F4 original-station model lab, not a gameplay geometry replacement. | implemented | V0.3 interprets original model 74/75 vertices. V0.4 adds declared triangle/quad outlines and single-face inspection from all physical root command records, including alternate branches. Exact perimeters, not invented hull connectivity; no claim all faces execute or are visible together. Diagnostic orthographic camera/test variables, white/green outline colours, no original shading. Gameplay, snapshots and held controls remain isolated. Does not certify full control flow, projection, visibility, submodels or station-animation fidelity. |
+| EXP-012 | Escape uses the original's pause-then-pages order, adds a port-only page, and greys the options the port cannot apply. | implemented | 2026-10-24 (revised 2026-10-25, 2026-10-26). The original's pages, labels, order, layout, hot areas, defaults and icon bitmaps are the ones in `DATA_004894`/`DATA_004907` and `FUNC_000216`/`FUNC_000225` (`docs/notes/prefs.md`). The `FUNC_000224` order is now the port's: the first Escape stops time/pauses, the second opens the pages, and Escape in the pages returns to the game with time still stopped (P or the meter resumes). Differences: `Quit to DOS` reads `Quit`; a `Port Options` page (page 5) sits in the original's empty row at y 68 and holds Modern/Classic controls; arrow/Enter/Backspace navigation and the `>` marker are additions. Applied: space colour, background stars, lock external view to ship, reverse left-right/up-down, Modern/Classic, Sound Effects, and (2026-10-26) the `Space dust, clouds etc` row (`DATA_009018`, which gates F1035's spawn). The main page's Load, Save, Delete and New Game entries are active: Load opens the commander picker, Save writes a numbered commander file, Delete opens a confirmed save picker, and New Game asks before resetting to the default commander. Still unavailable/grey: shape detail is stored but does not change rendering; map options, elite control, targeting tunnels, filename extensions, and video settings are not applied, and commander rename is absent. Strings and hot areas are hard-coded from the assembly because `DATA_004894` is not imported; the icons are the cached primary bitmaps 44/45. |
+| EXP-013 | The space-colour preference uses the original's captured quantised palette entry for the default, with the other four settings scaled from it. | implemented | 2026-10-25. The setting is the original's (`DATA_008815..817 = (0,0,index)`, default `Light Blue` 4 from `FUNC_000219`; `FUNC_001575`/`FUNC_001618`). The original requests those bytes and clears to the nearest entry of its runtime 256-colour palette; the captured reference frame's default is palette entry 182, six-bit (3,3,19) = `#0c0c4c`. The port now implements that runtime upper palette (`F1326`/`F1327`/`F1330`/`F1331`, `ffe_rs::palette`, `docs/notes/palette.md`) and uses it for models, FX and the intro's F1575 background, but **by owner decision** the Graphic Detail preference still uses the captured entry for the default and derives the other four settings from it: each six-bit component is scaled by the requested index/4, rounded to the nearest six-bit value and expanded with `v * 255 / 63` (`ffe_rs::prefs::space_colour_rgb`). That gives `Black #000000`, `Very Dark Blue #040414`, `Dark Blue #080828`, `Medium Blue #080838`, `Light Blue #0c0c4c`; index 0 is exactly black and the original's stars stay drawn over it. Only the five settings and the default come from the source; the intermediate ramp is a documented interpolation, not a captured value. The intro's own `(0,0,4)` request is not this preference: it resolves through the built palette and is `#040444` at the switch, matching the executed original. |
+| EXP-005 | Docking at a system's real stations by ffe-rs rules, not the original's traffic control and docking states. | implemented | 2026-10-24. Stations are drawn from their own models at their generated places, spinning at their F866 speed. D asks the nearest station within 100 km for clearance through the original's traffic control (F654, F650, F655, F657, F867; `ffe_core::traffic`; bays and busy replies included, the fines check wired to zero). The slot is the model's +z face (verified by eye for models 72, 73, 74, 80): a cleared ship crossing that face within a corridor of 15% of the face distance (at least 60 m) under 250 m/s touches the pad (F652) and starts the original's timed docking stages (about 26 s, ship held still, with the original's lift scenes); launching runs its stages (about 20 s); anything else inside the face distance is pushed clear with no damage. The autopilot to a station flies to a point 20 km out on the docking axis, takes clearance and flies in. Near a station or world the ship is carried with that body (a distance rule, not F604-F606). The pad hit (collision stream flags and driving F575's crash and bounce, which `ffe_core` now ports and verifies), the ship's motion with the rotating station and open-air starports remain to port; see `docs/NAVIGATION.md` and `docs/notes/docking.md`. |
+| EXP-014 | Docked services and stockmarket use the original's screens, with port keys and empty unimported lists. | implemented | 2026-10-24 (revised 2026-10-25). The services root, shipyard root and market reproduce `DATA_005304`'s geometry, the `0x98xx` strings, the `0x2e` buttons, the arrows/Go Back and F558's cargo/cash/cabins line (`docs/notes/station.md`); the market keeps F619/F620/F622/F633/F555/F556. Added port keys: Enter activates the keyboard row, Backspace goes back (the original's way out is the console screen button), B/N buy/sell the selected market line, L launches. The stockmarket has no Go Back arrow in the original, so Backspace is the only way back. Equipment, ship and repair lists open the original screen shell with no rows (their tables/generators are not imported) and the original's console hint; the bulletin board is empty with 0x98de because F622/F633's BBS generation is not ported. The credit glyph is the font's `$` (the original's currency mark). Thargoid services (no Shipyard/Bulletin/Market) do not occur because the port has no Thargoid systems. **The new game's state `0x30` no longer boots into this board:** F1050/F1054 draw the landed surface view (ground, horizon, starport, flight HUD) and `L` runs F1013's climb. The board is the original's state `0x2a`, opened by a completed docking (`Traffic::Docked`), and it is also reachable from state `0x30` at an open-air starport: plain F4 (the console's phone icon, `DATA_007688` `0xf4` -> module 12 event 1) runs `F343`, which shows the same screen for `0x2a` and `0x30`; F1 (the console's screen button) or the port's Backspace returns to the landed view. The new game still boots into the landed view, not the board (F1050/F1054, `L`/Tab runs F1013's climb). The open-air starport's own pad landing is still the port's in-flight contact, so re-docking at it does not yet enter `0x2a` (owner decision). |
+| EXP-015 | NPC traffic uses the port's station/player-based placement and a reduced flight AI, not F702's system-wide orbit and every per-state routine. | implemented | 2026-10-25 (deepened 2026-10-25). F688's spawn (counts, models, outfit, places, destinations; `ffe_core::spawn`, matching the executed original draw for draw since 2026-11-11) and F635's nineteen model records (with the allegiance shift), F922's bounded RNG, F1533's statistics, F953/F942 damage, F1536's shield flash, F931's AI laser gates and F930's costs, F585's turn limit, F601/F597's thrust and stopping-distance rules, F695's escort formation, F674/F675/F680's jump persistence and F927's recycle are the original's. Differences: traders and shuttles now request a bay and run the station cycle (F689/F745/F746/F747/F733/F734/F735/F651/F736/F761/F762) around the first station, while the pirate group appears a fixed 3.5e6 units ahead of the player in a scripted capture (a normal entry puts it on F702's far orbit, as the original does, since 2026-11-20) (no entry spawns a police patrol since 2026-11-19, as the executed original has none) (the original F702 orbit is system-wide and needs the full AI transit); the port's state machine names the original rows and now transcribes the missile rows 0x13-0x1b, F770's trading approach and F659's launch vectors (2026-11-20), but not every routine (F691's station-bay ships and Thargoids are absent, and F702's orbit, F597's accelerated placement and F589/F671's orientation/pad settle are recorded gaps); the station traffic's deviations are the 2-3 day interval counted in game seconds, a 30 s give-up at a full station, next-station-in-order instead of F762's random draw, and STATION_CRUISE_SPEED's floor for heavy freighters; turn rates are the port's base with F585's model-size halves, and top speed/acceleration are scaled from the statistics' thrust/mass ratio because the original's thrust units do not carry over; the police response is the original's F238/F239/F240 (`ffe_core::police`, replayed frame for frame) with F659's launch tables; a destroyed player is recovered at the nearest starport instead of the original game-over sequence; names are the model name plus a serial, not F703/F791. F942's model-155 explosion is still the model-157 death fallback and AI sound cues are not played. See `docs/notes/npc.md`. |
+| EXP-016 | The flight view draws the inner surface base on approach and the outer collision radius once landed; the shell's far side and atmosphere are hidden for an eye inside it. | implemented | 2026-10-25. The surface axes are the model's outer radius word (`+0x138`); F1533, F581's terrain query and F879's starports use that radius. On approach `Screen::draw_discs` keeps the inner base sphere (`+0x140`) so the eye stays outside the shell, and `navigation::surface_radius(body, true)` switches to the outer radius once the ship is settled, so a rough landing no longer settles at 0.9 outer over a 0.64-outer base. F1876 has no depth buffer, so `terrain_draw` drops a final triangle whose outward normal points away from an eye inside the base and skips the low-level horizon cull there; F1877's haze ring and sky are left out inside the base (the original landed frame clears to the space colour and shows only the near ground). Outside the base the haze is unchanged. Regression: `surface_and_landing_use_one_radius` and the landed ground-pixel check in `tests/planet_view.rs`; `verify-surface.py` still accepts the landed frame. | Superseded 2026-10-26 for planet rendering: source model scale offset now sets the geometry conversion; the extra inside-sphere cull, coarse-horizon bypass and haze suppression were removed after near-pad executed-original comparison (docs/archive/launch-ground-2026-10-26.md).
+| EXP-017 | Presentation-only display options: window scale, pixel-perfect or fill-window fit, nearest or linear filtering, 4:3 or square pixels, and Alt+Enter full-screen. | implemented | 2026-10-25, owner request "resolution options". The original has no resolution menu and its DOS 320x200/4:3 output is fixed; this is a port extension, marked yellow on a port-only `Display Options` page (reached from `Port Options`) and in this row. The authoritative framebuffer stays 320x200 (`screen::Screen::logical_pixels`); `display` only scales the finished frame. Default: 4x, pixel-perfect, nearest, 4:3 - a 1280x960 window reproducing the previous initial size and the original's non-square pixels. Window scale 1x-6x sets the initial client size (still resizable); pixel-perfect uses the largest integer multiple and centres it with black bars; fill-window fits the whole frame by aspect; linear filtering only differs in a fractional fit; square pixels are offered as a non-original alternative. Alt+Enter toggles a borderless monitor-sized window (Windows `GetSystemMetrics`; other platforms keep the configured size). Choices persist in `saves/config.cfg` (with the rest of the applied pages); full-screen is session-only. Gameplay, simulation, saves, `--capture*`, `--smoke-frames` and every capture byte are unchanged; `--capture-display` writes new scaled presentation evidence only. Mouse mapping now follows the chosen fit rectangle. `minifb` 0.28 cannot resize live, so a change reopens the window. |
+| EXP-018 | Native version-2 JSON commander saves (quick, numbered and front-end load), with the original's commander files read-only. | implemented | 2026-10-25. The port stores the full `Flight`, commander name/rank/mission slots, system code, clock, body indices, docking/landing stages and legal record; the system is regenerated from the cache and every index checked. It does not store the source's 0x984a object array, traffic, missiles or its two RNG words: the port has no single interleaved RNG (EXP-006/EXP-015), so loading respawns traffic from the saved system and clock. F5 quick-saves, Ctrl+F5 writes a new numbered file, Shift+F5 loads, and `L` on the intro or `--load` loads from the front end. Saves after death/the tombstone are refused. Writes are atomic (temp+rename, or hard-link for new-only numbered files), reads are 1 MiB-bounded and a corrupt/newer file never replaces live state or falls back silently. Version-1 `ffe-rs-experimental` snapshots migrate in memory. A DOS/JJFFE commander file is recognised (size/version) and left byte-identical; importing it still needs a supplied reference specimen and field map. `saves/config.cfg` is the versioned preference file; `controls.cfg`/`display.cfg` are read once as migration and `bind.*` is the applied keyboard remap table (see `docs/CONTROLS.md#remapping-keys`; only the in-game remap screen is unported). See `docs/notes/persistence.md`. |
+| EXP-019 | The starting hold: 7 t with 1 t of hydrogen, as the reference game. | resolved | 2026-10-27: read from the executed original (`--flight hover` with `--geometry` prints `DATA_008889`/`DATA_008891`): at Hope the hold is 7 t (the Saker's 23 t less F998's `0x10`) and 1 t of it is used by the tonne of hydrogen F998 loads (`DATA_008901 = 1`). F998 fits its equipment by setting the object's bytes, so no fitted mass is taken off; the original's cargo code takes free space as `DATA_008889 - DATA_008891` (6 t) and F558 prints used and hold (1 t of 7 t). The earlier "1 t free" reading of F2 was the 1 t used. `DEFAULT_CARGO = 23 - DEFAULT_HOLD_LOSS`, `DEFAULT_HYDROGEN = 1`. |
+| EXP-020 | Dust rendering and view-space culling are implemented and compared with the executed original at one speed (2026-11-18: 153 port pixels against 151, all covered); the Milky Way band, the original's day-tick ageing and two crosshair pixels still differ. | implemented | 2026-10-26; renderer added later. `ffe_core::dust` implements F1035's spawn gates, F769's lifetime and F1680's distance cull; since 2026-11-02 (PAR-17) dust draws from the game's shared `DATA_008818`/`DATA_008820` pair (`Navigator::random`) in call order with the traffic, effects and ships, as the source does. F715 is the source's empty movement routine, so the port does not integrate `+0x8c`; the only motion is F1517's `velocity << 7` spawn offset and the camera passing the static object. The F1035 attempts follow the source's 20 ms timer cap, so a presentation rate above 50 fps cannot multiply them. `screen.rs` now submits model `0x6d` through the camera; 2026-11-18: the cloud size now includes F1099's speed class (`DATA_008865`) and F1751's detail words are read, so the clouds fill the view at speed as the original's do; `gameplay-dust` is closed on that comparison (`docs/ACCEPTED_PARITY.md`). See `docs/notes/dust.md`. |
+| EXP-021 | Distance-based time-acceleration safety cap near worlds and stations/starports. | **withdrawn** | Added 2026-11-11, extended to manual flight 2026-11-17, removed 2026-11-18 (owner: follow the original). JJFFE has no distance cap on the time step: F208 sets the step from the meter or 6-0 with no check, F1013 leaves it alone at the takeoff hand-off, and a ship at 10000x near a station is a hazard the player owns. What the original does is drop to 1x through F217 at the events that matter: docking completion (F750 via F349), entering a station or pad state (F360), clearance and arrival events (F349), the jump arrival (F1094) and death (F1094/F1104); F597 puts an accelerated ship at its destination and F746 requests clearance at accelerated time. The port already runs those resets; the cap, `console::safety_acceleration_cap` and `main::station_acceleration_cap` are gone. |
+| EXP-022 | A pirate-group ship farther than 8.4 km (F931's `0x7fffff` hit range) from the player is not shown on the scanner. | implemented | 2026-11-17 (owner). F702 puts the original's pirate groups on a far orbit round the root frame, so F275's same-frame filter never shows them until they have flown in; the port places them on a 3-30 km stand-in orbit (docs/notes/npc.md) and would otherwise draw them from the first frame (a tall stalk at the Hope start). `main.rs` gives such a contact the root frame, as a ship still on F702's orbit would have. Gameplay, placement and the ships' behaviour are unchanged; a nearer pirate is drawn as before. Needs F702's true placement and the AI's long transit (PAR-15) to remove. |
+| EXP-023 | A hunting NPC's beam is tested against an 8 m box round the player and reaches the hull on at most three frames per state-2 pass. | implemented | 2026-11-20 (parity-15). The executed original's police (`--flight idle` at Hope, `FFE_POLICE_TRACE`) hit the landed player on 11 frames in four passes (bursts of two or three, the ray 6.5 to 9 m from the player's origin) although their aim stays within 8 m for about ten frames of every pass; no box or sphere reproduced the frames (best 4 of 11 exact), because F802 tests the model's collision stream and its timing, which the port does not have. The port keeps F931's ray test against a box (`PLAYER_HIT_BOX`) and caps the frames per pass (`MAX_HITS_PER_PASS`). The port's police remain deadlier than the original's (about 1,700 frames to kill against a survived 720 in the trace). Replace with F802's collision-stream test to remove. |
+| EXP-026 | F76's `(argument)` forms of `Sy`, `Ci` and `Pl` pick a system of the named kind. | implemented | 2026-11-20 (content-2). In the executed JJFFE 2.8a7 every such macro (`[SyR(F edge)`, `[CiL1(C)`, `[PlL2(I)`, ...) names the current system's object: F76 copies the argument from the `(` to the `)` into its buffer and compares it with `Imp riot`, `F edge`, `A`, `C`, `I`, ..., which cannot match once the `(` is in it, so the F858 fallback to `DATA_008885` always runs (`macro_oracle`, `FFE_EXPAND`). `ffe_core::system_pick::resolve` follows the DOS game's intent, as the archive's `(F edge)` and `(C)` suggest: a system of that kind. Not verified against the DOS executable. Revert by making `resolve` ignore `argument` to match JJFFE. |
+| EXP-030 | Mission 78's state 16 waits for the article its entry queued, not the orphan `0x217`. | implemented | 2026-11-20 (`gameplay-42`). The entry at blob `0x7eac` queues article `0x197` into the Imperial Herald slot `G17`; the exit condition at `0x7ef7` tested `0x217`, which no `14` statement or F88 story queues, so the storyline stalled in state 16. `Image::new` rewrites the condition's operand to `0x197`; the cached asset is unchanged. `docs/notes/broken-missions.md`. |
+| EXP-031 | Mission 55's offer includes its fourth question `0xa963`. | implemented | 2026-11-20 (`gameplay-42`). The entry added responses `0xa95f`, `0xa961`, `0xa965`, `0xa900`, but state 0's condition for `0xa963` (message `0xa964`, "When does it need to get there?") could never fire. The missing `23 0xa963` is inserted before `23 0xa965` at blob `0x054d`; `Image::new` moves the relocated pointers after the insertion. The four questions keep their message order and the offer still completes through `0xa900`. |
+| EXP-032 | Mission 20's journal debits equal the displayed subscription price. | implemented | 2026-11-20 (`gameplay-42`). "Buy 1 issue" displays and checks `L4` but debited `10*L4`; "a year" displays `12*L4` and debited `120*L4`; "10 years" displays `100*L4` and debited `1000*L4`. The three debit constants at blob `0x5f08`, `0x5f6e` and `0x6046` are corrected to `1`, `12` and `100`; "2 years" already agreed (`22*L4`). The port's cash floor no longer turns the original's tenfold overcharge into an immediate clamp. |
+| EXP-033 | Mission 81's hand-over reward no longer treats F342's menu-cleared signal as acceptance. | implemented | 2026-11-20 (`gameplay-42`). State 7's reward condition was `(G0 == 2) || (G0 == 0xa841)`; `G0 == 2` is F342's menu-cleared pulse (raised by rebuilding any screen), so it could pay the reward and skip the `0xa84a` follow-up mission 83 without the player choosing `0xa841`. The disjunct at blob `0xcfd8` is replaced with a constant false (`2 == 3`); the `0xa841` branch and body are byte-identical. Reachability of the spurious pulse still needs a played probe, so this is a cautious fix rather than a reproduced incident. |
+| EXP-034 | F31 token `0x2b` reads the one operand its token record and scripts give it, so mission 83's `goto 7` survives. | implemented | 2026-11-20 (`gameplay-42`). The shipping F31 case evaluates two operands for `0x2b` (JJFFE `JUMP_000278`) while `DATA_001701` and both uses in mission 83 give one; the second read swallowed the `09 07 00 00 00` statement at blob `0x4245`. The decoder now reads one operand (state 4 becomes `(0x15 (0x2b P4) 0x4)` followed by `goto 7`; state 7 becomes reachable). `0x2b` itself has no evaluator case and returns 0, so the restored branch's *condition* remains the source's undefined query; only the lost statement is recovered. |
+| EXP-035 | Missions 37/38/39 and 91 remain unreachable: their intended starters are absent from the source (recorded, not patched). | documented | 2026-11-20 (`gameplay-42`). No `1 37` or `1 91` statement exists in the 57,560-byte region, and F52 is only called by statement 1 and F55 (which starts mission 0), so the chain 37 → 38 → 39 and the flower hand-over 91 never start. Mission 37's own conditions show it was meant to run at a board (`G0 == 1` inserts advert `0xa913`) and die on leaving the system; mission 91's advert likewise waits at Fortress Culloden for mission 90's contract. The audit could not determine where either starter belonged; inventing one would create new gameplay, so no code or data was changed. See `docs/notes/broken-missions.md` ("Fixes"). |
+| EXP-043 | enhancement-3, autopilot waypoint: the port's detour around an intervening body is optional and off by default. | implemented (enhancement; off by default) | 2026-11-20. The port's `detour` (a straight F741/F742 line through a star, planet or moon flies into it) was always on; it is now `enhancement.autopilot_waypoint` (`settings::Enhancements::autopilot_waypoint`, read at `Navigator::source_command_with`). Off, the autopilot flies F741/F742/F597's line unchanged, which matches the source. On, `navigation::detour_waypoint` tests the line from the ship to the leg's point against every other star/planet/moon's outer radius plus the larger of a tenth of it and 5,000 km, and offsets the aim to a point on that clearance shell (climbing at 45° while inside it). F610/F802's own obstacle probing is not ported; this is the port's stand-in and is deliberately not a claim of source avoidance. Stations keep their F741/F745/F746 approach. |
+| EXP-044 | enhancement-4, autopilot braking: the braking point is computed from the ship's actual retro thrust minus local gravity, independent of the frame's time step. | implemented (enhancement; off by default) | 2026-11-20. Source finding: JJFFE 2.8a7 `ffe.asm` F597 contains a `FIX: Autopilot acceleration fudge` (`cmp ebx,[DATA_008861]`; the relative position and velocity through F592/F594/F1466/F1489, then `thrust * 4 * distance` against `v²`) that uses the ship's minimum thrust word `+0xbe` as the retro thrust and skips the accelerated arrival branch when `4as < v²`. That is only a gate on F597's accelerated branch; the ordinary guidance the player controller uses never computed a braking point, so the approach outcome followed the AI event spacing. With `enhancement.autopilot_braking` on, `navigation::braking_guidance` computes the continuous stopping distance `v² / 2(a_retro - g)` from F601's per-word acceleration (`2*(49700/8)/65536` velocity units per second per word, converted with F1511's 49,700/512 mm per unit) and F603's pull from the target body's `+0xa4` mass; when the range to the body's collision radius is inside it, the ship is given full retro thrust along the approach and a permissive F601 cap. Off, the source guidance is returned unchanged. Scope: bodies only (not stations, whose F741/F597 arrival is unchanged, and not ship targets). |
+| EXP-045 | enhancement-5, autopilot collisions: the landing scan tests every body in range, not only the source's preferred one. | implemented (enhancement; off by default) | 2026-11-20. `Navigator::landing_parent` keeps F569/F1021's order (starport, else station, else nearest planet/moon) with `enhancement.autopilot_collisions` off. On, `Navigator::every_body_parent` tests every starport, station, planet and moon whose collision sphere the ship intersects and picks the deepest penetration, so a second body the source order would skip is not flown through. The frame still runs one F569 collision scan (the flight step integrates the ship once), so the chosen body is the deepest intersection rather than a simultaneous scan of each body's model stream. |
+| EXP-036 | `enhancement-2` (`enhancement.missile_launch`): a missile ignores contact with its launcher in F718's swept ray. | implemented (enhancement; off by default) | 2026-11-20, corrected 2026-11-20. F718 (`ffe.asm:47435`) calls F569/F575 on every missile physics step; `plstate.txt` +0x56 is the parent object index and F575 skips the object whose `+0x86` equals it (F941 gives the missile the launcher's record and sets `+0x100`), so the original always clears the launcher in the point test. The port has no separate parent field, so `owner` stands in for it and `contact_point` always skips it; that is the off/original path and is what lets `M` put a missile in flight (the player object is reported with F1686's 17,600 mm cull radius while F941 only separates 9,116 mm, so without the skip the missile detonated on the player for 200 damage on its first step). The toggle now guards only the extra `enhancement-6` ray: on also skips `owner` in `contact_swept`, off lets that ray meet the launcher. Runtime-only (`TickOptions`), never serialized; the F569/F575 table and launch impulse are unchanged. |
+| EXP-037 | `enhancement-6` (`enhancement.missile_swept`): missile contact uses the path swept over the physics step. | implemented | 2026-11-20, off by default. Off keeps the original's point test at the start of F718's call (`contact_point`). On tests the segment from the pre-step position to the post-F717 position against each target's `radius + missile radius` sphere (`segment_distance`), so a fast missile cannot tunnel past a thin target between two checks. Only the contact test changes: the trajectory, fuse, guidance, lifetime and every serialized field are identical (regression compares the whole `Missile` after a swept and a point step). No new save field; the toggle is read at the frame boundary from `config.cfg`. |
+| EXP-038 | `enhancement-8` (`enhancement.ecm_nn500`): E.C.M. destroys the NN500 Naval Missile. | implemented | 2026-11-20, off by default. The NN500 is equipment code `0x84` (`ffedat.asm:8380`), which `DATA_007220[4]` maps to model 8. F718's `DATA_000029[8] = 1` is the immune branch, so neither the standard nor the Naval E.C.M. stops it. On adds model 8 to the branch-0 set (`ecm_destroys_with`), so either burst destroys it; every other model keeps its `DATA_000029` branch, including the Naval-only 7/9/10 and the immune 4/11/12/13. Off calls the unchanged `ecm_destroys`. The burst remains global (no range or owner test), as F935/F718. |
+| EXP-039 | `enhancement-1` (`enhancement.turrets_paused`): the turret still aims while time is paused. | implemented | 2026-11-20, off by default. The source's flight input block runs only while the game is running, so a paused player cannot turn the turret (`camera::turret_aims_when_paused` returns false for the pause case). The port adds only `TurretCamera::step` — the same FUNC_001038 key/mouse path used in flight — on paused frames while the view is a turret; the camera and HUD read `views.turret`, and the source model is resynchronised through `set_view` when time resumes. The ship's motion, the clock, firing and every other input remain frozen. Off keeps the original branch byte-identical. The turret is view state (`player+0x204/+0x206`), not saved simulator state. |
+| EXP-040 | `enhancement-9` (`enhancement.npc_speed`): the selected NPC's target readout adds its speed relative to the player. | implemented | 2026-11-20, off by default. F1099's target block (`ffe.asm:80856-80900`) prints only Hull, Shields and Shield Strength. On appends `Speed: <n> m/s` after those lines at (235, 31/41), computed as `|ship.velocity - player_velocity|` from the system-frame words in mm/s (`combat_computer::relative_speed_line`). The original's three lines and their positions are unchanged; off returns `None` and draws no extra row. The value is read-only and never enters a save. |
+| EXP-041 | `enhancement-10` (`enhancement.npc_labels`): the combat computer's labels button lists nearby NPC ships and selects them. | implemented | 2026-11-20, off by default. View 6 normally draws no F1108 labels. On, the `l`/labels button (key or console icon) opens F989-bounded labels for every visible ship in the F1109 range class (model 0x0f..=0x3f, distance class ≤ 0x14), at F1108's `(+4,-4)` pen: green 0x11 for passive ships, red 0x10 for `hostile`, attacking (state 1) or closing on the player (`combat_computer::label`). Clicking a label's text box locks that ship (`ship_lock`/`missile_lock`), the same target F1096 uses. Closing the list, or leaving view 6 by any route (F1, view buttons, escape craft), tears the list down and clears the selected ship; the teardown is gated on the toggle, so off never touches the target. The draw is presentation-only; the only new state is the port's open flag. |
+| EXP-042 | `enhancement-11` (`enhancement.edge_indicator`): an arrow at the view edge points at an off-view target. | implemented | 2026-11-20, off by default. F1100 already prints its four off-view arrow *strings* at a fixed spot; this adds a drawn shaft and arrowhead inside the 320x158 view, aimed from the view centre (160,79) toward the target's camera-space direction (`targeter::edge_indicator`). A target in front uses F1479's projection (`160 + 256x/z`, `79 - 256y/z`); an on-view target produces nothing; a behind-eye target points to its camera-space side, or straight down when directly behind. The arrow is drawn in the target's F1100 colour (0x11 navigation, 0x10 combat, 0x5f missile view) and never changes the target or the range text. Off returns `None` and draws no pixels. |
+| EXP-046 | `enhancement-7` (`enhancement.mission_fixes`): the runtime mission fixes from Jades' known-issues list. | implemented (enhancement; off by default) | 2026-11-20. One toggle covers seven fixes; off keeps every source path below unchanged. **(1) Assassination credit.** A hyperspace jump clears the system (F909), which the port reported to F924 as a destruction of every ship, so jumping out of a target system credited the kill; the target's id also restarted with the new system, so a later kill could name an unrelated ship. On, `mission_fixes::removed` skips the removal set on a system change and `Navigator::script_ship_id` continues script ids above every id already used (saved in the optional `script_ship_serial` word only when non-zero). **(2) Hitch-hiker.** F1125's camera change sets global 0 to 4 and back to 0 (`Engine::camera_changed`); missions 69 and 78 read `G0 == 4` to record how close the player is to an object, so without the signal mission 69 could only end with "Unfortunately you have returned too late". The port now emits it on a view change. **(3) Medals.** F312 draws every set `DATA_009091` bit, four rows a column and then a second column at x=80; the port drew only the first three, so awards at indices 8, 9 and 12 (missions 25, 69 and 83) never appeared. On uses `status::medal_position` for the full list. **(4) Alioth deadline.** UI-only: the flower briefing (messages `0xa837`/`0xa838`) states "before 30 December 3252" (`mission_fixes::decorate_briefing`); mission logic is untouched. **(5) Blocked bays.** When F655 answers `Full`, `Navigator::launch_bay_holder` frees a bay and sends its occupant out again (F654/F736), then grants the player the bay. **(6) Dialogue input.** A docked script dialogue (`menu.active`) holds the frame at 1x and ignores the acceleration keys/buttons until it closes; the source lets acceleration run inside the station, which starves the YES/NO rows. **(7) Mission-NPC bay.** `Action::Departure` asks for the bay F672's F650 would (and boots an occupant when the port is full) so an assassination target cannot go missing. Off: the removal set is the old difference, ship ids restart per system, no view pulse, three medals, no deadline text, `Full` is returned, acceleration is unchanged and script departures get no bay. |
+| EXP-047 | The game-over RIP screen can be skipped: a click or any key starts the default new game at Hope at once. | implemented | 2026-11-20 (owner report). F917's loop has one exit, its counter's end, which longjmps to the front end (the intro). The port now samples the RIP frame's input before it draws: a fresh left-button edge or any new key press calls `GameOver::abort`, reaching the same `Phase::Finished` state, and `main.rs` takes the intro's `IntroExit::Start(chosen_start)` arm, so the new commander is created by the one existing reset path and the intro is not drawn. A button already held when the screen appeared is not a click (`game_over_restart_edge`). With no input the source timing and the intro return are unchanged, and `--capture-gameover` and replays keep the original timing. |
+
+
+These are temporary scaffolding, not acceptance of a changed faithful baseline.
+V0.5 extends EXP-004 with normal-filtered declared outlines. Exact F1480/F1481
+visibility/lighting is separately verified, but the observer derives from the
+diagnostic floating-point camera and the light/shades are test inputs. Filtering
+does not resolve alternate branches, submodels, original projection or shading.
+V0.6's standalone rotation helper rejects invalid axis 3 instead of reproducing
+the original routine's uninitialized pointer use. No valid-axis or gameplay
+behavior is intentionally changed; complete transform-command execution is absent.
+V0.7's bounded executor rejects loops exceeding the supplied 1..4096-command
+budget, unsupported reached operations and local selectors that alias unmodeled
+legacy instance fields. Errors roll back the complete invocation, not just the
+last operation. This is validation/development scaffolding, not changed Classic
+gameplay; neither the F4 catalogue nor flight uses incomplete execution output.
+V0.9's abstract flat depth queue has a separate 1..4096-operation budget, not the
+original 50,000-word arena. Budget failure preserves queue state; finalizing an
+open group errors rather than inventing an implicit end marker. The standalone
+depth resolver rejects unresolved/negative external vertices instead of reading
+unmodeled cache memory. Original valid resolved-point math and ordering are
+verified independently; v0.11 composes them in `execute_live`, which advances
+past opcode 6 while still rejecting unsupported reached commands.
+V0.2 replaces the earlier 640x480 development canvas with 320x200 logical
+composition, nearest 4:3 correction and original font/console art. Glyph raster
+and proportional advances match 696 executed JJFFE cases; panel/sprite clipping
+matches 28 cases. Diagnostic layout, RGB composition across separate cabin/low
+palettes, synthetic scanner contact, 60 Hz presentation and non-clickable panel
+remain scaffolding. This is partial progress on CLS-001/002/003/004, not full
+acceptance of those rows. Horizontal font clipping is bounds-safe rather than
+reproducing the original routine's unsafe cross-row writes. UI characters outside
+printable ASCII display as `?`; full error diagnostics also go to stderr.
+No Enhanced/HD-pack option exists yet.
+
+---
+
+## 2. Presentation — Classic
+
+The owner approved the original DOS visual target, including 4:3 correction.
+The detailed table remains a verification checklist, not proof that every numeric
+claim from the FFED3D study is already validated against JJFFE.
+The following are intended corrections of FFED3D-only presentation back to DOS:
+
+| ID | Topic | Status | Note |
+|---|---|---|---|
+| CLS-001 | 320×200 indexed framebuffer, 320×158 3D + 42-row HUD | proposed | FFED3D uses a 640×400 software buffer; DOS uses 320×200. |
+| CLS-002 | Original 4:3 presentation with non-square pixels | approved | Owner selected original visuals; verify exact palette/projection behavior against JJFFE. |
+| CLS-003 | Original bitmap font, not Arial/TTF | implemented (partial) | Main 116-glyph font imported, exact row masks/advances verified against JJFFE. Full FF-code text layout and other font data remain unported. |
+| CLS-004 | Original HUD panel/icons, not a 3D panel render target | proposed | FFED3D uses `panel.X` + 1024×1024 texture. |
+| CLS-005 | Affine texture mapping, nearest sampling, no mips/aniso | proposed | FFED3D uses linear/mip filtering. |
+| CLS-006 | Original flat/quantised shading, not D3D Gouraud/specular | proposed | FFED3D uses D3D lighting. |
+| CLS-007 | Original draw order/transparency, no arbitrary z-buffer effects | proposed | FFED3D uses D24S8. |
+| CLS-008 | Original procedural planets, not GPU shader planets | proposed | FFED3D uses `planet.fx`/height maps. |
+| CLS-009 | Original bitmap starfield, not `stars.X`/skybox TGAs | proposed | FFED3D adds HD assets. |
+| CLS-010 | 50 Hz pacing, no interpolation/smoothing | proposed | Enhanced frame interpolation is off by default. |
+| CLS-011 | Original mouse pointer, not the OS cursor | proposed | FFED3D draws a software pointer. |
+
+**If a CLS row is rejected**, the resulting look is an explicit owner-approved deviation and must be recorded here with a reference image/test and a rationale. It may not be introduced by an “implementation detail”.
+
+---
+
+## 3. Presentation — Enhanced (removed)
+
+The Enhanced/Modern presentation rows (ENH-001 to ENH-026) described the GPU
+engine removed with the Classic-only split on 2026-11-10. They are kept in
+[archive/deviations-enhanced.md](archive/deviations-enhanced.md).
+
+## 4. Gameplay-affecting (separate group, never master)
+
+These are **not** Enhanced graphics. They are off by default, labelled “Gameplay-affecting — changes how the game plays”, and excluded from the master button. They are deviations from the original when on.
+
+| ID | Option | Status | Why it affects play |
+|---|---|---|---|
+| GP-001 | Extended FOV | proposed | Reveals more of the scene; changes situational awareness. |
+| GP-002 | Fill widescreen (extended horizontal FOV) | proposed | Reveals more horizontally than the original frustum. Presentation-only `widescreen` does not. |
+| GP-003 | Input smoothing | proposed | Changes flight response. |
+| GP-004 | Aim assist (future) | proposed | Changes combat. Not implemented in v1. |
+
+If the owner considers any of these presentation-only, move it to §3 with an explicit note; until then it stays here.
+
+---
+
+## 5. Platform / plumbing (free-to-improve)
+
+These do not change the simulation or the Classic look, but are listed for transparency.
+
+| ID | Change | Status | Notes |
+|---|---|---|---|
+| PLT-001 | Modern windowing/input backend (winit/gilrs) with remapping and gamepad support | proposed | Default bindings and pointer mapping must match. |
+| PLT-002 | Modern audio backend/mixing; HMP→MIDI + WAV effects | proposed | Trigger points/levels unchanged; synth choice is an open question. |
+| PLT-003 | Config file (`ffe-rs.toml`) + CLI flags | proposed | Original `ffewin.cfg` bindings remain honoured/imported. |
+| PLT-004 | Data conversion to `data.bin`; game/ not needed at runtime | proposed | Byte-identical content; deterministic. |
+| PLT-005 | File dialogs use a native/modern dialog, not the original bitmap UI | proposed | The in-game options/file menu remains Classic-styled; OS dialogs are platform chrome. |
+| PLT-006 | Atomic saves, clear errors, no panics on corrupt input | approved | Preserve imported legacy files; new native saves may use a different versioned format. |
+| PLT-007 | 64-bit build (original is 32-bit) | proposed | Must preserve 32-bit integer widths/overflow semantics explicitly. |
+| PLT-008 | Linux support (if easy) | proposed | Not required for v1; Windows first. |
+| PLT-009 | The CD videos are read in place from the game folder's `DATA` folder or a folder the player picks (`--videos`), for any release | implemented 2026-11-18 | No copy into `FMVs` and no manifest. The earlier rule that only the CD 1.01 build offers videos is dropped for these folders: the clip choice (`ffe_core::fmv_select`, F333/F382/F384/F442) is the same in every release, so a floppy or shareware install plays the CD's clips when pointed at them. The old `FMVs` copy still needs the CD 1.01 build. See `notes/cd-media.md`. |
+| PLT-010 | The launcher's Full screen setting starts the game borderless full screen (`fullscreen=` in `config.cfg`) | implemented 2026-11-18 | Alt+Enter and the in-game toggle stay session-only and are never written. A replay never starts full screen. |
+
+---
+
+## 6. Content / data
+
+| ID | Deviation | Status | Note |
+|---|---|---|---|
+| DAT-001 | `data.bin` contains converted original content, generated from the player's files; never committed. | proposed | Required by the brief. |
+| DAT-002 | FFED3D-added assets/scripts are excluded. | proposed | No licence; not base content. |
+| DAT-003 | `upscaled.bin` is derived from original art; provenance recorded; LFS. | proposed | HD option only. |
+| DAT-004 | Mod assets can add Classic/HD art and material maps; same options apply. | proposed | `validate-mod` rejects base-asset hash collisions. |
+| DAT-005 | Hand-authored systems/planets/stations are inserted/overridden by ID/coords without perturbing other systems. | proposed | Test required. |
+
+---
+
+## 7. Process rules
+
+- Every deviation is listed here **before** it becomes default.
+- Every fix/change gets a failing test first.
+- The master button never touches §4.
+- Enhanced options never feed the simulation; the golden traces must be identical with every option on and off (the renderer may not call the gameplay RNG or mutate state).
+- With every enhancement off, output matches the Classic reference.
+- If a change is ambiguous, it is treated as frozen and the owner is asked.
+
+## 2026-11-03 — mission scripts' ships and objects
+
+Every object statement the real scripts use is wired
+(`docs/notes/mission-scripts.md`, "Mission ships and objects"). The
+placement stand-ins recorded here first were removed on 2026-11-04: F669's
+attackers start on F702's orbit round the root, F702 places with F1508 and
+gives F1507's velocity, F297's buildings stand on F879's terrain, F40's
+objects move and turn as F866 moves them, and F770's hail stops the song
+and sets the combat velocity. The journal viewer is F80/F79's page with
+F81's scrolling since 2026-11-04. One difference remains: F669 raises its
+event 0x17 once the script run ends rather than inside the statement (F48
+runs its handlers at once). The viewer's keys are the port's (Up/Down for
+the arrows' actions 5/6, Page Up/Down for 0xe/0xf, whose source keys are
+not established), and F81 runs every 20 ms of real time.
+
+## 2026-10-25 — intro input carry-over (owner requested)
+
+Laser input is disarmed at game entry until held keys are released. Space used
+to leave the intro cannot fire or incur a discharge fine. A later Space press
+fires normally, including held fire. Implemented using HeldControls and tested
+by `intro_space_must_be_released_before_a_new_press_can_fire`.
+
+## 2026-11-03 — F428 mounting choice shown on the console (superseded 2026-11-20)
+
+**Superseded:** the choice is now F428's own menu. F342 clears the screen's
+lists and F348 adds one entry per candidate mounting (0x9870..0x9873), so the
+Upgrades list is replaced by those rows, each with the row button, and
+"Select Mounting." (0x9902) is the console line F334 writes through F352. A row
+is picked by its button, a digit (F354: the nth visible row) or Enter; Go Back
+or Backspace returns to the Upgrades list. The older text below is kept as the
+record of what was changed.
+
+When a laser can go on (or come off) more than one gun mounting, F428 lists
+the candidate mountings (0x9870..0x9873) with F348 under the 0x9902
+"Select Mounting." prompt. The port posted the prompt and the numbered
+candidates to the console and took the choice from keys 1..4 (Backspace
+cancels) instead of drawing F348's entries; the fit/remove rules (0x98ff,
+the single-mounting shortcut, the chosen slot) follow F428/F434/F435 and are
+tested by `f428_asks_which_mounting`.
+
+## 2026-11-11 — World Options, Advanced NPCs and Improved combat removed (owner requested)
+
+The owner asked for the modern combat changes that add traffic, ships and
+pirates to be removed. Removed: the World Options page (Medium/Heavy ambient
+traders, the Off level, the police and pirate switches), Advanced NPCs
+(`npc::Life`: approach lanes, convoys, hyperspace arrivals and departures,
+ships fighting each other, busy surface ports, population and danger caps),
+the extra police patrol at every other place, and the Improved combat aids
+(brackets, off-view arrow, contacts list). Every system has F688's traffic
+alone. `config.cfg` files that still carry `traffic=`, `police=`, `pirates=`,
+`advanced_traffic=`, `police_pirates=` or `combat=` load with those keys
+ignored (`settings.rs`, `retired_world_options_load_and_are_dropped`). The
+2026-10-28 entry below is superseded where it describes those features. Still
+present and owner requested: the autopilot flying to a selected ship
+(`Navigator::engage_ship`).
+
+## 2026-10-28 — NPC combat, Advanced NPCs and Modern art (owner requested)
+
+Re-applied on 2026-11-03 on top of the PAR-15 object physics. The port's
+earlier hostile-engagement range (hold until 10 km, cruise in at 2 km/s) and
+its 15%/35% pirate chance in safe systems were dropped: PAR-15's F597/F601
+flight closes on the player by itself, and the extra roll would have moved the
+PAR-17 shared random pair off the original's call order.
+
+- **F750's combat alert (source behaviour).** A hostile attacking the player
+  (state Attack or Pass, no ship target of its own) enters combat inside
+  `2^23` mm. F217 drops time to 1x; only when it was accelerated does F349 post
+  `0x98c3` "WARNING: Ship is Under Attack" with the siren and battle song.
+  Nothing is posted while the player is docked or landed. Test:
+  `tests/npc_physics.rs` (`f750s_alert_fires_as_a_hostile_enters_combat_range`).
+- **Overshoot passes** (ships without statistics, the port's older flight) are
+  entered only from outside the standoff; a ship inside it looped on the player.
+- **A ship facing directly away still turns** (`turn_toward` treats nearly
+  opposite vectors as opposite; it used to cancel back and never turn).
+- **Advanced NPCs** (renamed from Advanced traffic): a pirate turns from its
+  trader prey to a player in flight within 10 km (was 8 km), and preys on
+  traders while the player is docked or landed. Test:
+  `tests/npc_ai.rs` (`with_advanced_traffic_a_pirate_turns_on_a_player_who_comes_near`).
+- **Log follows the original.** Laser and missile hits, chaff, NPC E.C.M.,
+  police turning and ships jumping out no longer post log entries (F953/F935/F738
+  post none). F941's "WARNING: Incoming Missile" (`0x98c4`) replaces the port's
+  launch text, drops time to 1x and sounds the siren. "Locked on …" notices are
+  gone.
+- **NPCs stay out of worlds:** a ship outside the docking cycle cannot end a
+  step inside a star or below a planet's lowest surface point
+  (`Navigator::keep_ships_out_of_worlds`; the port's NPC flight has no terrain).
+- **Improved combat contacts list** shows only on the console's combat
+  (missile) page; hostile ships red, the rest white; navigation-computer
+  squares (0x31, lit 0x2c for the selection); a second click clears the
+  selection; K / AUTOPILOT fly to a selected ship, holding 0.5 km off its hull
+  (session-only target).
+- **Pause:** choosing a time step resumes a paused game.
+- **Modern graphics** reads the owner's upscaled `assets` (`assets.bin`) cabins, console
+  panel (primary bitmap 43) and main font atlas; presentation only.
+- **Autopilot lamp (0x49)** toggles the autopilot over its whole square (the
+  original's upper half is the `t` target button), shows its red arrow only
+  while the autopilot flies (F1116 lights it whenever a target is locked), and
+  a click in the view or the contacts list while the autopilot flies ends it.
+- **Keys:** X launches the escape capsule as in DOS FFE (`F1054`, `78206`),
+  alongside F12 and the console icon; the port's brake, which the original
+  does not have, moved from X to B (B and N still buy and sell when docked).
+  The console's missile-view button opens the missile view as F10 does.
+- **Page names:** the port-only Escape page is labelled `Advanced Options`
+  (its control help lines and footnote were removed); the project's policy
+  term "Port Options" for permitted extensions is unchanged.
+
+## 2026-10-29 — dust while dying; Modern intro and gravestone (owner requested)
+
+- **No dust while the player dies.** From the moment of death (`Flight::death`
+  set, F1104's hold) through the explosion and the death camera, neither
+  F1035's space-dust motes (model 0x6d, Classic and Modern) nor Modern's GPU
+  speed dust are drawn. Only drawing changes: the dust stream keeps spawning
+  and ageing as before, so its random numbers and the game state are
+  untouched. Tests: `tests/death_view.rs`
+  (`no_dust_is_drawn_while_the_player_dies`).
+- **The intro and the gravestone go through the presenter.** With Modern
+  graphics the intro is upscaled, its credits (and their one-pixel shadows)
+  are drawn in the real font, and with a GPU its model (the GAME!TEK logo,
+  the planet, the ship) is drawn by the GPU view like the flight view's. The
+  gravestone (F917) is upscaled and, with a GPU, its tombstone is drawn by a
+  full-screen GPU view (all 200 rows, F1479's centre on row 79), in the
+  original's painting order. Classic's logical frames are unchanged; the
+  gravestone is now scaled to the window with the Display settings like every
+  other screen instead of as a fixed 640x480 buffer. See
+  `docs/notes/modern-graphics.md`.
+
+## 2026-11-04 — F911's mis-jump capacity (verified bug fix)
+
+F911 (a mis-jump that destroys the drive, leaving class 1) adds its
+`DATA_007188` record mass less 4 t to Rubbish (`DATA_008904`) and to the tonnes
+used (`DATA_008891`), but stores the same amount into the hold capacity
+(`DATA_008889`) with `mov` where F946 and F934 add it. Taken literally the hold
+would shrink to that amount (for example 8 t after a class 3 drive), leaving
+less free space than the cargo already aboard. The port keeps the capacity rule
+of F946/F934: the capacity follows the fitted drive's record, so it rises by
+the old drive's `DATA_007210` mass less class 1's 4 t. The Rubbish and the
+drive class are the source's. Tested by
+`flight::tests::a_misjump_leaves_class_1_and_the_records_mass_less_4`.
+
+
+## 2026-11-05 — external-camera ground boundary (owner requested, implemented)
+
+Both graphics modes reject external-camera input components that would put
+the eye into terrain or a pad floor, using the existing collision streams
+and pad placement data. A quarter metre margin covers quantisation. Clear
+movement retains the previous orbit exactly; there is no automatic camera
+lift, retargeting or corrected render position. Ship physics and RNG are
+unchanged. The owner requested the original's no-floor-clipping behaviour;
+the boundary guard is regression-tested but not claimed as an executed
+reference camera routine.
+| EXP-025 | The 3D system map (module 5) draws each orbit as a polyline in a flat green instead of F986's ring model, shows the picked body's facts on the view, and adds keys and a smooth zoom of its own. | implemented | 2026-11-19, narrowed 2026-11-20 (`ui-29`). The page's logic and view are the original's: F966/F974 entry from the galaxy map, F963's start (distance `0x7fff` at exponent `0x2a`, the focus slot by start type), F982's camera (F1676's matrix from the mouse accumulators, parented to the focus, standing back along the matrix's third row), F1680/F1479's projection and dot sprites, F978's names, F983's pick, F986's ring for kind-1 objects that orbit something (and only while F1680 would draw model 0x96). Port's own: the ring is F1507's circle (the plane through the system's z axis and the body) as a polyline in a flat green, a ring thousands of pixels across is dropped, a body near enough to be a model is a disc, the picked body's details lines, `C`/Home (centre on a body, which also refits the distance, where the original keeps it), Page Up/Down and +/- smooth zoom, a press of F11/F12 is five steps, and the right button turns the view. Not ported: the slider's pressed-arrow redraw and F271's replace flag for the `t` message. Oracle: `tools/reference/verify-system-map.py` (positions exact, 86% of overlay pixels shared). See `docs/notes/system-map.md`. |
+
+## 2026-11-20 — under-attack warning at 1x (owner requested)
+
+`F750` (`ffe.asm:49569-49587`) posts `0x98c3` "WARNING: Ship is Under Attack"
+and plays the siren (`0x1e`) only when `F217` returns non-zero, i.e. when the
+attack interrupted accelerated time. At 1x the DOS game gives only F753's
+console lamp (`0x37`) and the `F953` hit samples. The owner reported a pirate
+attack with no warning at all, so the port now posts `0x98c3` and sounds the
+siren on every hostile entry into combat (the drop to 1x and the combat
+velocity still happen), and derives the `0x37` lamp from
+`Navigator::combat_mode` for the whole fight. NPC laser hits now play `F930`'s
+laser sample plus `F953`'s shield/hull sample. Sample ids, message text and the
+lamp bitmap are the source's; only the F217 gate is dropped.

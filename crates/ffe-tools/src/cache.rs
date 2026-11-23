@@ -1,0 +1,1048 @@
+use crate::external::{output_destination, recorded_bytes};
+use crate::{inspect_game, read_bounded, Severity};
+use ffe_content::{Asset, AssetKind, Manifest, SourceFile};
+use ffe_convert::embedded::{
+    decode_bitmaps, decode_character_widths, decode_colour_map, decode_default_lighting,
+    decode_dot_tables, decode_font, decode_galaxy_tables, decode_gameplay_tables,
+    decode_intro_credits, decode_market_tables, decode_model_collision, decode_model_commands,
+    decode_model_descriptor, decode_model_names, decode_model_normals, decode_model_record,
+    decode_model_vertices, decode_name_text, decode_pad_tables, decode_ship_stats,
+    decode_sine_table, decode_star_point_tables, decode_star_shades, decode_system_strings,
+    decode_system_tables, decode_terrain_maps, decode_terrain_tables, decode_texture_descriptors,
+    BitmapLayout,
+};
+use ffe_convert::{decode_indexed_bmp, pcm16_mono_22050_wav};
+use std::fs;
+use std::io::Write;
+use std::path::Path;
+
+// The data locations of each supported executable. Floppy 1.02's come from
+// the JJFFE declarations; CD 1.01's and Elite Club shareware 1.06's were found
+// in those executables by content (each table's bytes, or a pointer table's
+// pattern of differences, matched uniquely) and every table decodes through the
+// same checked decoders (`tools/reference/map-layouts.py`). The builds' data is
+// shifted by a few bytes per region, so no single offset is assumed.
+
+/// Model table and sine table RVAs for an exact-hash release.
+pub(crate) fn model_layout(profile: &str) -> Result<(u32, u32), String> {
+    match profile {
+        "ffe-floppy-1.02-en" => Ok((0x0d0cfc, 0x106390)),
+        "ffe-shareware-1.06-en" => Ok((0x0d0e68, 0x1066e0)),
+        "ffe-cd-1.01-en" => Ok((0x0d0cf8, 0x105334)),
+        _ => Err("no verified model layout for this source profile".to_owned()),
+    }
+}
+
+/// Bitmap tables and fixed low palette. RVAs, not offsets in the rebuilt JJFFE
+/// executable. These are verified against all 347 table records in each
+/// exact-hash original release.
+pub(crate) fn bitmap_layout(profile: &str) -> Result<BitmapLayout, String> {
+    match profile {
+        "ffe-floppy-1.02-en" => Ok(BitmapLayout {
+            primary_rva: 0x1b069c,
+            secondary_rva: 0x1b081c,
+            low_palette_rva: 0x101990,
+        }),
+        "ffe-shareware-1.06-en" => Ok(BitmapLayout {
+            primary_rva: 0x1b09ec,
+            secondary_rva: 0x1b0b6c,
+            low_palette_rva: 0x101ce4,
+        }),
+        "ffe-cd-1.01-en" => Ok(BitmapLayout {
+            primary_rva: 0x1af640,
+            secondary_rva: 0x1af7c0,
+            low_palette_rva: 0x1009b0,
+        }),
+        _ => Err("no verified embedded bitmap layout for this source profile".to_owned()),
+    }
+}
+
+/// Main bitmap font RVA.
+pub(crate) fn font_layout(profile: &str) -> Result<u32, String> {
+    match profile {
+        "ffe-floppy-1.02-en" => Ok(0x1013b0),
+        "ffe-shareware-1.06-en" => Ok(0x101704),
+        "ffe-cd-1.01-en" => Ok(0x1003d0),
+        _ => Err("no verified font layout for this source profile".to_owned()),
+    }
+}
+
+/// Texture descriptor (`DATA_007811`) and 12-bit colour map (`DATA_007770`) RVAs
+/// (v8). Verified byte for byte against JJFFE 2.8a7 for floppy 1.02; the CD and
+/// shareware locations hold the same bytes.
+pub(crate) fn texture_layout(profile: &str) -> Option<(u32, u32)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0x102da8, 0x101b10)),
+        "ffe-cd-1.01-en" => Some((0x101dc8, 0x100b30)),
+        "ffe-shareware-1.06-en" => Some((0x1030fc, 0x101e64)),
+        _ => None,
+    }
+}
+
+/// F1343's message string arrays (v30): `(handler, RVA, entries)` for each
+/// handler F1347 serves from a plain pointer table, in floppy 1.02. Every
+/// entry was matched against JJFFE 2.8a7's tables (the release text differs
+/// from JJFFE's in two of `DATA_004894`'s strings and one of `DATA_005053`'s;
+/// the executable's text is kept).
+pub(crate) fn message_layout(profile: &str) -> Option<&'static [(u8, u32, usize)]> {
+    const FLOPPY: [(u8, u32, usize); 10] = [
+        (0, 0xeb934, 44),   // DATA_007117 (F895)
+        (3, 0xeeef0, 59),   // DATA_007257 (F1115)
+        (5, 0xeecec, 2),    // DATA_007240 (F965)
+        (10, 0xd2838, 46),  // DATA_004894 (F226, the preference pages)
+        (12, 0xd8204, 486), // DATA_005299 (F319, the 0x98xx messages)
+        (14, 0xd5d4c, 129), // DATA_005104 (F277)
+        (15, 0xd40b8, 13),  // DATA_005037 (F241)
+        (17, 0xd430c, 30),  // DATA_005053 (F257, mining)
+        (19, 0x9aa18, 7),   // DATA_002245 (F84)
+        (20, 0x8e4bc, 468), // DATA_001699 (F62, the bulletin board and missions)
+    ];
+    // The same tables in CD 1.01 and shareware 1.06, found by their pointer
+    // patterns (`tools/reference/map-layouts.py`).
+    const CD: [(u8, u32, usize); 10] = [
+        (0, 0xeb930, 44),
+        (3, 0xeeef0, 59),
+        (5, 0xeecec, 2),
+        (10, 0xd2834, 46),
+        (12, 0xd8200, 486),
+        (14, 0xd5d48, 129),
+        (15, 0xd40b4, 13),
+        (17, 0xd4308, 30),
+        (19, 0x9a9e4, 7),
+        (20, 0x8e488, 468),
+    ];
+    const SHAREWARE: [(u8, u32, usize); 10] = [
+        (0, 0xebc8c, 44),
+        (3, 0xef244, 59),
+        (5, 0xef044, 2),
+        (10, 0xd2968, 46),
+        (12, 0xd8340, 486),
+        (14, 0xd5e88, 129),
+        (15, 0xd41f4, 13),
+        (17, 0xd4448, 30),
+        (19, 0x9abac, 7),
+        (20, 0x8e650, 468),
+    ];
+    match profile {
+        "ffe-floppy-1.02-en" => Some(&FLOPPY),
+        "ffe-cd-1.01-en" => Some(&CD),
+        "ffe-shareware-1.06-en" => Some(&SHAREWARE),
+        _ => None,
+    }
+}
+
+/// The mission scripts (v32), floppy 1.02 only: the region start, the
+/// `DATA_001697` table, its entries, and the static words in BSS.
+pub(crate) fn scripts_layout(profile: &str) -> Option<(u32, u32, usize, u32, u32)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0x801c4, 0x8e0f8, ffe_core::script::MISSIONS, 0x20bde0, 10)),
+        "ffe-cd-1.01-en" => Some((0x80190, 0x8e0c4, ffe_core::script::MISSIONS, 0x20ad80, 10)),
+        "ffe-shareware-1.06-en" => {
+            Some((0x801c4, 0x8e28c, ffe_core::script::MISSIONS, 0x20c134, 10))
+        }
+        _ => None,
+    }
+}
+
+/// The journal offset table (`DATA_002292`, 672 dwords into `MISSION.DAT`;
+/// v31), floppy 1.02 only.
+pub(crate) fn journal_layout(profile: &str) -> Option<(u32, usize)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0x9c0c4, ffe_core::journal::ARTICLES + 1)),
+        "ffe-cd-1.01-en" => Some((0x9c090, ffe_core::journal::ARTICLES + 1)),
+        "ffe-shareware-1.06-en" => Some((0x9c258, ffe_core::journal::ARTICLES + 1)),
+        _ => None,
+    }
+}
+
+/// The script query names (`DATA_001698`, 68 entries; v34), floppy 1.02 only.
+pub(crate) fn queries_layout(profile: &str) -> Option<(u32, usize)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0x8e29c, ffe_core::script::QUERIES)),
+        "ffe-cd-1.01-en" => Some((0x8e268, ffe_core::script::QUERIES)),
+        "ffe-shareware-1.06-en" => Some((0x8e430, ffe_core::script::QUERIES)),
+        _ => None,
+    }
+}
+
+/// The journal stories (`DATA_002280`, 170 entries; v33), floppy 1.02 only.
+pub(crate) fn stories_layout(profile: &str) -> Option<(u32, usize)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0x9b59c, ffe_core::journal::STORIES)),
+        "ffe-cd-1.01-en" => Some((0x9b568, ffe_core::journal::STORIES)),
+        "ffe-shareware-1.06-en" => Some((0x9b730, ffe_core::journal::STORIES)),
+        _ => None,
+    }
+}
+
+/// Model string table (`DATA_004682`) RVA (v11), keyed by ship-name ffcode
+/// (`0x4000 | n`, the `+0xe` word of a model's statistics block), matched
+/// against JJFFE 2.8a7 in floppy 1.02 only.
+pub(crate) fn names_layout(profile: &str) -> Option<u32> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some(0xd1444),
+        "ffe-cd-1.01-en" => Some(0xd1440),
+        "ffe-shareware-1.06-en" => Some(0xd15b0),
+        _ => None,
+    }
+}
+
+/// Default lighting (`DATA_007231`) and star shade table (`DATA_007759`) RVAs (v9),
+/// matched byte for byte against JJFFE 2.8a7 in floppy 1.02 only.
+pub(crate) fn lighting_layout(profile: &str) -> Option<(u32, u32)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0xeec60, 0x101858)),
+        "ffe-cd-1.01-en" => Some((0xeec60, 0x100878)),
+        "ffe-shareware-1.06-en" => Some((0xeefb8, 0x101bac)),
+        _ => None,
+    }
+}
+
+/// System tables (`DATA_007106`) RVA (v15), matched byte for byte against JJFFE
+/// 2.8a7 in floppy 1.02 only (the relocated handler pointers aside).
+pub(crate) fn system_layout(profile: &str) -> Option<u32> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some(0xe71d8),
+        "ffe-cd-1.01-en" => Some(0xe71d4),
+        "ffe-shareware-1.06-en" => Some(0xe7314),
+        _ => None,
+    }
+}
+
+/// Market tables (`DATA_006164`) and commodity names (`DATA_006216`) RVAs (v20),
+/// floppy 1.02 only.
+pub(crate) fn market_layout(profile: &str) -> Option<(u32, u32)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0xdde08, 0xde970)),
+        "ffe-cd-1.01-en" => Some((0xdde04, 0xde96c)),
+        "ffe-shareware-1.06-en" => Some((0xddf44, 0xdeaac)),
+        _ => None,
+    }
+}
+
+/// Galaxy generator tables: the hand-made vectors (`DATA_006793`), the sector tables
+/// (`DATA_006799`) and the drive records (`DATA_007187`) RVAs (v21), floppy 1.02 only.
+pub(crate) fn galaxy_layout(profile: &str) -> Option<(u32, u32, u32)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0xe094c, 0xe1154, 0xee224)),
+        "ffe-cd-1.01-en" => Some((0xe0948, 0xe1150, 0xee220)),
+        "ffe-shareware-1.06-en" => Some((0xe0a88, 0xe1290, 0xee57c)),
+        _ => None,
+    }
+}
+
+/// The small-dot size tables (`DATA_007835`, `7836`) RVA (v25), floppy 1.02 only.
+pub(crate) fn dot_table_layout(profile: &str) -> Option<u32> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some(0x10415c),
+        "ffe-cd-1.01-en" => Some(0x10317c),
+        "ffe-shareware-1.06-en" => Some(0x1044b0),
+        _ => None,
+    }
+}
+
+/// The far-object dot tables' RVAs (v35): the first sprite record (seven 18-byte records
+/// before `DATA_007784`) and the size map (`DATA_007825`). Verified byte for byte against the
+/// floppy 1.02 executable; the others keep the same distance from the dot tables (as every
+/// table in this block does) and are checked by the decoder's validation.
+pub(crate) fn object_dot_layout(profile: &str) -> Option<(u32, u32)> {
+    let dots = dot_table_layout(profile)?;
+    // DATA_007784 sits 0x1534 bytes before DATA_007835; the size map 116 bytes.
+    Some((dots - 0x1534 - 7 * 18, dots - 116))
+}
+
+/// The star light-point tables (`DATA_007820`, `7821`, `7822`, `7828`) RVAs (v23), floppy 1.02 only.
+pub(crate) fn star_point_layout(profile: &str) -> Option<[u32; 4]> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some([0x104038, 0x104070, 0x1040a8, 0x10410c]),
+        "ffe-cd-1.01-en" => Some([0x103058, 0x103090, 0x1030c8, 0x10312c]),
+        "ffe-shareware-1.06-en" => Some([0x10438c, 0x1043c4, 0x1043fc, 0x104460]),
+        _ => None,
+    }
+}
+
+/// The system string pointer table (`DATA_006796`) RVA (v22), floppy 1.02 only.
+pub(crate) fn system_strings_layout(profile: &str) -> Option<u32> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some(0xe0cf4),
+        "ffe-cd-1.01-en" => Some(0xe0cf0),
+        "ffe-shareware-1.06-en" => Some(0xe0e30),
+        _ => None,
+    }
+}
+
+/// Gameplay tables (`DATA_007207`) RVA (v16), floppy 1.02 only.
+pub(crate) fn gameplay_layout(profile: &str) -> Option<u32> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some(0xee98c),
+        "ffe-cd-1.01-en" => Some(0xee988),
+        "ffe-shareware-1.06-en" => Some(0xeece4),
+        _ => None,
+    }
+}
+
+/// Open-air pad tables (`DATA_006175..6179` plus the `DATA_006180` overrun
+/// window) RVA (v26), floppy 1.02 only. The five tables are contiguous in the
+/// executable even though the later `DATA_` labels do not encode their
+/// addresses; they run from here to the ship index table at 0xde2cc.
+pub(crate) fn pad_layout(profile: &str) -> Option<u32> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some(0xde20c),
+        "ffe-cd-1.01-en" => Some(0xde208),
+        "ffe-shareware-1.06-en" => Some(0xde348),
+        _ => None,
+    }
+}
+
+/// Intro credits and character widths (v27): the 18 raw credit strings and the
+/// version line at `0xbd361`, and `DATA_007648` at `0xe9998`, floppy 1.02 only.
+/// their layout codes; the widths are the signed 256-byte wrap table.
+pub(crate) fn intro_layout(profile: &str) -> Option<(u32, u32)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0xd3761, 0xffd98)),
+        "ffe-cd-1.01-en" => Some((0xd375d, 0xfeda0)),
+        "ffe-shareware-1.06-en" => Some((0xd3891, 0x1000ec)),
+        _ => None,
+    }
+}
+
+/// Name string table (`DATA_006272`) and hand-coded text (`DATA_007139`) RVAs
+/// (v19), floppy 1.02 only.
+pub(crate) fn name_text_layout(profile: &str) -> Option<(u32, u32)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0xdf174, 0xec3d0)),
+        "ffe-cd-1.01-en" => Some((0xdf170, 0xec3cc)),
+        "ffe-shareware-1.06-en" => Some((0xdf2b0, 0xec728)),
+        _ => None,
+    }
+}
+
+/// Terrain tables (`DATA_007836`) and height maps (`DATA_007637`) RVAs (v17),
+/// matched byte for byte against JJFFE 2.8a7 in floppy 1.02 only (the code
+/// pointers aside).
+pub(crate) fn terrain_layout(profile: &str) -> Option<(u32, u32)> {
+    match profile {
+        "ffe-floppy-1.02-en" => Some((0x104165, 0xf7d6c)),
+        "ffe-cd-1.01-en" => Some((0x103185, 0xf6d74)),
+        "ffe-shareware-1.06-en" => Some((0x1044b9, 0xf80c0)),
+        _ => None,
+    }
+}
+
+pub fn inspect_data(path: &Path) -> Result<Manifest, String> {
+    let bytes = read_bounded(path, ffe_content::MAX_CACHE_BYTES as u64)?;
+    Ok(ffe_content::read(&bytes)?.into_manifest())
+}
+
+/// Build the content cache from the game files at `root` in memory (about a
+/// quarter of a second): the game reads it straight from the game folder,
+/// with no `data.bin` needed. The bytes are the same as [`build_data`]
+/// writes.
+pub fn build_bytes(root: &Path) -> Result<Vec<u8>, String> {
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("{}: {error}", root.display()))?;
+    let inspection = inspect_game(&root)?;
+    if !inspection.inspection_passed {
+        let errors: Vec<_> = inspection
+            .diagnostics
+            .iter()
+            .filter(|entry| entry.severity == Severity::Error)
+            .map(|entry| format!("{} [{}]: {}", entry.path, entry.code, entry.message))
+            .collect();
+        return Err(format!(
+            "source inspection failed; no cache written:\n{}",
+            errors.join("\n")
+        ));
+    }
+    let profile = inspection
+        .source_profile
+        .ok_or("inspection passed without a source profile")?;
+    let layout = bitmap_layout(profile.id)?;
+    let font_rva = font_layout(profile.id)?;
+    let (model_table_rva, sine_table_rva) = model_layout(profile.id)?;
+    let mut assets = Vec::new();
+    let mut models = 0;
+    let mut geometry = 0;
+    let mut descriptor_table = vec![0u8; ffe_convert::model_extents::MODEL_COUNT * 8];
+    let mut record_table = vec![0u8; ffe_convert::model_extents::MODEL_COUNT * 20];
+    let stats_bytes = ffe_convert::embedded::SHIP_STATS_BYTES;
+    let mut stats_table = vec![0u8; ffe_convert::model_extents::MODEL_COUNT * stats_bytes];
+    for record in &inspection.files {
+        if crate::is_executable(&record.path) {
+            let bytes = recorded_bytes(&root, record)?;
+            let table = decode_sine_table(&bytes, sine_table_rva)?;
+            assets.push(Asset {
+                id: "base:math/sine".to_owned(),
+                path: "math/sine.i32".to_owned(),
+                kind: AssetKind::SineTable {
+                    source_offset: table.source_offset as u64,
+                },
+                bytes: table.bytes,
+            });
+            // The descriptor fields object set-up reads, for every slot with a
+            // descriptor, imported or not (v16).
+            let slots = ffe_convert::model_extents::MODEL_COUNT;
+            let mut collision_index = vec![0u8; slots * 12];
+            let mut collision_data = Vec::new();
+            // Far and dot classes and colour of every descriptor, for far objects' dots (v35).
+            let mut object_models = vec![[0u8; ffe_core::model_dot::OBJECT_MODEL_BYTES]; slots];
+            for index in 0..slots as u32 {
+                if let Ok(record) = decode_model_record(&bytes, model_table_rva, index) {
+                    record_table[index as usize * 20..index as usize * 20 + 20]
+                        .copy_from_slice(&record);
+                }
+                if let Ok(record) =
+                    ffe_convert::embedded::decode_model_object_dot(&bytes, model_table_rva, index)
+                {
+                    object_models[index as usize] = record;
+                }
+                // The collision stream, where the descriptor has one (v17).
+                if let Ok(Some((back, stream))) =
+                    decode_model_collision(&bytes, model_table_rva, index)
+                {
+                    let entry = index as usize * 12;
+                    collision_index[entry..entry + 4]
+                        .copy_from_slice(&(collision_data.len() as u32).to_le_bytes());
+                    collision_index[entry + 4..entry + 8]
+                        .copy_from_slice(&((stream.len() - back) as u32).to_le_bytes());
+                    collision_index[entry + 8..entry + 12]
+                        .copy_from_slice(&(back as u32).to_le_bytes());
+                    collision_data.extend_from_slice(&stream);
+                }
+            }
+            collision_index.extend_from_slice(&collision_data);
+            assets.push(Asset {
+                id: "base:model/collision".to_owned(),
+                path: "models/collision.bin".to_owned(),
+                kind: AssetKind::ModelCollision {
+                    count: slots as u32,
+                },
+                bytes: collision_index,
+            });
+            // Every table slot whose normals, commands and vertices all decode (v7).
+            // Stations 74/75 must decode; other slots that cannot are skipped.
+            // A model's collision geometry is imported even when its command
+            // program does not decode: F576/F580 read the vertex records and
+            // normals directly, and model 0x59's command block ends in a record
+            // that spills into the next block while its 24 vertices are sound.
+            for index in 0..ffe_convert::model_extents::MODEL_COUNT as u32 {
+                let vertices = match decode_model_vertices(&bytes, model_table_rva, index) {
+                    Ok(vertices) => Some(vertices),
+                    Err(error) if matches!(index, 74 | 75) => return Err(error),
+                    Err(_) => None,
+                };
+                let normals = match decode_model_normals(&bytes, model_table_rva, index) {
+                    Ok(normals) => Some(normals),
+                    Err(error) if matches!(index, 74 | 75) => return Err(error),
+                    Err(_) => None,
+                };
+                let commands = match decode_model_commands(&bytes, model_table_rva, index) {
+                    Ok(commands) => Some(commands),
+                    Err(error) if matches!(index, 74 | 75) => return Err(error),
+                    Err(_) => None,
+                };
+                let (Some(normals), Some(model)) = (normals, vertices) else {
+                    continue;
+                };
+                geometry += 1;
+                if commands.is_some() {
+                    models += 1;
+                }
+                // F1750 reads +0x18 (scale offset) and +0x1c (cull radius) for child calls.
+                let descriptor = decode_model_descriptor(&bytes, model_table_rva, index)?;
+                let entry = index as usize * 8;
+                descriptor_table[entry..entry + 4]
+                    .copy_from_slice(&descriptor.scale_offset.to_le_bytes());
+                descriptor_table[entry + 4..entry + 8]
+                    .copy_from_slice(&descriptor.radius.to_le_bytes());
+                // Object set-up copies thrust limits, gun mounts and mass from here (v12).
+                if let Some(stats) = decode_ship_stats(&bytes, model_table_rva, index)? {
+                    let entry = index as usize * stats_bytes;
+                    stats_table[entry..entry + stats_bytes].copy_from_slice(&stats);
+                }
+                assets.push(Asset {
+                    id: format!("base:model-normals/{index:03}"),
+                    path: format!("models/{index:03}.nrm"),
+                    kind: AssetKind::ModelNormals {
+                        index,
+                        vertex_count: normals.vertex_count,
+                        normal_count: normals.normal_count,
+                        descriptor_offset: normals.descriptor_offset as u64,
+                        source_offset: normals.source_offset as u64,
+                    },
+                    bytes: normals.bytes,
+                });
+                if let Some(commands) = commands {
+                    assets.push(Asset {
+                        id: format!("base:model-commands/{index:03}"),
+                        path: format!("models/{index:03}.cmd"),
+                        kind: AssetKind::ModelCommands {
+                            index,
+                            vertex_count: commands.vertex_count,
+                            descriptor_offset: commands.descriptor_offset as u64,
+                            source_offset: commands.source_offset as u64,
+                        },
+                        bytes: commands.bytes,
+                    });
+                }
+                assets.push(Asset {
+                    id: format!("base:model-vertices/{index:03}"),
+                    path: format!("models/{index:03}.vtx"),
+                    kind: AssetKind::ModelVertices {
+                        index,
+                        vertex_count: model.vertex_count,
+                        scale: model.scale,
+                        descriptor_offset: model.descriptor_offset as u64,
+                        source_offset: model.source_offset as u64,
+                    },
+                    bytes: model.bytes,
+                });
+            }
+            // The font models' per-character glyph programs (v14). A set whose
+            // table cannot be read is a build error, not silence: text would
+            // silently lose that set.
+            for index in 0..=2u32 {
+                let glyphs = ffe_convert::embedded::glyph_programs(&bytes, model_table_rva, index)?;
+                let mut payload = Vec::with_capacity(glyphs.starts.len() * 4 + glyphs.bytes.len());
+                for start in &glyphs.starts {
+                    payload.extend_from_slice(&start.to_le_bytes());
+                }
+                payload.extend_from_slice(&glyphs.bytes);
+                assets.push(Asset {
+                    id: format!("base:model-glyphs/{index:03}"),
+                    path: format!("models/{index:03}.glp"),
+                    kind: AssetKind::GlyphPrograms {
+                        index,
+                        count: glyphs.starts.len() as u32,
+                        first_char: u32::from(ffe_convert::embedded::GLYPH_FIRST_CHAR),
+                        vertex_count: glyphs.vertex_count,
+                        scale: glyphs.scale,
+                        source_offset: glyphs.source_offset as u64,
+                        newline_vertex: Some(glyphs.newline_vertex),
+                    },
+                    bytes: payload,
+                });
+            }
+            if let Some((descriptor_rva, colour_map_rva)) = texture_layout(profile.id) {
+                let table = decode_texture_descriptors(&bytes, descriptor_rva)?;
+                assets.push(Asset {
+                    id: "base:texture/descriptors".to_owned(),
+                    path: "textures/descriptors.bin".to_owned(),
+                    kind: AssetKind::TextureDescriptors {
+                        count: ffe_core::model_texture::DESCRIPTOR_COUNT as u32,
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+                let map = decode_colour_map(&bytes, colour_map_rva)?;
+                assets.push(Asset {
+                    id: "base:palette/fixed-map".to_owned(),
+                    path: "palettes/fixed-map.bin".to_owned(),
+                    kind: AssetKind::FixedColourMap {
+                        source_offset: map.source_offset as u64,
+                    },
+                    bytes: map.bytes,
+                });
+            }
+            assets.push(Asset {
+                id: "base:model/descriptors".to_owned(),
+                path: "models/descriptors.bin".to_owned(),
+                kind: AssetKind::ModelDescriptors {
+                    count: ffe_convert::model_extents::MODEL_COUNT as u32,
+                },
+                bytes: std::mem::take(&mut descriptor_table),
+            });
+            assets.push(Asset {
+                id: "base:model/records".to_owned(),
+                path: "models/records.bin".to_owned(),
+                kind: AssetKind::ModelRecords {
+                    count: ffe_convert::model_extents::MODEL_COUNT as u32,
+                },
+                bytes: std::mem::take(&mut record_table),
+            });
+            assets.push(Asset {
+                id: "base:ship/stats".to_owned(),
+                path: "ships/stats.bin".to_owned(),
+                kind: AssetKind::ShipStats {
+                    count: ffe_convert::model_extents::MODEL_COUNT as u32,
+                },
+                bytes: std::mem::take(&mut stats_table),
+            });
+            if let Some(names_rva) = names_layout(profile.id) {
+                let table = decode_model_names(&bytes, names_rva)?;
+                assets.push(Asset {
+                    id: "base:text/model-names".to_owned(),
+                    path: "text/model-names.bin".to_owned(),
+                    kind: AssetKind::ModelNames {
+                        count: table.count as u32,
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some((default_rva, stars_rva)) = lighting_layout(profile.id) {
+                let table = decode_default_lighting(&bytes, default_rva)?;
+                assets.push(Asset {
+                    id: "base:lighting/default".to_owned(),
+                    path: "lighting/default.bin".to_owned(),
+                    kind: AssetKind::DefaultLighting {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+                let table = decode_star_shades(&bytes, stars_rva)?;
+                assets.push(Asset {
+                    id: "base:lighting/star-shades".to_owned(),
+                    path: "lighting/star-shades.bin".to_owned(),
+                    kind: AssetKind::StarShades {
+                        count: ffe_core::model_lighting::STAR_SHADE_TABLES as u32,
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some(gameplay_rva) = gameplay_layout(profile.id) {
+                let table = decode_gameplay_tables(&bytes, gameplay_rva)?;
+                assets.push(Asset {
+                    id: "base:gameplay/tables".to_owned(),
+                    path: "gameplay/tables.bin".to_owned(),
+                    kind: AssetKind::GameplayTables {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some(pads_rva) = pad_layout(profile.id) {
+                let table = decode_pad_tables(&bytes, pads_rva)?;
+                assets.push(Asset {
+                    id: "base:gameplay/pads".to_owned(),
+                    path: "gameplay/pads.bin".to_owned(),
+                    kind: AssetKind::PadTables {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some((names_rva, text_rva)) = name_text_layout(profile.id) {
+                let table = decode_name_text(&bytes, names_rva, text_rva)?;
+                assets.push(Asset {
+                    id: "base:text/names".to_owned(),
+                    path: "text/names.bin".to_owned(),
+                    kind: AssetKind::NameText {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some((credits_rva, widths_rva)) = intro_layout(profile.id) {
+                let credits = decode_intro_credits(&bytes, credits_rva)?;
+                assets.push(Asset {
+                    id: "base:text/intro-credits".to_owned(),
+                    path: "text/intro-credits.bin".to_owned(),
+                    kind: AssetKind::IntroStrings {
+                        count: ffe_convert::embedded::INTRO_CREDIT_COUNT as u32,
+                        source_offset: credits.source_offset as u64,
+                    },
+                    bytes: credits.bytes,
+                });
+                let widths = decode_character_widths(&bytes, widths_rva)?;
+                assets.push(Asset {
+                    id: "base:text/char-widths".to_owned(),
+                    path: "text/char-widths.bin".to_owned(),
+                    kind: AssetKind::CharacterWidths {
+                        source_offset: widths.source_offset as u64,
+                    },
+                    bytes: widths.bytes,
+                });
+            }
+            if let Some((tables_rva, maps_rva)) = terrain_layout(profile.id) {
+                let table = decode_terrain_tables(&bytes, tables_rva, maps_rva)?;
+                assets.push(Asset {
+                    id: "base:terrain/tables".to_owned(),
+                    path: "terrain/tables.bin".to_owned(),
+                    kind: AssetKind::TerrainTables {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+                let maps = decode_terrain_maps(&bytes, maps_rva)?;
+                assets.push(Asset {
+                    id: "base:terrain/maps".to_owned(),
+                    path: "terrain/maps.bin".to_owned(),
+                    kind: AssetKind::TerrainMaps {
+                        source_offset: maps.source_offset as u64,
+                    },
+                    bytes: maps.bytes,
+                });
+            }
+            if let Some(rva) = dot_table_layout(profile.id) {
+                let table = decode_dot_tables(&bytes, rva)?;
+                assets.push(Asset {
+                    id: "base:world/dot-tables".to_owned(),
+                    path: "world/dot-tables.bin".to_owned(),
+                    kind: AssetKind::DotTables {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            // The tables are laid out the same relative to the dot tables in every profile, so
+            // a profile whose bytes do not validate simply has no far-object dots (v35).
+            if let Some((sprites_rva, size_map_rva)) = object_dot_layout(profile.id) {
+                if let Ok(table) = ffe_convert::embedded::decode_object_dot_tables(
+                    &bytes,
+                    sprites_rva,
+                    size_map_rva,
+                    &object_models,
+                ) {
+                    assets.push(Asset {
+                        id: "base:world/object-dots".to_owned(),
+                        path: "world/object-dots.bin".to_owned(),
+                        kind: AssetKind::ObjectDotTables {
+                            models: slots as u32,
+                            source_offset: table.source_offset as u64,
+                        },
+                        bytes: table.bytes,
+                    });
+                }
+            }
+            if let Some(rvas) = star_point_layout(profile.id) {
+                let table = decode_star_point_tables(&bytes, rvas)?;
+                assets.push(Asset {
+                    id: "base:world/star-points".to_owned(),
+                    path: "world/star-points.bin".to_owned(),
+                    kind: AssetKind::StarPointTables {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some(layout) = message_layout(profile.id) {
+                let table = ffe_convert::embedded::decode_message_tables(&bytes, layout)?;
+                assets.push(Asset {
+                    id: "base:text/messages".to_owned(),
+                    path: "text/messages.bin".to_owned(),
+                    kind: AssetKind::MessageStrings {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some((rva, count)) = queries_layout(profile.id) {
+                let queries = ffe_convert::embedded::decode_script_queries(&bytes, rva, count)?;
+                assets.push(Asset {
+                    id: "base:script/queries".to_owned(),
+                    path: "scripts/queries.bin".to_owned(),
+                    kind: AssetKind::ScriptQueries {
+                        queries: count as u32,
+                        source_offset: queries.source_offset as u64,
+                    },
+                    bytes: queries.bytes,
+                });
+            }
+            if let Some((rva, count)) = stories_layout(profile.id) {
+                let stories = ffe_convert::embedded::decode_journal_stories(&bytes, rva, count)?;
+                assets.push(Asset {
+                    id: "base:text/journal-stories".to_owned(),
+                    path: "text/journal-stories.bin".to_owned(),
+                    kind: AssetKind::JournalStories {
+                        stories: count as u32,
+                        source_offset: stories.source_offset as u64,
+                    },
+                    bytes: stories.bytes,
+                });
+            }
+            if let Some((start, table, count, statics, words)) = scripts_layout(profile.id) {
+                let scripts = ffe_convert::embedded::decode_mission_scripts(
+                    &bytes, start, table, count, statics, words,
+                )?;
+                assets.push(Asset {
+                    id: "base:script/missions".to_owned(),
+                    path: "scripts/missions.bin".to_owned(),
+                    kind: AssetKind::MissionScripts {
+                        missions: count as u32,
+                        source_offset: scripts.source_offset as u64,
+                    },
+                    bytes: scripts.bytes,
+                });
+            }
+            if let Some((rva, count)) = journal_layout(profile.id) {
+                let mission = inspection
+                    .files
+                    .iter()
+                    .find(|file| file.path == "MISSION.DAT")
+                    .ok_or("MISSION.DAT is missing; no cache written")?;
+                let mission = recorded_bytes(&root, mission)?;
+                let table = ffe_convert::embedded::decode_journal(&bytes, &mission, rva, count)?;
+                assets.push(Asset {
+                    id: "base:text/journal".to_owned(),
+                    path: "text/journal.bin".to_owned(),
+                    kind: AssetKind::Journal {
+                        articles: (count - 1) as u32,
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some(table_rva) = system_strings_layout(profile.id) {
+                let table = decode_system_strings(&bytes, table_rva)?;
+                assets.push(Asset {
+                    id: "base:text/system-strings".to_owned(),
+                    path: "text/system-strings.bin".to_owned(),
+                    kind: AssetKind::SystemStrings {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some((vectors_rva, sector_rva, drives_rva)) = galaxy_layout(profile.id) {
+                let table = decode_galaxy_tables(&bytes, vectors_rva, sector_rva, drives_rva)?;
+                assets.push(Asset {
+                    id: "base:world/galaxy-tables".to_owned(),
+                    path: "world/galaxy-tables.bin".to_owned(),
+                    kind: AssetKind::GalaxyTables {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some((tables_rva, names_rva)) = market_layout(profile.id) {
+                let table = decode_market_tables(&bytes, tables_rva, names_rva)?;
+                assets.push(Asset {
+                    id: "base:market/tables".to_owned(),
+                    path: "market/tables.bin".to_owned(),
+                    kind: AssetKind::MarketTables {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            if let Some(tables_rva) = system_layout(profile.id) {
+                let table = decode_system_tables(&bytes, tables_rva)?;
+                assets.push(Asset {
+                    id: "base:world/system-tables".to_owned(),
+                    path: "world/system-tables.bin".to_owned(),
+                    kind: AssetKind::SystemTables {
+                        source_offset: table.source_offset as u64,
+                    },
+                    bytes: table.bytes,
+                });
+            }
+            let font = decode_font(&bytes, font_rva)?;
+            assets.push(Asset {
+                id: "base:font/main".to_owned(),
+                path: "fonts/main.fnt".to_owned(),
+                kind: AssetKind::BitmapFont {
+                    first_code: 32,
+                    glyph_count: 116,
+                    rows: 9,
+                    source_offset: font.source_offset as u64,
+                },
+                bytes: font.bytes,
+            });
+            let decoded = decode_bitmaps(&bytes, layout)?;
+            assets.push(Asset {
+                id: "base:palette/low".to_owned(),
+                path: "palettes/low.rgb6".to_owned(),
+                kind: AssetKind::LowPaletteRgb6,
+                bytes: decoded.low_palette_rgb6,
+            });
+            for bitmap in decoded.bitmaps {
+                let name = format!("{}/{:03}", bitmap.table, bitmap.index);
+                let kind = if bitmap.height == 0 {
+                    AssetKind::TextureBlock {
+                        table: bitmap.table.to_owned(),
+                        index: bitmap.index,
+                        width: bitmap.width,
+                        source_offset: bitmap.source_offset as u64,
+                    }
+                } else {
+                    AssetKind::IndexedBitmap {
+                        table: bitmap.table.to_owned(),
+                        index: bitmap.index,
+                        width: bitmap.width,
+                        height: bitmap.height,
+                        offset_x: bitmap.offset_x,
+                        offset_y: bitmap.offset_y,
+                        masked_zero: bitmap.masked_zero,
+                        source_offset: bitmap.source_offset as u64,
+                    }
+                };
+                assets.push(Asset {
+                    id: format!("base:bitmap/{name}"),
+                    path: format!("bitmaps/{name}.idx"),
+                    kind,
+                    bytes: bitmap.indices,
+                });
+            }
+        } else if record.path.starts_with("CABIN") && record.path.ends_with(".BMP") {
+            let image = decode_indexed_bmp(&recorded_bytes(&root, record)?)?;
+            let name = record.path.trim_end_matches(".BMP").to_ascii_lowercase();
+            assets.push(Asset {
+                id: format!("base:cockpit/{name}"),
+                path: format!("cockpits/{name}.png"),
+                kind: AssetKind::CabinPng {
+                    width: image.width,
+                    height: image.height,
+                },
+                bytes: image.indexed_png()?,
+            });
+        } else if record.path.starts_with("MUSIC/") && record.path.ends_with(".HMP") {
+            let name = record
+                .path
+                .trim_start_matches("MUSIC/")
+                .trim_end_matches(".HMP");
+            let index = crate::SONGS
+                .iter()
+                .position(|song| *song == name)
+                .ok_or_else(|| format!("{}: song is not in the song table", record.path))?;
+            let lower = name.to_ascii_lowercase();
+            assets.push(Asset {
+                id: format!("base:music/{lower}"),
+                path: format!("music/{lower}.hmp"),
+                kind: AssetKind::MusicHmp {
+                    index: index as u32,
+                },
+                bytes: recorded_bytes(&root, record)?,
+            });
+        } else if record.path.starts_with("FX/") && record.path.ends_with(".RAW") {
+            let name = record
+                .path
+                .trim_start_matches("FX/")
+                .trim_end_matches(".RAW")
+                .to_ascii_lowercase();
+            assets.push(Asset {
+                id: format!("base:effect/{name}"),
+                path: format!("audio/fx/{name}.wav"),
+                kind: AssetKind::EffectWav,
+                bytes: pcm16_mono_22050_wav(&recorded_bytes(&root, record)?)?,
+            });
+        }
+    }
+    // Non-model assets: +2 v8 texture tables, +2 v9 lighting tables, one name
+    // table, the v15 system tables and three v14 glyph sets, plus vertices, commands and normals per
+    // imported model.
+    let tables = if texture_layout(profile.id).is_some() {
+        2
+    } else {
+        0
+    } + if lighting_layout(profile.id).is_some() {
+        2
+    } else {
+        0
+    } + usize::from(names_layout(profile.id).is_some())
+        + usize::from(system_layout(profile.id).is_some())
+        + usize::from(gameplay_layout(profile.id).is_some())
+        + usize::from(pad_layout(profile.id).is_some())
+        + if terrain_layout(profile.id).is_some() {
+            2
+        } else {
+            0
+        }
+        + usize::from(name_text_layout(profile.id).is_some())
+        + usize::from(market_layout(profile.id).is_some())
+        + usize::from(galaxy_layout(profile.id).is_some())
+        + usize::from(system_strings_layout(profile.id).is_some())
+        + usize::from(message_layout(profile.id).is_some())
+        + usize::from(journal_layout(profile.id).is_some())
+        + usize::from(scripts_layout(profile.id).is_some())
+        + usize::from(stories_layout(profile.id).is_some())
+        + usize::from(queries_layout(profile.id).is_some())
+        + usize::from(star_point_layout(profile.id).is_some())
+        + usize::from(dot_table_layout(profile.id).is_some())
+        + if intro_layout(profile.id).is_some() {
+            2
+        } else {
+            0
+        }
+        + 4;
+    // Plus the v10 model descriptor table, the v12 ship statistics table, the
+    // v16 model record table, and the v29 music assets (all 17 HMPs).
+    let music_songs = assets
+        .iter()
+        .filter(|asset| matches!(asset.kind, AssetKind::MusicHmp { .. }))
+        .count();
+    if music_songs != crate::SONGS.len() {
+        return Err(format!(
+            "expected all {} songs in the cache, found {music_songs}; no cache written",
+            crate::SONGS.len()
+        ));
+    }
+    // The v35 far-object dot tables: required for the byte-verified floppy 1.02, optional for
+    // the profiles that share its relative layout (they are left out if they do not validate).
+    let object_dots = assets
+        .iter()
+        .filter(|asset| matches!(asset.kind, AssetKind::ObjectDotTables { .. }))
+        .count();
+    if profile.id == "ffe-floppy-1.02-en" && object_dots != 1 {
+        return Err(
+            "the floppy 1.02 far-object dot tables did not validate; no cache written".to_owned(),
+        );
+    }
+    if geometry < 2
+        || assets.len() != 382 + tables + 2 * geometry + models + music_songs + object_dots
+    {
+        return Err(format!(
+            "unexpected imported asset count {} ({geometry} geometries, {models} command programs); no cache written",
+            assets.len()
+        ));
+    }
+    let manifest = Manifest {
+        format: "ffe-content-cache".to_owned(), format_version: 35,
+        tool_version: env!("CARGO_PKG_VERSION").to_owned(), source_profile: profile.id.to_owned(),
+        source_files: inspection.files.into_iter().map(|record| SourceFile {
+            path: record.path, size: record.size, sha256: record.sha256,
+        }).collect(),
+        complete_game_assets: false,
+        unresolved: vec![
+            format!("{geometry} of {} model collision geometries and {models} model command programs (those that decode), the two bitmap tables, main bitmap font, fixed low palette, external cabins and PCM effects are imported.", ffe_convert::model_extents::MODEL_COUNT),
+            "Upper 128 palette colours are runtime state; bitmap RGBA previews and upscale eligibility are not inferred.".to_owned(),
+            if tables == 0 {
+                "Texture descriptors and the 12-bit colour map are not imported: their RVAs are verified for floppy 1.02 only.".to_owned()
+            } else {
+                "Texture descriptors and the 12-bit fixed colour map are imported; textured faces are drawn only by the diagnostic F6 viewer.".to_owned()
+            },
+            if lighting_layout(profile.id).is_some() {
+                "The default light and shade table and the star shade tables are imported (v9).".to_owned()
+            } else {
+                "Lighting tables are not imported: their RVAs are verified for floppy 1.02 only.".to_owned()
+            },
+            "Station commands are structurally decoded, not fully executed; submodels, other fonts, gameplay tables, journal and optional CD media remain unconverted.".to_owned(),
+            "Not a playable game cache or installable graphics pack; patch-output layouts are unsupported.".to_owned(),
+        ],
+        files: Vec::new(),
+    };
+    ffe_content::build(manifest, assets)
+}
+
+/// [`build_bytes`] written to a new file at `output` (outside the game folder).
+pub fn build_data(root: &Path, output: &Path) -> Result<Manifest, String> {
+    let canonical = root
+        .canonicalize()
+        .map_err(|error| format!("{}: {error}", root.display()))?;
+    let destination = output_destination(&canonical, output)?;
+    let bytes = build_bytes(&canonical)?;
+    let verified = ffe_content::read(&bytes)?;
+    crate::media::export_media(
+        &canonical,
+        &destination
+            .parent()
+            .ok_or("cache output needs parent")?
+            .join("FMVs"),
+    )?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&destination)
+        .map_err(|error| format!("{}: cannot create cache: {error}", destination.display()))?;
+    file.write_all(&bytes)
+        .and_then(|()| file.sync_all())
+        .map_err(|error| {
+            format!(
+                "{}: cache write failed: {error}; output may be incomplete, choose a fresh path",
+                destination.display()
+            )
+        })?;
+    Ok(verified.into_manifest())
+}

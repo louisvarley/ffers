@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repo-hygiene:
+    name: Forbidden files and repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Fail if game data, legacy source, original art or frames are tracked
+        run: python ci/check_forbidden.py
+
+      - name: Test forbidden-file rules and local input exclusions
+        run: python -m unittest ci.test_check_forbidden
+
+      - name: Test the release version rules
+        run: python -m unittest ci.test_next_version
+
+      - name: Validate recomplauncher.json against its schema
+        run: |
+          python -m pip install --quiet jsonschema
+          curl -fsSL -o /tmp/recomplauncher.schema.json https://recomplauncher.com/schema/recomplauncher.json
+          python - <<'PY'
+          import json, jsonschema
+          schema = json.load(open('/tmp/recomplauncher.schema.json', encoding='utf-8'))
+          manifest = json.load(open('recomplauncher.json', encoding='utf-8'))
+          errors = list(jsonschema.Draft7Validator(schema).iter_errors(manifest))
+          for error in errors:
+              print(list(error.path), error.message)
+          raise SystemExit(1 if errors else 0)
+          PY
+
+      - name: Check the burndown dashboard and its summary pages agree
+        run: |
+          python ci/check_burndown.py
+          python -m unittest ci.test_check_burndown
+
+      - name: Check the third-party licence inventory
+        run: python tools/third-party.py --check
+
+      - name: Compile the local verification scripts
+        run: python -m compileall -q tools/reference ci
+
+  rust:
+    name: Rust (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Install Linux audio build dependencies
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev pkg-config
+
+      - name: Install stable Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Lint
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      - name: Test with synthetic inputs only
+        run: cargo test --workspace --locked
+
+      - name: Build tool and experimental playable binary
+        run: cargo build --release --locked -p ffe-tools -p ffe-rs -p ffe-launcher
+
+  # Later phases will add:
+  # - golden: deterministic traces on the base game only
+  # - docs: link/documentation checks
+  # - release: see release.yml (tag-triggered Windows, Linux and macOS packages, no game data)

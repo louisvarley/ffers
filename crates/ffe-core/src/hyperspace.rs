@@ -1,0 +1,215 @@
+//! The hyperdrive's range, fuel and jump time (F899-F903), ported from `ffe.asm`.
+//!
+//! A drive of class `c` has a power (`sector::Drive`); a ship of mass `m` reaches `power / m`
+//! in the distance units of `sector::distance`. A jump of distance `d` needs
+//! `d * m / 0x7531 + 1` tonnes of fuel, less the drive's modifier, and takes
+//! `((d << 16) - 1) / range * 7` time units. The player's fuel is hydrogen in the hold
+//! (military drives, class 10 and up, burn military fuel and leave radioactive waste).
+
+use crate::model::multiply;
+use crate::sector::Drive;
+
+/// Hydrogen fuel's place in the cargo array (`DATA_008901`), military fuel's and the
+/// radioactive waste's (`DATA_008902`, `DATA_008903`).
+pub const HYDROGEN: usize = 19;
+pub const MILITARY_FUEL: usize = 20;
+pub const RADIOACTIVES: usize = 29;
+/// Rubbish (`DATA_008904`): where a destroyed or degraded drive goes (F946, F911).
+pub const RUBBISH: usize = 30;
+
+/// `DATA_007210`, the hyperdrive masses by class (tonnes): what F947 (drive
+/// destroyed), F948 (degraded to class 1, less class 1's 4 t) and F934 (failed
+/// for lack of servicing) put back into the hold as Rubbish through F946.
+pub const DRIVE_MASSES: [u32; 15] = [0, 4, 10, 25, 45, 80, 150, 250, 400, 600, 6, 12, 24, 36, 0];
+
+/// The masses of `DATA_007188`'s 16-byte drive records by class (`+0`): what
+/// F911 (a mis-jump that destroys the drive) reads instead. Classes 2..4 differ
+/// from [`DRIVE_MASSES`] (6, 12 and 24 t against 10, 25 and 45 t).
+pub const DRIVE_RECORD_MASSES: [u32; 15] =
+    [0, 4, 6, 12, 24, 80, 150, 250, 400, 600, 6, 12, 24, 36, 0];
+
+/// The first class that burns military fuel.
+pub const MILITARY_CLASS: i32 = 10;
+
+/// What F903 reports. The outputs the original leaves untouched are `None`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Report {
+    /// The return value: the distance, or -1 when the jump is not possible.
+    pub result: i32,
+    /// The drive's name code (`*drvname`).
+    pub name: u32,
+    /// The ship's mass first, then the fuel the jump needs (`*fuelneeded`; -1 when the
+    /// distance is out of range or zero).
+    pub fuel_needed: i32,
+    /// `*maxrangecur`: the fuel on board, then (when the jump can be made) the range it gives.
+    pub range_now: i32,
+    /// `*jumptime`.
+    pub jump_time: Option<i32>,
+    /// `*maxrange`: the drive's range for this ship.
+    pub max_range: i32,
+    /// The player's "hyperspace possible" flag after the call (`None`: unchanged).
+    pub flag: Option<bool>,
+    /// Fuel tonnes taken from the ship (a jump, not a test).
+    pub consumed: i32,
+}
+
+/// F903 for a ship of `mass` (the statistics' word at `+6`, signed) and drive `class`, with
+/// `available` tonnes of its fuel. `distance` of zero reports the drive alone (F900). `jump`
+/// removes the fuel (F901). `is_player` selects the flag the original keeps for the player.
+pub fn plan(
+    drives: &[Drive],
+    mass: i32,
+    class: i32,
+    distance: i32,
+    available: i32,
+    jump: bool,
+    is_player: bool,
+) -> Result<Report, String> {
+    let drive = usize::try_from(class)
+        .ok()
+        .and_then(|c| drives.get(c))
+        .ok_or("no such hyperdrive class")?;
+    if mass == 0 {
+        return Err("a ship with no mass".to_owned());
+    }
+    let max_range = drive.power.wrapping_div(mass);
+    let flag_off = (is_player && distance != 0).then_some(false);
+    if max_range < distance || distance == 0 {
+        return Ok(Report {
+            result: -1,
+            name: drive.name,
+            fuel_needed: -1,
+            range_now: 0,
+            jump_time: None,
+            max_range,
+            flag: flag_off,
+            consumed: 0,
+        });
+    }
+    let modifier = drive.fuel_modifier.wrapping_shl(15);
+    let mut fuel = distance
+        .wrapping_mul(mass)
+        .wrapping_div(0x7531)
+        .wrapping_add(1);
+    fuel = fuel.wrapping_sub(multiply(fuel, modifier));
+    if fuel < 1 {
+        fuel = 1;
+    }
+    let time = ((((distance as u32) << 16).wrapping_sub(1)) / (max_range as u32)).wrapping_mul(7);
+    if fuel > available {
+        return Ok(Report {
+            result: -1,
+            name: drive.name,
+            fuel_needed: fuel,
+            range_now: 0,
+            jump_time: Some(time as i32),
+            max_range,
+            flag: is_player.then_some(false),
+            consumed: 0,
+        });
+    }
+    let mut left = available;
+    let mut consumed = 0;
+    let mut flag = is_player.then_some(true);
+    if jump {
+        left -= fuel;
+        consumed = fuel;
+        if is_player {
+            flag = Some(false);
+        }
+    }
+    let mut effective = mass.wrapping_sub(multiply(mass, modifier));
+    if effective < 1 {
+        effective = 1;
+    }
+    let mut range_now = (0x7531 / effective).wrapping_mul(left);
+    if max_range < range_now {
+        range_now = max_range;
+    }
+    Ok(Report {
+        result: distance,
+        name: drive.name,
+        fuel_needed: fuel,
+        range_now,
+        jump_time: Some(time as i32),
+        max_range,
+        flag,
+        consumed,
+    })
+}
+
+/// F901's mode-2 branch for an AI ship (F776): the jump's maximum range
+/// (`+0xf6`), its jump time (`+0xfa`) and the fuel left (`+0x119`). `None` when
+/// the drive cannot make `distance` or the ship has too little fuel, which is
+/// F776's `eax < 0` case.
+pub fn ai_jump(
+    drives: &[Drive],
+    mass: i32,
+    class: u8,
+    distance: i32,
+    fuel: u8,
+) -> Option<(u16, u32, u8)> {
+    let report = plan(
+        drives,
+        mass,
+        i32::from(class as i8),
+        distance,
+        i32::from(fuel),
+        true,
+        false,
+    )
+    .ok()?;
+    if report.result < 0 {
+        return None;
+    }
+    Some((
+        report.max_range as u16,
+        report.jump_time.unwrap_or(0) as u32,
+        fuel.wrapping_sub(report.consumed as u8),
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn drives() -> Vec<Drive> {
+        let mut drives = vec![
+            Drive {
+                power: 0,
+                fuel_modifier: 0,
+                mass: 0,
+                name: 0,
+            };
+            2
+        ];
+        drives[1] = Drive {
+            power: 30_000,
+            fuel_modifier: 0,
+            mass: 4,
+            name: 7,
+        };
+        drives
+    }
+
+    #[test]
+    fn f901_reports_the_ai_jumps_range_time_and_fuel_left() {
+        // Class 1, mass 6: 30,000 / 6 = 5,000 range. A distance of 802 needs
+        // 802 * 6 / 0x7531 + 1 = one tonne and takes
+        // ((802 << 16) - 1) / 5,000 * 7 tics.
+        let (max_range, jump_time, left) = ai_jump(&drives(), 6, 1, 802, 5).unwrap();
+        assert_eq!(max_range, 5_000);
+        assert_eq!(jump_time, (((802u32 << 16) - 1) / 5_000) * 7);
+        assert_eq!(left, 4);
+    }
+
+    #[test]
+    fn f901_refuses_an_unreachable_or_unfuelled_jump() {
+        // Beyond the drive's range.
+        assert_eq!(ai_jump(&drives(), 6, 1, 5_001, 5), None);
+        // A destination the fuel cannot pay for.
+        assert_eq!(ai_jump(&drives(), 6, 1, 802, 0), None);
+        // No hyperdrive fitted.
+        assert_eq!(ai_jump(&drives(), 6, 0, 1, 5), None);
+    }
+}

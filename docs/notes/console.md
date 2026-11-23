@@ -1,0 +1,94 @@
+# The console's buttons (DATA_005100, DATA_007684)
+
+Ported in `crates/ffe-rs/src/console.rs`, `crates/ffe-rs/src/console_table.rs`
+and `screen.rs`. The `hud` branch (2026-10-25) imports all 82 records
+byte-exactly with `tools/gen-console-table.py` and implements `F261`'s draw
+order, `F262`'s image/radio reset, `F263/264`'s visibility, `F991`'s view row,
+`F1116`'s lamps and `F1120`'s engines-off equipment page. `tests/console_table.rs`
+checks the data and state machine.
+
+## Buttons
+
+`DATA_005100` holds 82 `ConButton` records of 0x3e bytes: x, y, ten bitmap ids,
+visible, current image, an unused word and a radio group (setting one of a group
+to a non-zero image resets the others to 0). Bitmap ids from 96 are the secondary
+table. The console draws each visible button with `bmpindex[current image]` in
+index order (`FUNC_000261`). The flight console shows:
+
+| Buttons | Where | What |
+|---|---|---|
+| 0x0b-0x0e | 107,164 / 91,165 / 70,166 / 60,172 | the screen buttons F4 (phone), F3 (map), F2 (clipboard), F1 (eye); F1 starts lit |
+| 0x25 / 0x26-0x2b | 40,192 (0x25 and 0x26) / 41,187 / 43,180 / 44,173 / 45,165 / 48,158 | the **time acceleration meter**: the pause mark (0x26), five steps (0x27-0x2b) and, at the pause mark's own spot, the system menu's red block (0x25); grey with a red lit twin, one lit at a time |
+| 0x15-0x19 | 198,165 .. 125,163 | the view buttons (front, rear, turret, external, missile, combat), see `views.md` |
+| 0x0f-0x11 | 296,178 / 274,178 / 261,177 | the right-hand buttons: hyperspace (0x99/0xa8), text labels (0x9a/0xa9) and navigation computer (0x9b/0xaa); see `labels.md` |
+| 0x37-0x39 | 52,185 / 71,189 / 87,188 | the three ship lamps; 0x37 is F753's combat-mode lamp (image 1 while a hostile attacks, F151 clears it), 0x38/0x46 images follow `player+0xe9` bit 1, 0x39 lights with `e8 == 2` |
+| 0x45-0x49 | 17,174 / 3,170 / 5,175 / 0,186 / 24,158 | `F1116`'s status lamps, derived from the equipment bytes |
+| 0x3a-0x51 | 0,157 .. 17,179 | `F1120`'s engines-off/equipment page: 60x45 ship diagram, ten 10-image equipment icons, system lamps |
+
+The meter is not a throttle. `FUNC_000208` turns a click (actions 0xc1-0xc5) or a
+key (6, 7, 8, 9 and 0, the latter remapped from `0x30` to `0x3a`) into the frame
+time scale `DATA_009012` per 20 ms: 0x3e2 (1x), 0x26d6 (10x), 0x1845c (100x),
+0xf2b98 (1000x), 0x97b3f0 (10000x), lighting button 0x27 + step. The world time
+the game steps by (`DATA_009155`, `DATA_008868`) is scaled by it; the key time
+(`DATA_009122`) is a real-time accumulator, so steering stays responsive. The
+original also subtracts 0xc22e from `DATA_008808` on a step above 1x (not yet
+understood, not ported).
+
+### Stopping time (`F220`, `F224`)
+
+`F1439` (`ffe.asm:86154-86178`) shows records 0x26-0x2b on every flight/pad page;
+it does **not** show 0x25. Record 0x26's images are `243`/`252` — a grey and a red
+pair whose glyph is the two pause bars divided by a grey column — and 0x25's are
+`253`/`253`, a solid red block at the same 40,192 spot.
+
+`F220` stops time, calls `F207`, and sets 0x25 to image 1; that image is
+identical to 0x25's image 0, so its visual effect is radio-group 3's reset: the
+acceleration step 0x27-0x2b goes out. `F224` then finishes the page:
+
+| `F224` branch | Condition | Records |
+|---|---|---|
+| 1 (`18321-18332`) | time running, Escape | hide 0x25, show 0x26, image 1 → the red pause bars |
+| 2 (`18333-18348`) | time stopped, module-3 escape | same as 1: hide 0x25, show 0x26, image 1 |
+| 3 (`18357-18366`) | time stopped, Escape opens the system menu | hide 0x26, show 0x25, image 1 → the red block |
+
+So **pause lights 0x26 and leaves 0x25 hidden**; 0x25 is the system menu's own
+mark, not the pause mark. Resuming goes through `F217`/`F227`
+(`ffe.asm:18038-18070`, `18474-18492`), which light 0x27 + step and reset the
+radio group. The port's `ConsoleState::lit_step()` reproduces this: 0 while
+`paused`, else 1 + the acceleration step; the port's preference pages are drawn
+over the screen, so its 0x25 equivalent is not a console record.
+
+There is no speed or engine button in this build, and no key sets the engines-off
+bit: it is only set by combat mode. The set speed is keyboard only.
+
+## Hot areas
+
+`DATA_007684` is a list of `(x0, y0, x1, y1, action)` dwords. The mouse poll
+scans the whole list and the **last** area containing the point wins, with all
+four edges inclusive; a click in the 3D view (y < 158) is action 0xff. The list:
+the meter (0x07 pause mark, 0xc1-0xc5 steps), 0xf1-0xfc for F1-F12 along the
+console, then 0x6e (`n` navigation computer), 0x6c (`l` text labels), 0x48 (`H`
+hyperspace) and 0x74 (`t` target). F1 and F2 overlap at x 74-79, where F2 wins.
+
+## In ffe-rs
+
+- The meter and the four screen buttons are drawn from the cache's bitmaps.
+- Clicking a step, or keys 6 7 8 9 0, sets the time acceleration; it applies to
+  the original flight model (key O) and is remembered for when it starts. The
+  bottom mark pauses (and resumes), as P does.
+- The right-hand icons are drawn: the labels button (lit while `l` is on), the
+  navigation computer (lit while its list is open) and hyperspace. The
+  navigation list, the labels toggle, hyperspace and target are ported; see
+  `labels.md`.
+- F2 opens the status page in flight, on a pad **and docked in a station** (the
+  executed original does: start key `0x04`, Lave, F2 = scancode `0x3c` shows the
+  Ship Equipment Status page over the cabin backdrop with the flight console; F1
+  leaves it, F4 returns to the services board, and the port ignores F2 while a
+  docking or launch sequence runs). F3 the map and F4 the services board from a
+  docked or pad state (`F343`); the map is still flight-only in the port; F5, the missile and combat views and the escape capsule
+  answer with "not ported yet".
+- A readout under the title shows speed, the set speed (original model) and the
+  time scale; it is ffe-rs's, not the original's.
+- The F991 equipment icons and the F1120 lamps read the real fitted loadout
+  (`ffe_core::equipment`; see `equipment.md`), not defaults. The ten F1120 icons
+  are the missile pylons: F998's new game carries two `0x82` missiles.
