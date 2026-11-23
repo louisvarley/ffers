@@ -32,7 +32,7 @@ const SIDEBAR_RADIUS: f32 = 18.0;
 const ITEM_RADIUS: f32 = 12.0;
 
 /// The project's home on GitHub.
-const GITHUB_URL: &str = "https://github.com/louisvarley/ffe-rs-classic";
+const GITHUB_URL: &str = "https://github.com/louisvarley/ffers";
 
 /// The game's console output from the last launch.
 const GAME_LOG: &str = "last-run.log";

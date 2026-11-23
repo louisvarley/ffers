@@ -23,7 +23,7 @@ use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 /// The GitHub repository releases are read from.
-pub const REPO: &str = "louisvarley/ffe-rs-classic";
+pub const REPO: &str = "louisvarley/ffers";
 
 /// The release asset to install: the Windows x64 package `tools/package.ps1` writes,
 /// `ffers-<tag>-Windows-x64.zip`. The release also carries the same package under another

@@ -2,7 +2,7 @@
   "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
   "format": 1,
   "name": "Frontier: First Encounters (ffe-rs)",
-  "repo": "louisvarley/ffe-rs-classic",
+  "repo": "louisvarley/ffers",
   "inputs": [
     {
       "id": "game",

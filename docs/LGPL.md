@@ -22,7 +22,7 @@ possible, the complete source of the program is public, and the program is built
 from pinned sources. To relink with your own copy:
 
 1. Get the source of the release you have: the tag on
-   <https://github.com/louisvarley/ffe-rs-classic> that matches the version in the file name
+   <https://github.com/louisvarley/ffers> that matches the version in the file name
    (for example `v0.9.0`). Its `Cargo.lock` pins every dependency, the three crates included.
 2. Get the crates' source: `cargo vendor` fetches it, or take it from
    <https://crates.io/crates/oxisynth> (and `oxisynth-chorus`, `oxisynth-reverb`), and make your
