@@ -77,8 +77,8 @@ fn executed_reference_base_transforms() {
             base_handedness: HANDS[hand],
             ..Default::default()
         };
-        for i in 0..8 {
-            context.locals[i] = (i as u32 * 0x0101_0101) as i32;
+        for (i, local) in context.locals.iter_mut().enumerate().take(8) {
+            *local = (i as u32 * 0x0101_0101) as i32;
         }
         context.globals = std::array::from_fn(|i| (i * 257 + 19) as u16);
         table
