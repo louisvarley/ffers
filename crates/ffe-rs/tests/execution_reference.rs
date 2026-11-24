@@ -89,8 +89,8 @@ fn executed_reference_composed_command_programs() {
             basis: IDENTITY,
             ..Default::default()
         };
-        for n in 0..8 {
-            context.locals[n] = (n * 257 + 7) as i32;
+        for (n, local) in context.locals.iter_mut().enumerate().take(8) {
+            *local = (n * 257 + 7) as i32;
         }
         context.locals[8] = v.count;
         context.locals[9] = v.angle;
