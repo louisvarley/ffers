@@ -1090,7 +1090,7 @@ dependencies = [
 
 [[package]]
 name = "ffe-launcher"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "eframe",
  "ffe-audio",
@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "ffe-rs"
-version = "0.9.5"
+version = "0.9.6"
 dependencies = [
  "bytemuck",
  "epaint_default_fonts",
