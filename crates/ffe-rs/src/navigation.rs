@@ -1801,10 +1801,12 @@ impl Transit {
         }
         let elapsed_game = (self.total - self.remaining).clamp(0.0, self.total);
         let stretch = self.stretch.max(1.0);
-        // Real seconds so far and in all, and how long a share lasts at the original's pace.
+        // Real seconds so far and in all. The tunnel's own pace is fixed: a whole tunnel of
+        // 145 shares takes at most `TUNNEL_SECONDS`, however long the jump (a route's legs
+        // add up to a long one), and a jump shorter than that plays it as the original does.
         let elapsed = elapsed_game / HYPERSPACE_RATE * stretch;
         let whole = natural * stretch;
-        let per_share = natural / 145.0;
+        let per_share = whole.min(TUNNEL_SECONDS) / 145.0;
         let (intro, cycle, outro) = (70.0 * per_share, 40.0 * per_share, 35.0 * per_share);
         let share = if elapsed < intro {
             elapsed / per_share
@@ -1816,6 +1818,10 @@ impl Transit {
         share.clamp(0.0, 145.0)
     }
 }
+
+/// The longest the tunnel's 145 shares take to play once through at their own pace; a transit
+/// that runs longer repeats the swirl (see [`Transit::animation`]) instead of slowing down.
+pub const TUNNEL_SECONDS: f64 = 3.0;
 
 /// The clock rate in transit: F908's `0xf880000` against 1x's `0x3e2`.
 pub const HYPERSPACE_RATE: f64 = 262_144.0;

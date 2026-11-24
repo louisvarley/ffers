@@ -1234,19 +1234,19 @@ mod tests {
             );
         }
         // Stretched to 8 s: it starts at 0, ends at the end of the tunnel, and moves at the
-        // original's speed (145 shares in `natural` seconds) all the way, apart from the
+        // tunnel's own speed (145 shares in `TUNNEL_SECONDS`) all the way, apart from the
         // wrap where the swirl repeats.
         let (stretch, whole) = (4.0, 8.0);
         assert!(at(stretch, 0.0) < 1.0e-6);
         assert!(at(stretch, whole - 1.0e-6) > 144.9);
-        let rate = 145.0 / natural;
+        let rate = 145.0 / crate::navigation::TUNNEL_SECONDS;
         let step = 0.01;
         let mut wraps = 0;
         let mut real = 0.0;
         while real + step < whole {
             let delta = at(stretch, real + step) - at(stretch, real);
             // The swirl hands over to the closing frames at one step, wherever its cycle is.
-            let outro_start = whole - 35.0 / 145.0 * natural;
+            let outro_start = whole - 35.0 / 145.0 * crate::navigation::TUNNEL_SECONDS;
             if real < outro_start && real + step >= outro_start {
                 real += step;
                 continue;
@@ -1264,6 +1264,21 @@ mod tests {
         }
         // 8 s is 2 s of opening and closing plus 1.7 s... of swirl cycles: more than one.
         assert!(wraps >= 2, "{wraps} repeats of the swirl");
+        // A route's legs add up to a long jump (here 12 s of game time at the transit rate):
+        // it must not play slowly, but at the same speed as a short one, repeating the swirl.
+        let long = |real: f64| {
+            let total = 12.0 * HYPERSPACE_RATE;
+            Transit {
+                total,
+                remaining: total - real * HYPERSPACE_RATE,
+                stretch: 1.0,
+            }
+            .share()
+        };
+        let speed = 145.0 / crate::navigation::TUNNEL_SECONDS;
+        assert!((long(0.5) - long(0.4) - 0.1 * speed).abs() < 1.0e-6);
+        assert!(long(11.999) > 144.0 && long(0.0) < 1.0e-6);
+        assert!((70.0..110.0).contains(&long(6.0)));
         // The animation word is the share, as before.
         let total = natural * HYPERSPACE_RATE;
         let word = Transit {
