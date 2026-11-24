@@ -5,7 +5,9 @@
 //!
 //! Docs: `docs/notes/galaxy-map.md` and `docs/notes/enhancements.md`.
 
+use crate::course;
 use crate::galaxy_map::{sector_code, Selected};
+use crate::navigation::{RouteCheck, RouteProblem};
 use ffe_core::sector::{self, Tables as SectorTables};
 
 /// Pixels per 16.16 unit at the opening zoom: one sector (0x1_0000) is 128
@@ -44,6 +46,9 @@ pub struct Plot {
 pub struct Waypoint {
     pub code: u32,
     pub position: [i32; 3],
+    /// A stop the course plotter put in to reach the star clicked after it, rather than a
+    /// star the player clicked.
+    pub auto: bool,
 }
 
 /// The enhanced map's state: the pan centre, zoom, the selection and the route.
@@ -54,6 +59,11 @@ pub struct EnhancedMap {
     pub zoom: f64,
     /// The player's current system (16.16), for recentre and route legs.
     pub home: [i32; 3],
+    /// Its system code (`u32::MAX` until the game says), for plotting a course from it.
+    pub home_code: u32,
+    /// The stars of the sectors already generated: (code, 16.16 position, type word).
+    #[allow(clippy::type_complexity)]
+    stars: std::cell::RefCell<std::collections::HashMap<(u16, u16), Vec<(u32, [i32; 3], u16)>>>,
     /// The drive's range in its units (`DATA_008907`).
     pub reach: i32,
     pub selected: Option<Selected>,
@@ -69,6 +79,8 @@ impl EnhancedMap {
             centre: [home[0], home[1]],
             zoom: DEFAULT_ZOOM,
             home,
+            home_code: u32::MAX,
+            stars: std::cell::RefCell::default(),
             reach,
             selected: None,
             route: Vec::new(),
@@ -160,36 +172,49 @@ impl EnhancedMap {
         (x, y, size)
     }
 
-    /// Every star of the nine sectors around the centre, projected.
+    /// Every star on the view, projected: those of every sector the view covers (the stars
+    /// of a sector are generated once and kept).
     pub fn plots(&self, tables: &SectorTables) -> Vec<Plot> {
+        let half_width = (VIEW_CX / self.zoom) as i32 + 0x1_0000;
+        let half_height = (VIEW_CY / self.zoom) as i32 + 0x1_0000;
+        let sectors = |centre: i32, half: i32| {
+            let low = centre.wrapping_sub(half) >> 16;
+            let high = centre.wrapping_add(half) >> 16;
+            // The view never covers more than the zoom limits allow; keep a bad value from
+            // looping for ever.
+            low..=high.min(low + 80)
+        };
+        let mut cache = self.stars.borrow_mut();
         let mut out = Vec::new();
-        for (along, across) in [
-            (0, 0),
-            (1, 0),
-            (1, 1),
-            (0, 1),
-            (-1, 1),
-            (-1, 0),
-            (-1, -1),
-            (0, -1),
-            (1, -1),
-        ] {
-            let (x, y) = (
-                (self.centre[0].wrapping_add(along << 16) >> 16) as u16,
-                (self.centre[1].wrapping_add(across << 16) >> 16) as u16,
-            );
-            for (index, star) in tables.stars(x, y).iter().enumerate() {
-                let position = sector::position(x, y, &star.vector);
-                let (px, py, size) = self.project(position);
-                if (0..VIEW_W).contains(&px) && (0..VIEW_H).contains(&py) {
-                    out.push(Plot {
-                        code: sector_code(x, y) | (index as u32) << 26,
-                        position,
-                        x: px,
-                        y: py,
-                        size,
-                        kind: star.kind,
-                    });
+        for x in sectors(self.centre[0], half_width) {
+            for y in sectors(self.centre[1], half_height) {
+                let key = (x as u16, y as u16);
+                let stars = cache.entry(key).or_insert_with(|| {
+                    tables
+                        .stars(key.0, key.1)
+                        .iter()
+                        .enumerate()
+                        .map(|(index, star)| {
+                            (
+                                sector_code(key.0, key.1) | (index as u32) << 26,
+                                sector::position(key.0, key.1, &star.vector),
+                                star.kind,
+                            )
+                        })
+                        .collect()
+                });
+                for (code, position, kind) in stars.iter() {
+                    let (px, py, size) = self.project(*position);
+                    if (0..VIEW_W).contains(&px) && (0..VIEW_H).contains(&py) {
+                        out.push(Plot {
+                            code: *code,
+                            position: *position,
+                            x: px,
+                            y: py,
+                            size,
+                            kind: *kind,
+                        });
+                    }
                 }
             }
         }
@@ -225,16 +250,7 @@ impl EnhancedMap {
         if sector::distance(self.home, selected.position) == 0 {
             return None;
         }
-        let report = report?;
-        Some(if report.result < 0 {
-            if report.fuel_needed < 0 {
-                "Out of Range".to_owned()
-            } else {
-                format!("Insufficient Fuel ({}t required)", report.fuel_needed)
-            }
-        } else {
-            format!("Fuel Required: {}t", report.fuel_needed)
-        })
+        report.map(fuel_line)
     }
 
     /// The distance of each route leg from the previous point, the player's
@@ -254,7 +270,11 @@ impl EnhancedMap {
     /// Add a waypoint; a star already at the end of the route is not re-added.
     pub fn add_waypoint(&mut self, code: u32, position: [i32; 3]) {
         if self.route.last().is_none_or(|last| last.code != code) {
-            self.route.push(Waypoint { code, position });
+            self.route.push(Waypoint {
+                code,
+                position,
+                auto: false,
+            });
         }
     }
 
@@ -276,19 +296,129 @@ impl EnhancedMap {
         self.route.clear();
     }
 
+    /// The stops of the route that go together with the one at `index`: the star the
+    /// player clicked and the stops the plotter put in on the way to it.
+    fn group(&self, index: usize) -> std::ops::Range<usize> {
+        let mut start = index;
+        while start > 0 && self.route[start - 1].auto {
+            start -= 1;
+        }
+        let mut end = index;
+        while self.route[end].auto && end + 1 < self.route.len() {
+            end += 1;
+        }
+        // A plotted star the player clicked after the stops it needed is the group's last.
+        start..end + 1
+    }
+
+    /// Pan and zoom so the player's system and every stop of the route are in view, in the
+    /// part of the view the legend and the notes leave clear. The selection is not moved.
+    pub fn fit_route(&mut self) {
+        if self.route.is_empty() {
+            return;
+        }
+        let points = std::iter::once(self.home).chain(self.route.iter().map(|w| w.position));
+        let (mut min_x, mut max_x, mut min_y, mut max_y) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+        for point in points {
+            min_x = min_x.min(point[0]);
+            max_x = max_x.max(point[0]);
+            min_y = min_y.min(point[1]);
+            max_y = max_y.max(point[1]);
+        }
+        let (width, height) = (
+            f64::from(max_x.wrapping_sub(min_x)).max(1.0),
+            f64::from(max_y.wrapping_sub(min_y)).max(1.0),
+        );
+        // The clear area: x 20..300, y 34..108.
+        let zoom = (280.0 / width).min(74.0 / height);
+        self.zoom = zoom.clamp(MIN_ZOOM, DEFAULT_ZOOM);
+        // The clear area's middle is a little above the view's, so the centre sits below the
+        // route's by that much.
+        self.centre = [
+            min_x.wrapping_add(max_x.wrapping_sub(min_x) / 2),
+            min_y
+                .wrapping_add(max_y.wrapping_sub(min_y) / 2)
+                .wrapping_sub((8.0 / self.zoom) as i32),
+        ];
+    }
+
+    /// Take the star `code` off the route, with the stops that were plotted to reach it
+    /// (the other stars of the route are untouched). Returns how many stops went.
+    pub fn remove_star(&mut self, code: u32) -> usize {
+        let Some(index) = self.route.iter().position(|waypoint| waypoint.code == code) else {
+            return 0;
+        };
+        let group = self.group(index);
+        let removed = group.len();
+        self.route.drain(group);
+        removed
+    }
+
+    /// Where the route has got to: its last stop, or the player's system.
+    pub fn route_end(&self) -> (u32, [i32; 3]) {
+        self.route
+            .last()
+            .map_or((self.home_code, self.home), |last| {
+                (last.code, last.position)
+            })
+    }
+
     /// A click on a star: add it to the route, or take it off again when it is
-    /// already on it (only that star; the legs re-plan through the rest). The
-    /// player's own system is not a destination.
+    /// already on it. The player's own system is not a destination.
     pub fn toggle_waypoint(&mut self, code: u32, position: [i32; 3]) -> Toggled {
         if sector::distance(self.home, position) == 0 {
             return Toggled::Ignored;
         }
-        if let Some(index) = self.route.iter().position(|waypoint| waypoint.code == code) {
-            self.route.remove(index);
+        if self.remove_star(code) > 0 {
             Toggled::Removed
         } else {
-            self.route.push(Waypoint { code, position });
+            self.route.push(Waypoint {
+                code,
+                position,
+                auto: false,
+            });
             Toggled::Added
+        }
+    }
+
+    /// A click on a star, with a course plotted when it is beyond one jump of where the
+    /// route has got to: a star in range is added as it is; a star farther away is
+    /// reached by the stops [`course::plot_in_galaxy`] finds, which are marked `auto`
+    /// so a second click on the star takes them all off again.
+    pub fn click_star(&mut self, star: course::Stop, plan: &PlanContext<'_>) -> Clicked {
+        if sector::distance(self.home, star.position) == 0 {
+            return Clicked::Ignored;
+        }
+        let removed = self.remove_star(star.code);
+        if removed > 0 {
+            return Clicked::Removed(removed);
+        }
+        let (from_code, from_position) = self.route_end();
+        let from = course::Stop {
+            code: from_code,
+            position: from_position,
+        };
+        if self.reach <= 0 || sector::distance(from_position, star.position) <= self.reach {
+            self.route.push(Waypoint {
+                code: star.code,
+                position: star.position,
+                auto: false,
+            });
+            return Clicked::Added;
+        }
+        match course::plot_in_galaxy(plan.sectors, plan.systems, from, star, self.reach) {
+            Ok(stops) => {
+                let last = stops.len() - 1;
+                for (index, stop) in stops.iter().enumerate() {
+                    self.route.push(Waypoint {
+                        code: stop.code,
+                        position: stop.position,
+                        auto: index != last,
+                    });
+                }
+                Clicked::Plotted(stops)
+            }
+            Err(error) => Clicked::NoCourse(error),
         }
     }
 
@@ -304,6 +434,72 @@ impl EnhancedMap {
             tip,
             on_view,
             distance: sector::distance(self.home, centre),
+        }
+    }
+}
+
+/// Why a course cannot be flown, in a line: a fuel shortage says what the whole course
+/// needs against the hold (`total` tonnes, `have` in the hold), not just the leg it ran
+/// out at; a range problem names the leg and both distances.
+pub fn course_problem(problem: &RouteProblem, total: i32, have: i32) -> String {
+    match problem {
+        RouteProblem::Fuel { .. } => {
+            format!("Cannot fly this course yet: it needs {total} t of fuel, the hold has {have} t")
+        }
+        other => format!("Cannot fly this course: {other}"),
+    }
+}
+
+/// What the map needs to plot a course.
+pub struct PlanContext<'a> {
+    pub sectors: &'a SectorTables<'a>,
+    pub systems: Option<&'a ffe_core::galaxy::Tables<'a>>,
+}
+
+/// What [`EnhancedMap::click_star`] did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Clicked {
+    /// The star was one jump on and went into the route as it is.
+    Added,
+    /// The star (and the stops plotted to reach it) came off the route; how many stops.
+    Removed(usize),
+    /// A course was plotted through these stops, the star last.
+    Plotted(Vec<course::Stop>),
+    NoCourse(course::CourseError),
+    /// The player's own system.
+    Ignored,
+}
+
+impl Clicked {
+    /// The line the console says for the click on the star called `name`.
+    pub fn message(
+        &self,
+        name: &str,
+        route_len: usize,
+        name_of: &dyn Fn(u32) -> Option<String>,
+    ) -> String {
+        match self {
+            Self::Added => format!(
+                "{name} added: route of {route_len} jump(s). Click it again to remove it; H flies the route."
+            ),
+            Self::Removed(1) => format!("{name} removed: route of {route_len} jump(s)."),
+            Self::Removed(stops) => format!(
+                "{name} and the {} stop(s) plotted to it removed: route of {route_len} jump(s).",
+                stops - 1
+            ),
+            Self::Plotted(stops) => {
+                let via: Vec<String> = stops[..stops.len() - 1]
+                    .iter()
+                    .map(|stop| name_of(stop.code).unwrap_or_else(|| "?".to_owned()))
+                    .collect();
+                format!(
+                    "Course to {name}: {} jumps via {}. H flies it; click {name} again to clear it.",
+                    stops.len(),
+                    via.join(", ")
+                )
+            }
+            Self::NoCourse(error) => format!("{name}: {error}"),
+            Self::Ignored => format!("{name} is the system you are in."),
         }
     }
 }
@@ -325,6 +521,20 @@ pub struct Pointer {
     pub on_view: bool,
     /// The distance from the map's centre to the point, in the drive's units.
     pub distance: i32,
+}
+
+/// F828's fuel line from the hyperdrive's report for a jump: `Fuel Required: n t`,
+/// `Insufficient Fuel (n t required)` or `Out of Range`.
+pub fn fuel_line(report: &ffe_core::hyperspace::Report) -> String {
+    if report.result < 0 {
+        if report.fuel_needed < 0 {
+            "Out of Range".to_owned()
+        } else {
+            format!("Insufficient Fuel ({}t required)", report.fuel_needed)
+        }
+    } else {
+        format!("Fuel Required: {}t", report.fuel_needed)
+    }
 }
 
 /// The rectangle a pointer to an off-view point stops at: inside the view, below
@@ -421,6 +631,16 @@ impl Threat {
         }
     }
 
+    /// 0 (safe) to 3 (high), for ordering courses.
+    pub fn rank(self) -> u32 {
+        match self {
+            Self::Safe => 0,
+            Self::Low => 1,
+            Self::Moderate => 2,
+            Self::High => 3,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::Safe => "Safe",
@@ -466,6 +686,9 @@ pub fn system_marker(code: u32, tables: &ffe_core::galaxy::Tables) -> (u8, bool)
     (colour, true)
 }
 
+/// The navigator's route check, as the scene is given it.
+pub type RouteChecker<'a> = dyn Fn(&[(u32, [i32; 3])]) -> Result<RouteCheck, RouteProblem> + 'a;
+
 /// What [`scene`] needs from the game besides the map itself.
 pub struct SceneContext<'a> {
     pub sectors: &'a SectorTables<'a>,
@@ -476,20 +699,25 @@ pub struct SceneContext<'a> {
     pub string_of: &'a dyn Fn(u32) -> Option<Vec<u8>>,
     /// The hyperdrive's report for a distance (`Navigator::report_for`).
     pub report_for: &'a dyn Fn(i32) -> Option<ffe_core::hyperspace::Report>,
+    /// The navigator's check of a route from the player's system
+    /// (`Navigator::check_route`): the one place the range and the fuel are judged.
+    pub check_route: &'a RouteChecker<'a>,
     /// Tonnes of fuel in the hold.
     pub drive_fuel: i32,
     pub date: String,
     /// The mouse, in view coordinates, when it is over the screen.
     pub mouse: Option<(i32, i32)>,
-    /// The station/port note for a star the mouse is on (looked up lazily by the caller).
-    pub station_note: &'a mut dyn FnMut(&Plot) -> Option<String>,
 }
 
 /// The controls line along the top of the view.
 pub const HINT: &str = "Click star: route  H: jump  Arrows: pan  Hover: info";
 
+/// The hover line's colours for a populated and an unpopulated system.
+pub const POPULATED: u8 = 0x11;
+pub const UNPOPULATED: u8 = 0x10;
+
 /// Build everything the screen draws of the enhanced map for this frame.
-pub fn scene(map: &mut EnhancedMap, ctx: &mut SceneContext<'_>) -> crate::screen::EnhancedGalaxy {
+pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::EnhancedGalaxy {
     map.select(ctx.sectors);
     let plots = map.plots(ctx.sectors);
     let selected_plot = map.selected.as_ref().and_then(|selected| {
@@ -506,12 +734,19 @@ pub fn scene(map: &mut EnhancedMap, ctx: &mut SceneContext<'_>) -> crate::screen
             .systems
             .map_or((15u8, false), |tables| system_marker(plot.code, tables));
         dots.push((plot.x, plot.y, plot.size, colour));
-        if inhabited
+        // The stops of the route are numbered in the order they are flown.
+        let stop = map.route.iter().position(|w| w.code == plot.code);
+        if (inhabited && map.zoom >= DEFAULT_ZOOM / 2.0)
+            || stop.is_some()
             || selected_plot.is_some_and(|s| s.code == plot.code)
             || hovered_plot.is_some_and(|h| h.code == plot.code)
         {
             if let Some(name) = (ctx.name_of)(plot.code) {
-                labels.push((plot.x, plot.y, name));
+                labels.push((
+                    plot.x,
+                    plot.y,
+                    stop.map_or(name.clone(), |index| format!("{} {name}", index + 1)),
+                ));
             }
         }
     }
@@ -536,45 +771,65 @@ pub fn scene(map: &mut EnhancedMap, ctx: &mut SceneContext<'_>) -> crate::screen
     // Each leg: can the range and the fuel left fly it? Waypoints that leave the
     // player stranded (uninhabited, too little fuel for the next leg) get a warning.
     let legs = map.legs();
-    let mut leg_ok = Vec::with_capacity(legs.len());
+    let pairs: Vec<(u32, [i32; 3])> = map
+        .route
+        .iter()
+        .map(|waypoint| (waypoint.code, waypoint.position))
+        .collect();
+    let check = (ctx.check_route)(&pairs);
+    // Legs before the one that cannot be flown are fine; it and the rest are red.
+    let leg_ok: Vec<bool> = (0..legs.len())
+        .map(|index| match &check {
+            Ok(_) => true,
+            Err(problem) => problem.leg().is_none_or(|leg| index + 1 < leg),
+        })
+        .collect();
     let mut warnings = Vec::new();
-    let (mut used, mut total_fuel, mut all_ok) = (0, 0, true);
-    for (index, distance) in legs.iter().enumerate() {
-        let leg = (ctx.report_for)(*distance);
-        let leg_fuel = leg.as_ref().map_or(0, |report| report.fuel_needed.max(0));
-        let ok = leg
-            .as_ref()
-            .is_some_and(|report| report.result >= 0 && used + leg_fuel <= ctx.drive_fuel);
-        leg_ok.push(ok);
-        all_ok &= ok;
-        used += leg_fuel;
-        total_fuel += leg_fuel;
-        let next = legs.get(index + 1).map_or(1, |d| {
-            (ctx.report_for)(*d).map_or(0, |r| r.fuel_needed.max(0))
-        });
-        let inhabited = ctx
-            .systems
-            .is_some_and(|tables| tables.market(map.route[index].code).population != 0);
-        if !inhabited && ctx.drive_fuel - used < next {
-            if let Some(point) = route.get(index + 1) {
-                warnings.push(*point);
+    if let Ok(flown) = &check {
+        // Waypoints that would strand the player: uninhabited, with too little fuel left
+        // for the next leg.
+        let mut used = 0;
+        for (index, distance) in legs.iter().enumerate() {
+            used += (ctx.report_for)(*distance).map_or(0, |r| r.fuel_needed.max(0));
+            let next = legs.get(index + 1).map_or(1, |d| {
+                (ctx.report_for)(*d).map_or(0, |r| r.fuel_needed.max(0))
+            });
+            let inhabited = ctx
+                .systems
+                .is_some_and(|tables| tables.market(map.route[index].code).population != 0);
+            if !inhabited && flown.have - used < next {
+                if let Some(point) = route.get(index + 1) {
+                    warnings.push(*point);
+                }
             }
         }
     }
-    let route_summary = (!map.route.is_empty()).then(|| {
-        let total: i32 = legs.iter().sum();
-        let text = format!(
-            "Route: {} jump{}, {}.{:02} ly, {} t fuel{}",
-            legs.len(),
-            if legs.len() == 1 { "" } else { "s" },
-            total / 100,
-            total % 100,
-            total_fuel,
-            if all_ok { "" } else { " - cannot be flown" },
-        );
-        (text, if all_ok { 15 } else { THREAT_HIGH })
+    let route_summary = (!map.route.is_empty()).then(|| match &check {
+        Ok(flown) => {
+            let total: i32 = flown.legs.iter().sum();
+            (
+                format!(
+                    "Course OK: {} jump{}, {}.{:02} ly, {} of {} t fuel. H to jump",
+                    flown.legs.len(),
+                    if flown.legs.len() == 1 { "" } else { "s" },
+                    total / 100,
+                    total % 100,
+                    flown.fuel,
+                    flown.have,
+                ),
+                POPULATED,
+            )
+        }
+        Err(problem) => {
+            let total: i32 = legs
+                .iter()
+                .filter_map(|d| (ctx.report_for)(*d).map(|r| r.fuel_needed.max(0)))
+                .sum();
+            (course_problem(problem, total, ctx.drive_fuel), THREAT_HIGH)
+        }
     });
-    let hover = hovered_plot.map_or_else(Vec::new, |plot| hover_lines(&plot, ctx));
+    let hover =
+        hovered_plot.map_or_else(Vec::new, |plot| hover_lines(&plot, map.route_end().1, ctx));
     let legend: Vec<(u8, &'static str)> = vec![
         (FEDERATION, "Federation"),
         (EMPIRE, "Empire"),
@@ -604,37 +859,51 @@ pub fn scene(map: &mut EnhancedMap, ctx: &mut SceneContext<'_>) -> crate::screen
     }
 }
 
-/// What hovering a star says: its name and whether anyone lives there, how
-/// dangerous it is to arrive in, and whether it has a station or port.
-fn hover_lines(plot: &Plot, ctx: &mut SceneContext<'_>) -> Vec<(String, u8)> {
+/// What hovering a star says: its name (and faction), whether anyone lives there
+/// (green "Populated" or red "Unpopulated") and, for a populated system, how dangerous
+/// it is to arrive in.
+fn hover_lines(plot: &Plot, from: [i32; 3], ctx: &SceneContext<'_>) -> Vec<(String, u8)> {
     let name = (ctx.name_of)(plot.code).unwrap_or_default();
-    let mut lines = Vec::new();
-    match ctx.systems {
-        Some(tables) => {
-            let market = tables.market(plot.code);
-            if market.population == 0 {
-                lines.push((format!("{name}: uninhabited"), UNINHABITED));
+    // The jump from where the route has got to (the player's system with no route): the
+    // fuel a click on the star would plan for, or that it needs a course.
+    let fuel = (sector::distance(from, plot.position) != 0)
+        .then(|| (ctx.report_for)(sector::distance(from, plot.position)))
+        .flatten()
+        .map(|report| {
+            if report.result < 0 && report.fuel_needed < 0 {
+                (
+                    "Out of range: click to plot a course".to_owned(),
+                    UNPOPULATED,
+                )
             } else {
-                let faction = match market.allegiance >> 6 {
-                    1 => "Imperial",
-                    2 => "Federal",
-                    3 => "Alliance",
-                    _ => "Independent",
-                };
-                lines.push((
-                    format!("{name}: inhabited ({faction}, pop {})", market.population),
-                    15,
-                ));
-                if let Some(threat) = system_threat(plot.code, tables) {
-                    lines.push((format!("Danger: {}", threat.label()), threat.colour()));
-                }
+                (
+                    fuel_line(&report),
+                    if report.result < 0 { UNPOPULATED } else { 15 },
+                )
             }
-        }
-        None => lines.push((name, 15)),
+        });
+    let Some(tables) = ctx.systems else {
+        return std::iter::once((name, 15)).chain(fuel).collect();
+    };
+    let market = tables.market(plot.code);
+    if market.population == 0 {
+        let lines = vec![(name, 15), ("Unpopulated".to_owned(), UNPOPULATED)];
+        return lines.into_iter().chain(fuel).collect();
     }
-    if let Some(note) = (ctx.station_note)(plot) {
-        lines.push((note, 15));
+    let faction = match market.allegiance >> 6 {
+        1 => "Imperial",
+        2 => "Federal",
+        3 => "Alliance",
+        _ => "Independent",
+    };
+    let mut lines = vec![
+        (format!("{name} ({faction})"), 15),
+        ("Populated".to_owned(), POPULATED),
+    ];
+    if let Some(threat) = system_threat(plot.code, tables) {
+        lines.push((format!("Danger: {}", threat.label()), threat.colour()));
     }
+    lines.extend(fuel);
     lines
 }
 
@@ -849,6 +1118,36 @@ mod tests {
     }
 
     #[test]
+    fn fitting_a_route_puts_every_stop_in_the_clear_part_of_the_view() {
+        let mut map = EnhancedMap::new([0x1_0000, 0x1_0000, 0], 0);
+        map.route.push(Waypoint {
+            code: 1,
+            position: [0x5_0000, 0x2_8000, 0],
+            auto: true,
+        });
+        map.route.push(Waypoint {
+            code: 2,
+            position: [0x9_0000, -0x1_0000, 0],
+            auto: false,
+        });
+        map.fit_route();
+        for point in std::iter::once(map.home).chain(map.route.iter().map(|w| w.position)) {
+            let (x, y, _) = map.project(point);
+            assert!((20..=300).contains(&x), "x {x}");
+            assert!((34..=108).contains(&y), "y {y}");
+        }
+        // A short route does not zoom in past the opening zoom.
+        let mut near = EnhancedMap::new([0, 0, 0], 0);
+        near.route.push(Waypoint {
+            code: 1,
+            position: [0x800, 0, 0],
+            auto: false,
+        });
+        near.fit_route();
+        assert_eq!(near.zoom, DEFAULT_ZOOM);
+    }
+
+    #[test]
     fn a_click_picks_the_nearest_dot_within_a_few_pixels() {
         let plot = |code, x, y| Plot {
             code,
@@ -912,5 +1211,67 @@ mod tests {
             ..transit
         };
         assert!((plain.real_seconds_left() - 2.0).abs() < 1.0e-9);
+    }
+
+    #[test]
+    fn a_stretched_tunnel_plays_longer_at_the_original_pace() {
+        use crate::navigation::{Transit, HYPERSPACE_RATE};
+        let natural = 2.0;
+        let at = |stretch: f64, real: f64| {
+            let total = natural * HYPERSPACE_RATE;
+            Transit {
+                total,
+                remaining: total - real / stretch * HYPERSPACE_RATE,
+                stretch,
+            }
+            .share()
+        };
+        // Unstretched, it is the original's share: elapsed over total, times 145.
+        for real in [0.0, 0.3, 1.0, 1.5, 1.99] {
+            assert!(
+                (at(1.0, real) - real / natural * 145.0).abs() < 1.0e-6,
+                "{real}"
+            );
+        }
+        // Stretched to 8 s: it starts at 0, ends at the end of the tunnel, and moves at the
+        // original's speed (145 shares in `natural` seconds) all the way, apart from the
+        // wrap where the swirl repeats.
+        let (stretch, whole) = (4.0, 8.0);
+        assert!(at(stretch, 0.0) < 1.0e-6);
+        assert!(at(stretch, whole - 1.0e-6) > 144.9);
+        let rate = 145.0 / natural;
+        let step = 0.01;
+        let mut wraps = 0;
+        let mut real = 0.0;
+        while real + step < whole {
+            let delta = at(stretch, real + step) - at(stretch, real);
+            // The swirl hands over to the closing frames at one step, wherever its cycle is.
+            let outro_start = whole - 35.0 / 145.0 * natural;
+            if real < outro_start && real + step >= outro_start {
+                real += step;
+                continue;
+            }
+            if delta < 0.0 {
+                wraps += 1;
+                assert!((70.0..110.0).contains(&at(stretch, real)), "wrap at {real}");
+            } else {
+                assert!(
+                    (delta - rate * step).abs() < 1.0e-6,
+                    "speed at {real}: {delta}"
+                );
+            }
+            real += step;
+        }
+        // 8 s is 2 s of opening and closing plus 1.7 s... of swirl cycles: more than one.
+        assert!(wraps >= 2, "{wraps} repeats of the swirl");
+        // The animation word is the share, as before.
+        let total = natural * HYPERSPACE_RATE;
+        let word = Transit {
+            total,
+            remaining: total / 2.0,
+            stretch: 1.0,
+        }
+        .animation();
+        assert_eq!(word, ((72.0f64 as u16) << 8) & 0xff00);
     }
 }

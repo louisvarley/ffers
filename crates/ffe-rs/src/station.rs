@@ -908,6 +908,32 @@ impl DockState {
         });
     }
 
+    /// F355(±1): move the first visible row `delta` entries, never past the first
+    /// entry or the point where the last entry is at the foot of the window.
+    pub fn scroll_by(&mut self, delta: i32, rows: usize, visible: usize) {
+        let most = rows.saturating_sub(visible.max(1));
+        self.scroll = (self.scroll as i64 + i64::from(delta)).clamp(0, most as i64) as usize;
+    }
+
+    /// The arrows' scroll: one row, and the keyboard row goes with the window's top.
+    pub fn arrow(&mut self, delta: i32, rows: usize, visible: usize) {
+        self.scroll_by(delta, rows, visible);
+        self.selected = self.scroll;
+    }
+
+    /// The mouse wheel's scroll (`enhancement-14`): `delta` rows, and the keyboard
+    /// row stays on screen, at the nearest edge of the window if it was scrolled out.
+    pub fn wheel(&mut self, delta: i32, rows: usize, visible: usize) {
+        self.scroll_by(delta, rows, visible);
+        let visible = visible.max(1);
+        if self.selected < self.scroll {
+            self.selected = self.scroll;
+        } else if self.selected >= self.scroll + visible {
+            self.selected = self.scroll + visible - 1;
+        }
+        self.selected = self.selected.min(rows.saturating_sub(1));
+    }
+
     /// Move the keyboard row and keep it inside the visible window.
     pub fn step(&mut self, delta: i32, rows: usize) {
         let visible = layout(self.screen).visible();
@@ -1405,6 +1431,54 @@ mod tests {
         );
         assert!(areas.iter().any(|area| area.hot == Hot::More));
         assert!(!areas.iter().any(|area| area.hot == Hot::Back));
+    }
+
+    #[test]
+    fn the_down_arrow_moves_one_row_as_the_original_does() {
+        // F355(+1) moves the first visible row one entry; the port used to page a whole
+        // window, so a few clicks on the market's down arrow ran to the end of the list.
+        let mut dock = DockState::default();
+        dock.open(Screen::Market);
+        let (rows, visible) = (35, 13);
+        dock.arrow(1, rows, visible);
+        assert_eq!((dock.scroll, dock.selected), (1, 1));
+        dock.arrow(1, rows, visible);
+        assert_eq!(dock.scroll, 2);
+        dock.arrow(-1, rows, visible);
+        assert_eq!(dock.scroll, 1);
+        // The ends hold: not above the first entry, not past the last window.
+        dock.arrow(-5, rows, visible);
+        assert_eq!(dock.scroll, 0);
+        dock.arrow(100, rows, visible);
+        assert_eq!(dock.scroll, rows - visible);
+        dock.arrow(1, rows, visible);
+        assert_eq!(dock.scroll, rows - visible);
+        // A list that fits the window does not scroll at all.
+        dock.arrow(1, 5, visible);
+        assert_eq!(dock.scroll, 0);
+    }
+
+    #[test]
+    fn the_wheel_scrolls_rows_and_keeps_the_keyboard_row_on_screen() {
+        let mut dock = DockState::default();
+        dock.open(Screen::Market);
+        let (rows, visible) = (35, 13);
+        dock.wheel(3, rows, visible);
+        assert_eq!(dock.scroll, 3);
+        // The keyboard row was at the top, so it stays at the window's top.
+        assert_eq!(dock.selected, 3);
+        dock.selected = 10;
+        dock.wheel(-2, rows, visible);
+        assert_eq!((dock.scroll, dock.selected), (1, 10));
+        // Scrolled past the row: it parks at the window's near edge.
+        dock.wheel(12, rows, visible);
+        assert_eq!((dock.scroll, dock.selected), (13, 13));
+        dock.wheel(-13, rows, visible);
+        dock.selected = 12;
+        dock.wheel(0, rows, visible);
+        assert_eq!(dock.selected, 12);
+        dock.wheel(-1, rows, visible);
+        assert_eq!(dock.scroll, 0);
     }
 
     #[test]

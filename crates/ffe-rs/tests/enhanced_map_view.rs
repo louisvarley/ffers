@@ -50,8 +50,7 @@ fn draw(world: &World, map: &mut EnhancedMap, mouse: Option<(i32, i32)>, name: &
     let systems =
         ffe_core::galaxy::Tables::new(world.cache.asset("base:world/system-tables").unwrap())
             .unwrap();
-    let mut note = |_: &enhanced_map::Plot| Some("Has a station or port".to_owned());
-    let mut context = SceneContext {
+    let context = SceneContext {
         sectors: &sectors,
         systems: Some(&systems),
         name_of: &|code| {
@@ -62,12 +61,12 @@ fn draw(world: &World, map: &mut EnhancedMap, mouse: Option<(i32, i32)>, name: &
         },
         string_of: &|selector| world.viewer.system_string(selector),
         report_for: &|distance| world.nav.report_for(distance),
+        check_route: &|route| world.nav.check_route(route),
         drive_fuel: world.nav.drive.map_or(0, |drive| drive.fuel),
         date: world.nav.date_text(),
         mouse,
-        station_note: &mut note,
     };
-    let scene = enhanced_map::scene(map, &mut context);
+    let scene = enhanced_map::scene(map, &context);
     let mut screen = Screen::new(&world.cache).unwrap();
     screen.enhanced_galaxy = Some(scene);
     let state = Flight {
@@ -138,8 +137,7 @@ fn the_enhanced_map_draws_its_states() {
                 world.cache.asset("base:world/system-tables").unwrap(),
             )
             .unwrap();
-            let mut note = |_: &enhanced_map::Plot| Some("Has a station or port".to_owned());
-            let mut context = SceneContext {
+            let context = SceneContext {
                 sectors: &sectors_again,
                 systems: Some(&systems),
                 name_of: &|code| {
@@ -150,22 +148,34 @@ fn the_enhanced_map_draws_its_states() {
                 },
                 string_of: &|selector| world.viewer.system_string(selector),
                 report_for: &|distance| world.nav.report_for(distance),
+                check_route: &|route| world.nav.check_route(route),
                 drive_fuel: 12,
                 date: String::new(),
                 mouse: Some((plot.x, plot.y)),
-                station_note: &mut note,
             };
-            enhanced_map::scene(&mut map, &mut context)
+            enhanced_map::scene(&mut map, &context)
         };
         let lines: Vec<&str> = screen_scene.hover.iter().map(|(t, _)| t.as_str()).collect();
         assert!(!lines.is_empty(), "hovering a plotted star says something");
-        assert_eq!(lines.last().copied(), Some("Has a station or port"));
-        if lines[0].contains("uninhabited") {
-            assert_eq!(lines.len(), 2, "{lines:?}");
+        // The fuel for the jump from the player's system is always the last line.
+        let fuel = lines.last().copied().unwrap_or_default();
+        assert!(
+            fuel.starts_with("Fuel Required")
+                || fuel.starts_with("Insufficient Fuel")
+                || fuel.starts_with("Out of range")
+                || plot.position == map.route_end().1,
+            "{lines:?}"
+        );
+        let own_system = plot.position == map.route_end().1;
+        if lines[1] == "Unpopulated" {
+            assert_eq!(lines.len(), 2 + usize::from(!own_system), "{lines:?}");
+            assert_eq!(screen_scene.hover[1].1, enhanced_map::UNPOPULATED);
         } else {
-            assert!(lines[0].contains("inhabited ("), "{lines:?}");
-            assert!(lines[1].starts_with("Danger: "), "{lines:?}");
-            assert_eq!(lines.len(), 3, "{lines:?}");
+            assert_eq!(lines[1], "Populated", "{lines:?}");
+            assert_eq!(screen_scene.hover[1].1, enhanced_map::POPULATED);
+            assert!(lines[2].starts_with("Danger: "), "{lines:?}");
+            assert_eq!(lines.len(), 3 + usize::from(!own_system), "{lines:?}");
+            assert!(!lines[0].contains("pop"), "{lines:?}");
         }
     }
     draw(&world, &mut map, Some(hover), "em-hover.ppm");
@@ -386,9 +396,247 @@ fn a_route_with_an_unflyable_leg_is_refused_before_it_starts() {
         .nav
         .hyperspace_route(&world.cache, &route, false)
         .unwrap_err();
-    assert!(
-        error.contains("Insufficient Fuel") || error.contains("Out of Range"),
-        "{error}"
-    );
+    assert!(error.contains("needs") && error.contains("fuel"), "{error}");
     assert_eq!(world.nav.current_system_code(), code);
+}
+
+/// The hyperspace tunnel at fifteen points of its animation, as a contact sheet of
+/// frames (kept when `FFE_SHOT_DIR` is set), to see which part of it can repeat.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn the_tunnel_animation_frames() {
+    let world = world();
+    let dense = std::env::var_os("FFE_TUNNEL_DENSE").is_some();
+    let steps: Vec<u16> = if dense {
+        (40..=130).collect()
+    } else {
+        (0..=145u16).step_by(10).collect()
+    };
+    for (index, share) in steps.into_iter().enumerate() {
+        let mut screen = Screen::new(&world.cache).unwrap();
+        screen.hyperspace = Some((share << 8) & 0xff00);
+        let state = Flight {
+            mode: Mode::Flight,
+            ..Flight::default()
+        };
+        screen.draw(&state, ViewState::default(), Some(&world.viewer), true, "");
+        save(&screen, &format!("tunnel-{index:02}.ppm"));
+    }
+}
+
+/// A star several jumps away is reached by a plotted course: every leg within the drive's
+/// range, the stops marked `auto`, the whole route flyable with the fuel in the hold, a
+/// second click on the star taking the stops off again, and the hyperspace icon (the
+/// navigator's `jump_possible`) on for the course although the star itself is out of range.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn a_far_star_is_reached_through_a_plotted_course() {
+    use ffe_rs::enhanced_map::{Clicked, PlanContext};
+    let mut world = world();
+    world.nav = Navigator::new(&world.cache).unwrap();
+    world.nav.drive = Some(DriveState {
+        mass: 16,
+        class: 10,
+        fuel: 12,
+    });
+    let sectors =
+        ffe_core::sector::Tables::new(world.cache.asset("base:world/galaxy-tables").unwrap())
+            .unwrap();
+    let systems =
+        ffe_core::galaxy::Tables::new(world.cache.asset("base:world/system-tables").unwrap())
+            .unwrap();
+    let mut map = open(&world);
+    map.home_code = world.nav.current_system_code();
+    let reach = world.nav.reach().unwrap();
+    map.reach = reach;
+    // A star about six sectors east of Sol: beyond two jumps, within a few.
+    let (hx, hy) = ((map.home[0] >> 16) as u16, (map.home[1] >> 16) as u16);
+    let far = (6..9)
+        .flat_map(|dx| (0..3).map(move |dy| (hx + dx, hy + dy)))
+        .find_map(|(x, y)| {
+            sectors
+                .stars(x, y)
+                .first()
+                .map(|star| ffe_rs::course::Stop {
+                    code: ffe_rs::galaxy_map::sector_code(x, y),
+                    position: ffe_core::sector::position(x, y, &star.vector),
+                })
+        })
+        .expect("a far star");
+    let distance = ffe_core::sector::distance(map.home, far.position);
+    assert!(
+        distance > 2 * reach,
+        "{distance} vs {reach}: not far enough for the test"
+    );
+    let plan = PlanContext {
+        sectors: &sectors,
+        systems: Some(&systems),
+    };
+    let Clicked::Plotted(stops) = map.click_star(far, &plan) else {
+        panic!("a course should be plotted to {far:?}");
+    };
+    assert_eq!(*stops.last().unwrap(), far);
+    assert!(stops.len() >= 3, "{} jumps", stops.len());
+    // Fewest jumps: no shorter chain could cover the distance.
+    assert_eq!(
+        stops.len(),
+        ffe_rs::course::jumps_needed(map.home, far.position, reach)
+            .max(stops.len().min(stops.len()))
+    );
+    // Every leg is within the drive's range, and the route is the stops, auto but the last.
+    let mut at = map.home;
+    for stop in &stops {
+        assert!(ffe_core::sector::distance(at, stop.position) <= reach);
+        at = stop.position;
+    }
+    assert_eq!(map.route.len(), stops.len());
+    assert!(map.route[..stops.len() - 1].iter().all(|w| w.auto));
+    assert!(!map.route.last().unwrap().auto);
+    // The navigator agrees the course can be flown with the fuel in the hold.
+    let route: Vec<(u32, [i32; 3])> = map.route.iter().map(|w| (w.code, w.position)).collect();
+    let flown = world.nav.check_route(&route).expect("a flyable course");
+    assert_eq!(flown.legs.len(), stops.len());
+    assert!(flown.fuel <= flown.have);
+    // The star alone is out of range, so the icon would be off; the ready course turns it on.
+    world.nav.set_destination(far.code, far.position);
+    assert!(!world.nav.jump_possible());
+    world.nav.course_ready = true;
+    assert!(world.nav.jump_possible());
+    // Clicking the star again takes it and the stops plotted to it off.
+    assert_eq!(map.click_star(far, &plan), Clicked::Removed(stops.len()));
+    assert!(map.route.is_empty());
+    // The course is flown as one jump, ending at the star.
+    for waypoint in &stops {
+        map.add_waypoint(waypoint.code, waypoint.position);
+    }
+    let pairs: Vec<(u32, [i32; 3])> = map.route.iter().map(|w| (w.code, w.position)).collect();
+    let jumped = world
+        .nav
+        .hyperspace_route(&world.cache, &pairs, false)
+        .expect("the course");
+    if jumped.misjump.is_none() {
+        assert_eq!(world.nav.current_system_code(), far.code);
+        assert_eq!(jumped.fuel, flown.fuel);
+    }
+}
+
+/// A star with no way through is refused with its reason, and a leg longer than the drive,
+/// or with too little fuel, says which and by how much.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn an_unreachable_or_unflyable_course_says_why() {
+    use ffe_rs::enhanced_map::{Clicked, PlanContext};
+    let mut world = world();
+    world.nav = Navigator::new(&world.cache).unwrap();
+    world.nav.drive = Some(DriveState {
+        mass: 16,
+        class: 10,
+        fuel: 12,
+    });
+    let sectors =
+        ffe_core::sector::Tables::new(world.cache.asset("base:world/galaxy-tables").unwrap())
+            .unwrap();
+    let mut map = open(&world);
+    map.home_code = world.nav.current_system_code();
+    map.reach = world.nav.reach().unwrap();
+    let plan = PlanContext {
+        sectors: &sectors,
+        systems: None,
+    };
+    // Far beyond eight jumps.
+    let faraway = ffe_rs::course::Stop {
+        code: 77,
+        position: [map.home[0] + 0x40_0000, map.home[1], map.home[2]],
+    };
+    let Clicked::NoCourse(error) = map.click_star(faraway, &plan) else {
+        panic!("too far to plot");
+    };
+    assert!(error.to_string().contains("Too far"), "{error}");
+    assert!(map.route.is_empty());
+    // One leg longer than the drive: named with both distances.
+    let route = vec![(77u32, faraway.position)];
+    let problem = world.nav.check_route(&route).unwrap_err();
+    let text = problem.to_string();
+    assert!(
+        text.contains("Leg 1 of 1") && text.contains("your drive reaches"),
+        "{text}"
+    );
+    // Too little fuel: names the leg, the need and the hold.
+    world.nav.drive = Some(DriveState {
+        mass: 16,
+        class: 10,
+        fuel: 0,
+    });
+    let near = chain(&world, 1);
+    let text = world.nav.check_route(&near).unwrap_err().to_string();
+    assert!(
+        text.contains("needs") && text.contains("t of fuel") && text.contains("you would have 0 t"),
+        "{text}"
+    );
+}
+
+/// A plotted course as it is drawn: the numbered stops, the legs, the summary line and the
+/// zoomed-out view that takes the whole course in (kept when `FFE_SHOT_DIR` is set).
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn a_plotted_course_draws() {
+    use ffe_rs::enhanced_map::{Clicked, PlanContext};
+    let world = world();
+    let sectors =
+        ffe_core::sector::Tables::new(world.cache.asset("base:world/galaxy-tables").unwrap())
+            .unwrap();
+    let systems =
+        ffe_core::galaxy::Tables::new(world.cache.asset("base:world/system-tables").unwrap())
+            .unwrap();
+    let mut map = open(&world);
+    map.home_code = world.nav.current_system_code();
+    map.reach = world.nav.reach().unwrap();
+    let (hx, hy) = ((map.home[0] >> 16) as u16, (map.home[1] >> 16) as u16);
+    let star = sectors.stars(hx + 4, hy).first().copied().expect("a star");
+    let far = ffe_rs::course::Stop {
+        code: ffe_rs::galaxy_map::sector_code(hx + 4, hy),
+        position: ffe_core::sector::position(hx + 4, hy, &star.vector),
+    };
+    let plan = PlanContext {
+        sectors: &sectors,
+        systems: Some(&systems),
+    };
+    assert!(matches!(map.click_star(far, &plan), Clicked::Plotted(_)));
+    map.fit_route();
+    draw(&world, &mut map, None, "em-course.ppm");
+    // Every stop is on the view, and numbered in the order it is flown.
+    for waypoint in &map.route {
+        let (x, y, _) = map.project(waypoint.position);
+        assert!((0..320).contains(&x) && (0..158).contains(&y), "{x},{y}");
+    }
+    let context = SceneContext {
+        sectors: &sectors,
+        systems: Some(&systems),
+        name_of: &|code| {
+            world
+                .viewer
+                .system_name(code)
+                .map(|n| n.iter().map(|b| char::from(*b)).collect())
+        },
+        string_of: &|selector| world.viewer.system_string(selector),
+        report_for: &|distance| world.nav.report_for(distance),
+        check_route: &|route| world.nav.check_route(route),
+        drive_fuel: 12,
+        date: String::new(),
+        mouse: None,
+    };
+    let scene = enhanced_map::scene(&mut map, &context);
+    for (index, waypoint) in map.route.iter().enumerate() {
+        let (x, y, _) = map.project(waypoint.position);
+        let label = scene.labels.iter().find(|(lx, ly, _)| (*lx, *ly) == (x, y));
+        let label = label.expect("a label on every stop");
+        assert!(label.2.starts_with(&format!("{} ", index + 1)), "{label:?}");
+    }
+    assert_eq!(scene.leg_ok, vec![true; map.route.len()]);
+    assert!(scene
+        .route_summary
+        .as_ref()
+        .unwrap()
+        .0
+        .starts_with("Course OK"));
 }

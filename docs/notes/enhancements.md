@@ -33,6 +33,10 @@ numbers are the original request numbers and are not the display order.
   changing any saved state.
 - `enhancement-8` — **ECM can disable NN500 missiles.** Currently the NN500 series
   cannot be stopped by ECM.
+- `enhancement-13` — **Fixed laser sight.** In the first-person views (front,
+  rear and the two turrets) draw the laser as a clean line from the foot of the
+  view to the reticle — the default Saker's look — instead of the beam from the
+  gun mount. The external (third-person) view is unchanged.
 
 ### Autopilot (three toggles)
 
@@ -97,27 +101,50 @@ EXP-046.
 - `enhancement-12` — **Enhanced galaxy map.** Replaces the original's 3D star map
   with a flat, easier-to-read top-down starfield (stars lower in the galaxy are
   drawn smaller for a depth cue), and adds: right-drag pan, middle-wheel zoom,
-  hover notes for whether a system has a station/port, pointer lines from the
+  hover notes for a system, pointer lines from the
   middle of the view to Sol and to the player's own system (with the distance
   when it is off view), `Home`/`C` recentre, and multi-step routes. **A click on a
   star selects it and adds it to the route; a second click takes it off again**
-  (`X` still adds the selected star, and removes it with everything after it).
-  The route is drawn as rings and a line from the current system through each
+  (`X` does the same for the selected star). **A star beyond one jump gets a plotted
+  course:** the computer finds the stars to hop through (the fewest jumps, then the
+  shortest, preferring inhabited and quieter stops; up to 8 jumps), adds them as
+  numbered stops and brings the whole course into view; clicking the star again takes
+  the stops it plotted off with it. The route is drawn as rings and a line from the current system through each
   waypoint, a leg the range or the fuel cannot cover in red, with a total
   distance and fuel line (red when it cannot be flown). **The arrow keys pan the
   map** (Shift slows them, as on the 3D map), as does the right-drag; the wheel,
   Page Up/Down and `+`/`-` zoom. **Hovering a star says** whether anyone lives
-  there (with its faction and population), how dangerous it is to arrive in, and
-  whether it has a station or port; the console panel names the selected star's
+  there (a green "Populated" or a red "Unpopulated", with its faction) and, for a
+  populated one, how dangerous it is to arrive in, then the fuel the jump needs from
+  where the route has got to ("Out of range: click to plot a course" when it is too far
+  for one jump); the console panel names the selected star's
   danger too. `H` flies the whole
   route **as one jump**: every leg is checked first, the legs' jump times run
   together as a single transit, and the tunnel and the hyperspace sound last for
   the distance flown (2.5 s + 0.22 s per light year + 0.5 s per extra leg, up to
-  20 s), where the original plays about 0.1 s a light year. A single selected star
-  with no route keeps the original `H`/Enter jump (with the same stretch).
+  20 s), where the original plays about 0.1 s a light year. The extra time is
+  more tunnel at the original's speed, not a slower one: the opening and closing
+  frames play once and the swirl between them repeats. A single selected star
+  with no route keeps the original `H`/Enter jump (with the same lengthening).
+  The hyperspace icon and `H` follow a flyable course: with a valid route marked
+  (open on the map or left when it closed) the icon shows and `H` flies it, even when
+  the star the map points at is out of range; an unflyable route says which leg and
+  why (a leg longer than the drive reaches, or the fuel the whole course needs against
+  the hold). The map draws every star in view at any zoom (it used to draw only the
+  nine sectors around the centre). The course does not plan refuelling stops: when the
+  hold is short it says so.
   Danger is the system record's patrol byte, the value F688 draws a new arrival's
   pirate groups from (`RND(patrol * 4)` groups): none is "Safe", 1-2 "Low", 3-4
   "Moderate", 5 and over "High".
+
+### Station screens
+
+- `enhancement-14` — **Mouse-wheel scrolling in station lists.** The wheel scrolls
+  the market, shipyard, outfitting and the other station lists a row a notch
+  (wheel up shows earlier entries, as the up arrow does), and the keyboard row
+  stays on screen. The arrows themselves are not part of the toggle: both move
+  one entry, as the original's F355(±1) does (the port's down arrow used to page
+  a whole window, so a few clicks ran to the end of the market).
 
 ## Implementation convention
 
@@ -146,6 +173,8 @@ its own options on exit).
 | `enhancement-10` | `enhancement.npc_labels` | `npc_labels` | off |
 | `enhancement-11` | `enhancement.edge_indicator` | `edge_indicator` | off |
 | `enhancement-12` | `enhancement.enhanced_galaxy_map` | `enhanced_galaxy_map` | off |
+| `enhancement-13` | `enhancement.laser_sight` | `laser_sight` | off |
+| `enhancement-14` | `enhancement.list_scroll` | `list_scroll` | off |
 
 Values are `on|off` when written; `on|off|true|false|1|0` are accepted when
 read. A missing key keeps the default (off). An unknown `enhancement.*` name is
@@ -175,6 +204,8 @@ entry (`EXP-xxx`, `enhancement`) and a regression test.
 | `enhancement-10` `npc_labels` | `combat_computer::{npc_labels, label_colour, npc_button, npc_row, close_on_leave}`, `main.rs` NPC button/list, `screen::{npc_button,npc_list_open,draw_npc_list}` | no button and no list; `l` is the original text-label toggle, no target changes |
 | `enhancement-11` `edge_indicator` | `targeter::edge_indicator`, `screen::Screen::edge_indicator` | no arrow pixels; F1100's text forms unchanged |
 | `enhancement-12` `enhanced_galaxy_map` | `enhanced_map` module, `screen::{EnhancedGalaxy, draw_enhanced_galaxy}`, `main.rs` map open/input/draw/route | the original 3D `GalaxyMap` path is unchanged; the flat map, route and Sol pointer are only built when the toggle is on |
+| `enhancement-13` `laser_sight` | `screen::{Screen::fixed_laser, first_person_view}`, `main.rs` | off keeps F1776's beam from the gun mount; on draws a fixed foot-to-reticle sight line in the front, rear and turret views only |
+| `enhancement-14` `list_scroll` | `station::DockState::{scroll_by, arrow, wheel}`, `main.rs` docked-screen input | no wheel handling; the arrows are the original's one-row F355(±1) either way |
 
 `enhancement-10` also closes its list and drops the ship selected through it
 (`nav.ship_lock`/`nav.missile_lock`) when the player leaves flight, opens a page,

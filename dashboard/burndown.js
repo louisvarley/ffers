@@ -363,7 +363,8 @@ window.FFE_BURNDOWN = {
         { id: "enhancement-9", title: "NPC relative speed (selected NPC shows relative speed + hull + shield)", status: "done" },
         { id: "enhancement-10", title: "Combat Targeting Computer (dashboard button, list of local ships, auto target)", status: "done" },
         { id: "enhancement-11", title: "Edge target indicator (arrow/bar for out-of-view target)", status: "done" },
-        { id: "enhancement-12", title: "Enhanced galaxy map (flat 2D map, click-to-route, arrow/right-drag pan, wheel zoom, hover info (inhabited, danger, station), lines to Sol and home, one long route jump)", status: "done" }
+        { id: "enhancement-12", title: "Enhanced galaxy map (flat 2D map, click-to-route, arrow/right-drag pan, wheel zoom, hover info (populated, danger), lines to Sol and home, one long route jump)", status: "done" },
+        { id: "enhancement-14", title: "Mouse-wheel scrolling in station lists (and the down arrow moves one row)", status: "done" }
       ]
     }
   ],
@@ -1774,6 +1775,16 @@ window.FFE_BURNDOWN = {
       date: "2026-11-24",
       remaining: 0,
       note: "Enhanced galaxy map (enhancement-12) reworked on the owner's review; no item added or reopened. Audit fixes: the Sol pointer aimed at its sector corner (up to 80 px off) and now at the Sol star; the arrow keys stepped the hidden system list and now pan the map; labels and pointers no longer print over the legend or notes. Added: click a star to add/remove it from the route, a line to the player's own system, red unflyable route legs, hover info with a danger rating from the patrol byte F688 draws pirates from, keyboard zoom, and one long route jump (Navigator::hyperspace_route; transit stretched to the distance, hyperspace sound replayed through it). Total 243; done 243, remaining 0."
+    },
+    {
+      date: "2026-11-24",
+      remaining: 0,
+      note: "Owner report: the market's down arrow ran to the end of the list. Cause: the port's Hot::More paged a whole window where the original's F355(+1) moves one entry; both arrows are now one row (DockState::arrow, regression test). Added enhancement-14, mouse-wheel scrolling in station lists, behind its own toggle (EXP-050). Total 244; done 244, remaining 0."
+    },
+    {
+      date: "2026-11-24",
+      remaining: 0,
+      note: "Owner review of the enhanced map's jump logic: a far star clicked on the map now gets a plotted course (course::plot, A* over the sector tables) instead of an out-of-range route; Navigator::check_route judges every route in one place and says which leg fails and why; the hyperspace icon and H follow a flyable marked route (Navigator::course_ready) even when the pointed-at star is out of range; the map draws every sector in view and numbers the route stops; the hover fuel line is from the route end. No item added or reopened. Total 244; done 244, remaining 0."
     },
   ]
 };

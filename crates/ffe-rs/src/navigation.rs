@@ -1585,6 +1585,10 @@ pub struct Navigator {
     system_tables: Vec<u8>,
     /// The ship and fuel the galaxy list and the jump use.
     pub drive: Option<DriveState>,
+    /// A marked route (`enhancement-12`) that can be flown from here: the hyperspace
+    /// icon and `H` offer it even when the star the map points at is out of range.
+    /// The game loop sets it each frame from [`Self::check_route`].
+    pub course_ready: bool,
     /// The markets of the stations visited in this system.
     markets: HashMap<(u32, usize), StationMarket>,
     /// Markets a save carried, taken by [`Self::market`] in place of a fresh
@@ -1659,6 +1663,87 @@ pub struct Destination {
 /// planet's atmosphere cannot hyperspace.
 pub const HYPERSPACE_ALTITUDE: i32 = 0x00b7_1b00;
 
+/// What a route needs, from [`Navigator::check_route`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct RouteCheck {
+    /// Each leg's distance (hundredths of a light year).
+    pub legs: Vec<i32>,
+    /// The tonnes of fuel the whole route burns.
+    pub fuel: i32,
+    /// The game seconds its jumps take together.
+    pub seconds: f64,
+    /// The tonnes in the hold now.
+    pub have: i32,
+}
+
+/// Why a route cannot be flown from here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteProblem {
+    NoDrive,
+    /// The leg is to the system the ship is already in (or the one it just left).
+    SameSystem {
+        leg: usize,
+    },
+    /// The leg is longer than the drive can jump.
+    OutOfRange {
+        leg: usize,
+        of: usize,
+        distance: i32,
+        max_range: i32,
+    },
+    /// The hold, after the earlier legs, has too little fuel for the leg.
+    Fuel {
+        leg: usize,
+        of: usize,
+        needed: i32,
+        have: i32,
+    },
+}
+
+impl RouteProblem {
+    /// The leg (counted from 1) that cannot be flown, when it is one leg's fault.
+    pub fn leg(&self) -> Option<usize> {
+        match self {
+            Self::NoDrive => None,
+            Self::SameSystem { leg } | Self::OutOfRange { leg, .. } | Self::Fuel { leg, .. } => {
+                Some(*leg)
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for RouteProblem {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ly = |units: i32| format!("{}.{:02} ly", units / 100, units % 100);
+        match self {
+            Self::NoDrive => write!(formatter, "No hyperdrive data for this ship or system."),
+            Self::SameSystem { leg } => {
+                write!(formatter, "Leg {leg}: that is the system you are in.")
+            }
+            Self::OutOfRange {
+                leg,
+                of,
+                distance,
+                max_range,
+            } => write!(
+                formatter,
+                "Leg {leg} of {of} is {} but your drive reaches {}.",
+                ly(*distance),
+                ly(*max_range)
+            ),
+            Self::Fuel {
+                leg,
+                of,
+                needed,
+                have,
+            } => write!(
+                formatter,
+                "Leg {leg} of {of} needs {needed} t of fuel; you would have {have} t."
+            ),
+        }
+    }
+}
+
 /// F908's transit: the player in mode 4 while the clock runs at the hyperspace
 /// rate (`DATA_007706` = 0xf880000, 2^18 times 1x) through the jump time.
 /// F1066 counts it down and F1094 ends it.
@@ -1696,14 +1781,39 @@ impl Transit {
     }
 
     /// F1066's animation word for model 0xa5: the elapsed share times 145, << 8.
+    ///
+    /// A stretched transit (see [`enhanced_transit_seconds`]) plays the same tunnel at the
+    /// same speed for longer rather than slowing it down: the opening (the stars, the streaks
+    /// and the first of the swirl, shares 0 to 70) and the closing (110 to 145) run once at
+    /// the original's pace, and the swirl between them (70 to 110, whose frames differ
+    /// from one to the next anyway) repeats for as long as the extra time needs. With a
+    /// stretch of 1 this is the original's share exactly.
     pub fn animation(&self) -> u16 {
-        let elapsed = (self.total - self.remaining).clamp(0.0, self.total);
-        let share = if self.total > 0.0 {
-            elapsed * 145.0 / self.total
-        } else {
-            145.0
-        };
+        let share = self.share();
         ((share as u16) << 8) & 0xff00
+    }
+
+    /// The tunnel's share, 0 to 145 (see [`Self::animation`]).
+    pub fn share(&self) -> f64 {
+        let natural = self.total / HYPERSPACE_RATE;
+        if natural <= 0.0 {
+            return 145.0;
+        }
+        let elapsed_game = (self.total - self.remaining).clamp(0.0, self.total);
+        let stretch = self.stretch.max(1.0);
+        // Real seconds so far and in all, and how long a share lasts at the original's pace.
+        let elapsed = elapsed_game / HYPERSPACE_RATE * stretch;
+        let whole = natural * stretch;
+        let per_share = natural / 145.0;
+        let (intro, cycle, outro) = (70.0 * per_share, 40.0 * per_share, 35.0 * per_share);
+        let share = if elapsed < intro {
+            elapsed / per_share
+        } else if elapsed >= whole - outro {
+            110.0 + (elapsed - (whole - outro)) / per_share
+        } else {
+            70.0 + (elapsed - intro) % cycle / per_share
+        };
+        share.clamp(0.0, 145.0)
     }
 }
 
@@ -3112,6 +3222,7 @@ impl Navigator {
                 .map(<[u8]>::to_vec)
                 .unwrap_or_default(),
             drive: None,
+            course_ready: false,
             final_leg: false,
             clearance_at: None,
             frame: None,
@@ -8109,6 +8220,9 @@ impl Navigator {
     /// need not already be one of the systems on offer — any in-range star is
     /// generated on arrival (see `hyperspace_to_destination_with`).
     pub fn jump_possible(&self) -> bool {
+        if self.course_ready {
+            return true;
+        }
         let Some(destination) = self.destination else {
             return false;
         };
@@ -8284,6 +8398,70 @@ impl Navigator {
         }
     }
 
+    /// The tonnes of fuel a route burns whatever is in the hold, or `None` when a leg is
+    /// longer than the drive can jump.
+    pub fn route_fuel_needed(&self, route: &[(u32, [i32; 3])]) -> Option<i32> {
+        let mut from = self.current_position()?;
+        let mut total = 0;
+        for (_, position) in route {
+            let report =
+                self.report_for_fuel(ffe_core::sector::distance(from, *position), i32::MAX / 2)?;
+            if report.fuel_needed < 0 {
+                return None;
+            }
+            total += report.fuel_needed;
+            from = *position;
+        }
+        Some(total)
+    }
+
+    /// Check a route leg by leg against the drive's range and the fuel the earlier legs
+    /// leave, from the player's system, without moving anything.
+    pub fn check_route(&self, route: &[(u32, [i32; 3])]) -> Result<RouteCheck, RouteProblem> {
+        let mut from = self.current_position().ok_or(RouteProblem::NoDrive)?;
+        let have = self.drive.ok_or(RouteProblem::NoDrive)?.fuel;
+        let mut fuel = have;
+        let mut check = RouteCheck {
+            legs: Vec::with_capacity(route.len()),
+            fuel: 0,
+            seconds: 0.0,
+            have,
+        };
+        for (index, (_, position)) in route.iter().enumerate() {
+            let (leg, of) = (index + 1, route.len());
+            let distance = ffe_core::sector::distance(from, *position);
+            if distance == 0 {
+                return Err(RouteProblem::SameSystem { leg });
+            }
+            let report = self
+                .report_for_fuel(distance, fuel)
+                .ok_or(RouteProblem::NoDrive)?;
+            if report.result < 0 {
+                return Err(if report.fuel_needed < 0 {
+                    RouteProblem::OutOfRange {
+                        leg,
+                        of,
+                        distance,
+                        max_range: report.max_range,
+                    }
+                } else {
+                    RouteProblem::Fuel {
+                        leg,
+                        of,
+                        needed: report.fuel_needed,
+                        have: fuel,
+                    }
+                });
+            }
+            check.legs.push(distance);
+            check.fuel += report.fuel_needed;
+            check.seconds += f64::from(report.jump_time.unwrap_or(0)) / 65_536.0 * 86_400.0;
+            fuel -= report.fuel_needed;
+            from = *position;
+        }
+        Ok(check)
+    }
+
     /// A multi-step route flown as one jump (`enhancement-12`'s route, `H` with waypoints
     /// marked): every leg is checked against the range and the fuel the earlier legs leave
     /// before anything moves, then each is made in turn and their jump times run together as
@@ -8303,33 +8481,8 @@ impl Navigator {
             return Err("Already in hyperspace.".to_owned());
         }
         // Check every leg first, on the fuel that is left after the ones before it.
-        let mut from = self
-            .current_position()
-            .ok_or("No hyperdrive data for this ship or system.")?;
-        let mut fuel = self.drive.ok_or("No hyperdrive data for this ship.")?.fuel;
-        for (index, (_, position)) in route.iter().enumerate() {
-            let distance = ffe_core::sector::distance(from, *position);
-            let report = self
-                .report_for_fuel(distance, fuel)
-                .ok_or("No hyperdrive data for this ship or system.")?;
-            if distance == 0 {
-                return Err(format!("Leg {}: that is the system you are in.", index + 1));
-            }
-            if report.result < 0 {
-                return Err(format!(
-                    "Leg {} of {}: {}",
-                    index + 1,
-                    route.len(),
-                    if report.fuel_needed < 0 {
-                        "Out of Range".to_owned()
-                    } else {
-                        format!("Insufficient Fuel ({} t required)", report.fuel_needed)
-                    }
-                ));
-            }
-            fuel -= report.fuel_needed;
-            from = *position;
-        }
+        self.check_route(route)
+            .map_err(|problem| problem.to_string())?;
         let mut total = Jumped {
             misjump: None,
             arrival: [0; 3],

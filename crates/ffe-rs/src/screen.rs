@@ -645,6 +645,9 @@ pub struct Screen {
     pub lasers: [u8; 4],
     /// The beam to draw this frame (F1776's model 0x9c at the gun), when a shot fired.
     pub beam: Option<crate::combat::LaserBeam>,
+    /// `enhancement-13`: draw the first-person laser as a fixed bottom-to-reticle
+    /// sight line instead of the beam from the gun mount.
+    pub fixed_laser: bool,
     /// The energy pool (`+0x11e`) and heat (`+0xea`) F270's first two bars show.
     pub energy: u32,
     pub heat: u16,
@@ -1148,6 +1151,7 @@ impl Screen {
             has_lock: false,
             lasers: [0; 4],
             beam: None,
+            fixed_laser: false,
             energy: 0,
             heat: 0,
             drive: 0,
@@ -3155,7 +3159,12 @@ impl Screen {
         }
         if let Some(beam) = self.beam {
             if beam_visible(view) {
-                if let Some(scene) = scene {
+                if self.fixed_laser && first_person_view(view) {
+                    // enhancement-13: a fixed sight line from the foot of the
+                    // view to the reticle, the Saker's look, instead of the beam
+                    // from the gun mount.
+                    self.line((160, 156), (160, 79), 0x5f);
+                } else if let Some(scene) = scene {
                     self.draw_beam(scene, state, &beam, &camera);
                 }
             }
@@ -4369,9 +4378,9 @@ impl Screen {
         if let Some((x, y, size)) = scene.selected {
             self.circle(x, y, (size + 8).max(12), 18);
         }
-        // Stars (a dot's `size` is its radius).
+        // Stars: solid dots (a dot's `size` is its radius).
         for (x, y, size, colour) in &scene.dots {
-            self.circle(*x, *y, (*size).max(1) * 2, *colour);
+            self.fill_disc(*x, *y, (*size).max(1), *colour);
         }
         // System-name labels, shadowed for readability.
         for (x, y, name) in &scene.labels {
@@ -4493,6 +4502,21 @@ impl Screen {
                 self.text(195, y, &line, *colour);
             }
             y += 8;
+        }
+    }
+
+    /// A solid disc of `radius` pixels about (`x`, `y`), clipped to the view.
+    fn fill_disc(&mut self, x: i32, y: i32, radius: i32, colour: u8) {
+        let value = self.palette[usize::from(colour)];
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                if dx * dx + dy * dy <= radius * radius + radius / 2 {
+                    let (px, py) = (x + dx, y + dy);
+                    if (0..320).contains(&px) && (0..VIEW_HEIGHT as i32).contains(&py) {
+                        self.frame[py as usize * 320 + px as usize] = value;
+                    }
+                }
+            }
         }
     }
 
@@ -4968,6 +4992,15 @@ fn beam_visible(view: ViewMode) -> bool {
             | ViewMode::BottomTurret
             | ViewMode::External
             | ViewMode::Combat
+    )
+}
+
+/// The views `enhancement-13`'s fixed laser sight replaces: the first-person
+/// cockpit views (front, rear and the two turrets), not the external view.
+fn first_person_view(view: ViewMode) -> bool {
+    matches!(
+        view,
+        ViewMode::Front | ViewMode::Rear | ViewMode::TopTurret | ViewMode::BottomTurret
     )
 }
 

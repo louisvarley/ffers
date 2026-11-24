@@ -929,7 +929,7 @@ struct EnhancementGroup {
     items: &'static [Enhancement],
 }
 
-const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
+const ENHANCEMENT_GROUPS: [EnhancementGroup; 6] = [
     EnhancementGroup {
         heading: "Combat & missiles",
         items: &[
@@ -954,6 +954,14 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
                 slot: 7,
                 title: "ECM can disable NN500 missiles",
                 about: "The ECM can stop NN500-series missiles as well as the standard models.",
+            },
+            Enhancement {
+                slot: 12,
+                title: "Fixed laser sight (first-person)",
+                about: "First-person views (front, rear and turrets) draw the laser as a \
+                        clean line from the bottom of the view to the reticle, like the \
+                        default Saker, instead of the beam from the gun mount. Third-person \
+                        is unchanged.",
             },
         ],
     },
@@ -1021,8 +1029,17 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
             title: "Enhanced galaxy map",
             about: "Replaces the 3D star map with a flat, clearer one: click stars to build a \
                     route and fly it as one long jump, arrow-key or right-drag pan, wheel zoom, \
-                    lines pointing home and to Sol, and hover info (inhabited, safe or \
-                    dangerous, station).",
+                    lines pointing home and to Sol, and hover info (populated or not, \
+                    safe or dangerous).",
+        }],
+    },
+    EnhancementGroup {
+        heading: "Station screens",
+        items: &[Enhancement {
+            slot: 13,
+            title: "Mouse-wheel scrolling in station lists",
+            about: "The mouse wheel scrolls the market, shipyard, outfitting and the other \
+                    station lists a row at a time.",
         }],
     },
 ];

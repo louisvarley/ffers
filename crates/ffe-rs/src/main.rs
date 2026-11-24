@@ -1505,11 +1505,8 @@ fn run() -> Result<(), String> {
     // The multi-step route (`enhancement-12`) `H` is about to fly as one jump, and
     // the seconds until the hyperspace sound is played again (a long transit
     // outlasts the one sample).
-    let mut route_legs: Vec<ffe_rs::enhanced_map::Waypoint> = Vec::new();
+    let mut route_legs: Vec<(u32, [i32; 3])> = Vec::new();
     let mut hyperspace_sound_left = 0.0f64;
-    // The enhanced map's hover: the last hovered star and its station/port note.
-    let mut hover_code: Option<u32> = None;
-    let mut hover_note: Option<String> = None;
     // F2's status/equipment page (`F1120`, `DATA_008871 & 8`).
     let mut status_page = false;
     // F5's console icon (action 0xf5): the parked ship's engines/equipment page. Off by
@@ -3354,6 +3351,11 @@ fn run() -> Result<(), String> {
             // The hyperdrive's view of the ship and its fuel (the galaxy list and the jump).
             if let Some(nav) = nav.as_mut() {
                 nav.drive = drive_state(scene.as_ref(), &state);
+                // enhancement-12: a marked route that can be flown from here is a course the
+                // jump icon and H offer, even when the star the map points at is out of range.
+                nav.course_ready = enhancements.enhanced_galaxy_map
+                    && marked_route(&enhanced_map, &parked_enhanced, nav.current_position())
+                        .is_some_and(|route| nav.check_route(&route).is_ok());
             }
             // Navigation: Tab the system map, G the galaxy, Up/Down choose, Enter
             // flies to the body (or jumps to the system), Backspace stops the autopilot.
@@ -3905,6 +3907,9 @@ fn run() -> Result<(), String> {
                 // right-drag pans, the wheel zooms, X adds a route waypoint and
                 // Home/C recentre on the current system.
                 if let Some(map) = enhanced_map.as_mut().filter(|_| !sysmap_open) {
+                    // The drive can change (a new one bought): plot with what it reaches now.
+                    map.reach = nav.reach().unwrap_or(map.reach);
+                    map.home_code = nav.current_system_code();
                     let point = inp
                         .get_unscaled_mouse_pos(MouseMode::Pass)
                         .and_then(|(x, y)| {
@@ -3965,8 +3970,10 @@ fn run() -> Result<(), String> {
                     if let Some(tables) = sector_tables.as_ref() {
                         map.select(tables);
                     }
-                    // A click on a star selects it and adds it to the route; a click on
-                    // a star already on the route takes it off again.
+                    // A click on a star selects it and adds it to the route (plotting a course
+                    // through other stars when it is beyond one jump); a click on a star already
+                    // on the route takes it off again. X does the same for the selected star.
+                    let mut clicked: Option<(u32, [i32; 3], u16)> = None;
                     if let (Some(tables), Some((x, y))) = (
                         sector_tables.as_ref(),
                         point.filter(|_| {
@@ -3978,45 +3985,58 @@ fn run() -> Result<(), String> {
                     ) {
                         if y < ffe_rs::enhanced_map::VIEW_H {
                             let plots = map.plots(tables);
-                            if let Some(plot) = ffe_rs::enhanced_map::hit(&plots, x, y).copied() {
-                                let name: String = scene
-                                    .as_ref()
-                                    .and_then(|viewer| viewer.system_name(plot.code))
-                                    .map(|name| name.iter().map(|b| char::from(*b)).collect())
-                                    .unwrap_or_default();
-                                map.pick(plot.code, plot.position, plot.kind);
-                                message = match map.toggle_waypoint(plot.code, plot.position) {
-                                    ffe_rs::enhanced_map::Toggled::Added => format!(
-                                        "{name} added: route of {} jump(s). Click it again to remove it; H flies the route.",
-                                        map.route.len()
-                                    ),
-                                    ffe_rs::enhanced_map::Toggled::Removed => format!(
-                                        "{name} removed: route of {} jump(s).",
-                                        map.route.len()
-                                    ),
-                                    ffe_rs::enhanced_map::Toggled::Ignored => {
-                                        format!("{name} is the system you are in.")
-                                    }
-                                };
-                            }
+                            clicked = ffe_rs::enhanced_map::hit(&plots, x, y)
+                                .map(|plot| (plot.code, plot.position, plot.kind));
                         }
                     }
                     if pressed(Key::X) {
-                        if let Some(selected) = map.selected.clone() {
-                            if map.remove_waypoint_from(selected.code) > 0 {
-                                // X on a waypoint removes it and everything after.
-                                message =
-                                    format!("Route shortened to {} step(s).", map.route.len());
-                            } else {
-                                map.add_waypoint(selected.code, selected.position);
-                                message = format!(
-                                    "Route: {} step(s). H to fly the route, Backspace clears it.",
-                                    map.route.len()
-                                );
+                        match map.selected.clone() {
+                            Some(selected) => {
+                                clicked = Some((selected.code, selected.position, selected.kind));
                             }
-                        } else {
-                            message =
-                                "No star is selected: centre the map on one first.".to_owned();
+                            None => {
+                                message =
+                                    "No star is selected: centre the map on one first.".to_owned();
+                            }
+                        }
+                    }
+                    if let (Some((code, position, kind)), Some(tables)) =
+                        (clicked, sector_tables.as_ref())
+                    {
+                        let name_of = |code: u32| -> Option<String> {
+                            scene
+                                .as_ref()
+                                .and_then(|viewer| viewer.system_name(code))
+                                .map(|name| name.iter().map(|b| char::from(*b)).collect())
+                        };
+                        map.pick(code, position, kind);
+                        let plan = ffe_rs::enhanced_map::PlanContext {
+                            sectors: tables,
+                            systems: system_details.as_ref(),
+                        };
+                        let result = map.click_star(ffe_rs::course::Stop { code, position }, &plan);
+                        message = result.message(
+                            &name_of(code).unwrap_or_default(),
+                            map.route.len(),
+                            &name_of,
+                        );
+                        // A plotted course often runs off the view: bring all of it in.
+                        if matches!(result, ffe_rs::enhanced_map::Clicked::Plotted(_)) {
+                            map.fit_route();
+                        }
+                        // Say at once when the route as it now stands cannot be flown, and why.
+                        let route: Vec<(u32, [i32; 3])> =
+                            map.route.iter().map(|w| (w.code, w.position)).collect();
+                        if !route.is_empty() {
+                            if let Err(problem) = nav.check_route(&route) {
+                                message.push(' ');
+                                message.push_str(&ffe_rs::enhanced_map::course_problem(
+                                    &problem,
+                                    nav.route_fuel_needed(&route).unwrap_or(0),
+                                    nav.drive.map_or(0, |drive| drive.fuel),
+                                ));
+                                message.push('.');
+                            }
                         }
                     }
                     if pressed(Key::Backspace) && !map.route.is_empty() {
@@ -4025,11 +4045,23 @@ fn run() -> Result<(), String> {
                     }
                     if trace_flight {
                         eprintln!(
-                            "trace map centre={:?} zoom={:.6} route={:?} selected={:?}",
+                            "trace map centre={:?} zoom={:.6} route={:?} auto={:?} selected={:?} course={:?}",
                             map.centre,
                             map.zoom,
                             map.route.iter().map(|w| w.code).collect::<Vec<_>>(),
+                            map.route.iter().map(|w| w.auto).collect::<Vec<_>>(),
                             map.selected.as_ref().map(|s| s.code),
+                            (
+                                nav.course_ready,
+                                nav.check_route(
+                                    &map.route
+                                        .iter()
+                                        .map(|w| (w.code, w.position))
+                                        .collect::<Vec<_>>()
+                                )
+                                .map(|c| (c.legs.len(), c.fuel, c.have))
+                                .map_err(|e| e.to_string())
+                            ),
                         );
                     }
                 }
@@ -4082,17 +4114,18 @@ fn run() -> Result<(), String> {
                     && click_point.and_then(|(x, y)| ffe_rs::console::systems_click(x, y))
                         == Some(ffe_rs::console::SystemsClick::Hyperspace);
                 if pressed(Key::H) || jump_icon || console_click == Some(Click::Hyperspace) {
-                    if enhanced_map
-                        .as_ref()
-                        .is_some_and(|map| !map.route.is_empty())
+                    if let Some(route) = enhancements
+                        .enhanced_galaxy_map
+                        .then(|| {
+                            marked_route(&enhanced_map, &parked_enhanced, nav.current_position())
+                        })
+                        .flatten()
                     {
-                        // The marked route is flown as one jump: its legs run together
-                        // as a single, longer transit (the jump below).
-                        // (The route stays on the map: a refused jump leaves it to edit,
-                        // and a made one reopens the map at the new system without it.)
-                        if let Some(map) = enhanced_map.as_ref() {
-                            route_legs = map.route.clone();
-                        }
+                        // The marked route is flown as one jump: its legs run together as a
+                        // single, longer transit (the jump below). It stays marked: a refused
+                        // jump leaves it to edit, and a made one reopens the map at the new
+                        // system without it.
+                        route_legs = route;
                         hyperspace = true;
                     } else if nav.destination.is_some() {
                         hyperspace = true;
@@ -4184,10 +4217,7 @@ fn run() -> Result<(), String> {
                                 nav.hyperspace_to_destination_with(&cache, forced)
                             } else {
                                 // enhancement-12: every marked leg as one transit.
-                                let legs: Vec<(u32, [i32; 3])> = std::mem::take(&mut route_legs)
-                                    .into_iter()
-                                    .map(|leg| (leg.code, leg.position))
-                                    .collect();
+                                let legs = std::mem::take(&mut route_legs);
                                 legs_flown = legs.len();
                                 nav.hyperspace_route(&cache, &legs, forced)
                             }
@@ -4886,6 +4916,17 @@ fn run() -> Result<(), String> {
                         || pressed(Key::Tab)
                         || systems_click == Some(ffe_rs::console::SystemsClick::EnginesOn)
                         || (capture_start && frames == 70);
+                    if launch {
+                        eprintln!(
+                            "LAUNCH t={frames} landed={} pad_landed={} mode={:?} on_pad={} takeoff={} seq={}",
+                            landed.is_some(),
+                            pad_landed,
+                            state.mode,
+                            original.as_ref().is_some_and(|m| m.on_pad()),
+                            nav.as_ref().is_some_and(|n| n.takeoff.is_some()),
+                            nav.as_ref().is_some_and(|n| n.sequence.is_some()),
+                        );
+                    }
                     // `u` (action 0x75), or a click on a wing of the page: the undercarriage.
                     // F1056 ignores it while the takeoff's climb (0x24) is running.
                     if pressed(Key::U)
@@ -4970,6 +5011,10 @@ fn run() -> Result<(), String> {
                                 } {
                                     Ok(()) => {
                                         acceleration = 0;
+                                        eprintln!(
+                                            "LAUNCH begin_launch OK on_pad={}",
+                                            original.as_ref().is_some_and(|m| m.on_pad())
+                                        );
                                         match original.as_mut().filter(|model| model.on_pad()) {
                                             // F1056 action 9 at 0x30 sets 0x24 and
                                             // F1013 climbs from where the ship
@@ -4984,7 +5029,10 @@ fn run() -> Result<(), String> {
                                             None => last_mode = ffe_rs::flight::Mode::Docked,
                                         }
                                     }
-                                    Err(why) => message = why,
+                                    Err(why) => {
+                                        eprintln!("LAUNCH begin_launch ERR: {why:?}");
+                                        message = why;
+                                    }
                                 }
                             }
                         }
@@ -5748,6 +5796,24 @@ fn run() -> Result<(), String> {
                             dock_visible.unwrap_or_else(|| station::layout(dock.screen).visible()),
                         );
                     }
+                    // enhancement-14: the mouse wheel scrolls the list a row a notch
+                    // (wheel up shows earlier entries, as the up arrow does).
+                    if enhancements.list_scroll && !reading {
+                        if let Some((_, wheel)) = inp.get_scroll_wheel() {
+                            let notches = wheel.round() as i32;
+                            if notches != 0 {
+                                let visible = dock_visible
+                                    .unwrap_or_else(|| station::layout(dock.screen).visible());
+                                dock.wheel(-notches.clamp(-3, 3), rows, visible);
+                            }
+                        }
+                    }
+                    if trace_flight {
+                        eprintln!(
+                            "trace dock screen={:?} scroll={} selected={} rows={}",
+                            dock.screen, dock.scroll, dock.selected, rows
+                        );
+                    }
                     // F354: keys 1..4 are actions 0x31..0x34, one per visible row.
                     for (key, number) in [
                         (Key::Key1, 1usize),
@@ -5924,21 +5990,17 @@ fn run() -> Result<(), String> {
                                         StationAction::BuyShip { row }
                                     });
                                 }
-                                station::Hot::More => {
-                                    let visible = station::layout(dock.screen).visible();
-                                    dock.scroll += visible;
-                                    dock.scroll = dock.scroll.min(rows.saturating_sub(visible));
-                                    dock.selected = dock.scroll;
+                                // Both arrows are F355(±1): one entry, the original's. (The
+                                // down arrow used to page a whole window and ran to the end.)
+                                station::Hot::More | station::Hot::Down => {
+                                    let visible = dock_visible
+                                        .unwrap_or_else(|| station::layout(dock.screen).visible());
+                                    dock.arrow(1, rows, visible);
                                 }
                                 station::Hot::Up => {
-                                    dock.scroll = dock.scroll.saturating_sub(1);
-                                    dock.selected = dock.scroll;
-                                }
-                                station::Hot::Down => {
-                                    let visible = station::layout(dock.screen).visible();
-                                    dock.scroll = dock.scroll.saturating_add(1);
-                                    dock.scroll = dock.scroll.min(rows.saturating_sub(visible));
-                                    dock.selected = dock.scroll;
+                                    let visible = dock_visible
+                                        .unwrap_or_else(|| station::layout(dock.screen).visible());
+                                    dock.arrow(-1, rows, visible);
                                 }
                                 station::Hot::Back => {
                                     dock_action = Some(StationAction::Back);
@@ -9157,6 +9219,7 @@ fn run() -> Result<(), String> {
         screen.energy = state.combat.energy;
         screen.heat = state.combat.heat;
         screen.drive = state.combat.drive;
+        screen.fixed_laser = enhancements.laser_sight;
         // The scripted traffic capture fires on frame 10 (shield hit) and frame
         // 20 (kill) through the same F953/F942 words a player shot uses.
         if options.capture_traffic.is_some() && (frames == 10 || frames == 20) {
@@ -9619,30 +9682,7 @@ fn run() -> Result<(), String> {
             let mouse = inp
                 .get_unscaled_mouse_pos(MouseMode::Pass)
                 .and_then(|(x, y)| display::logical_point(&prefs.display, x, y, inp.get_size()));
-            // The hovered star's station/port note, generated lazily (only when
-            // the mouse moves onto a different star).
-            let mut station_note = |plot: &ffe_rs::enhanced_map::Plot| {
-                if hover_code != Some(plot.code) {
-                    hover_code = Some(plot.code);
-                    hover_note =
-                        ffe_rs::navigation::map_entry(&cache, plot.code, plot.position, plot.kind)
-                            .ok()
-                            .and_then(|entry| {
-                                let created = ffe_rs::navigation::clock_words(nav.clock);
-                                ffe_rs::navigation::bodies_since(&cache, &entry, created, created)
-                                    .ok()
-                            })
-                            .map(|bodies| {
-                                if bodies.iter().any(|body| body.kind.is_place()) {
-                                    "Has a station or port".to_owned()
-                                } else {
-                                    "No station or port".to_owned()
-                                }
-                            });
-                }
-                hover_note.clone()
-            };
-            let mut context = ffe_rs::enhanced_map::SceneContext {
+            let context = ffe_rs::enhanced_map::SceneContext {
                 sectors: tables,
                 systems: system_details.as_ref(),
                 name_of: &|code| {
@@ -9652,12 +9692,12 @@ fn run() -> Result<(), String> {
                 },
                 string_of: &|selector| viewer.system_string(selector),
                 report_for: &|distance| nav.report_for(distance),
+                check_route: &|route| nav.check_route(route),
                 drive_fuel: nav.drive.map_or(0, |drive| drive.fuel),
                 date: nav.date_text(),
                 mouse,
-                station_note: &mut station_note,
             };
-            screen.enhanced_galaxy = Some(ffe_rs::enhanced_map::scene(map, &mut context));
+            screen.enhanced_galaxy = Some(ffe_rs::enhanced_map::scene(map, &context));
         }
         screen.dock = None;
         screen.ship_view = None;
@@ -10810,7 +10850,10 @@ fn run() -> Result<(), String> {
             // F1116's jump icon (0x45): a destination (`+0x268`), F1033's
             // altitude at least 0xb71b00 (`+0xc6` bit 0x40) and F903's jump
             // possible (`+0xc7` bit 0).
-            p268: u8::from(nav.as_ref().is_some_and(|nav| nav.destination.is_some())),
+            p268: u8::from(
+                nav.as_ref()
+                    .is_some_and(|nav| nav.destination.is_some() || nav.course_ready),
+            ),
             // `player+0xec`, the 0x49 arrow. Port change (owner requested): lit
             // only while the autopilot flies, not whenever a target is locked.
             ec: u8::from(autopilot),
@@ -11085,6 +11128,14 @@ fn run() -> Result<(), String> {
             );
         }
         frames += 1;
+        if capture_start && (70..=400).contains(&frames) && frames % 20 == 0 {
+            eprintln!(
+                "STATE t={frames} mode={:?} takeoff={:?} alt={}",
+                state.mode,
+                nav.as_ref().and_then(|n| n.takeoff_state()),
+                nav.as_ref().map_or(0, |n| n.altitude)
+            );
+        }
         let arrived = options.capture_planet.is_some()
             && options.smoke_frames.is_none()
             && nav.as_ref().is_some_and(|nav| !nav.autopilot_engaged());
@@ -11866,6 +11917,27 @@ fn station_repairs(state: &Flight, scene: Option<&ModelViewer>) -> Vec<station::
         &date(state.service_days[0]),
         &date(state.service_days[1]),
     )
+}
+
+/// The route marked on the enhanced map (`enhancement-12`), whether the map is open or was
+/// closed on it (it is parked for the system the player is still in): the stops, in order.
+fn marked_route(
+    open: &Option<ffe_rs::enhanced_map::EnhancedMap>,
+    parked: &Option<([i32; 3], ffe_rs::enhanced_map::EnhancedMap)>,
+    home: Option<[i32; 3]>,
+) -> Option<Vec<(u32, [i32; 3])>> {
+    let map = open.as_ref().or_else(|| {
+        parked
+            .as_ref()
+            .filter(|(at, _)| Some(*at) == home)
+            .map(|(_, map)| map)
+    })?;
+    (!map.route.is_empty()).then(|| {
+        map.route
+            .iter()
+            .map(|waypoint| (waypoint.code, waypoint.position))
+            .collect()
+    })
 }
 
 fn main() {

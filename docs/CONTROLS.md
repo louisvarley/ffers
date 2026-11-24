@@ -65,7 +65,7 @@ right button is the steering hold. The left button remains the console pointer
 | Hyperspace to the chosen destination (also after the map closes) | **H**, or the jump icon on the ship diagram (F1116's record 0x45, shown when the destination is in range with the fuel and the ship is at least 12,000 km out) |
 | Engines on/off in flight (F1056's action 9; cancels the autopilot when it is flying; switching on engages it on a locked target) | Click either engine nozzle on the ship diagram |
 | Re-centre the galaxy map | **C** |
-| Enhanced galaxy map (launcher toggle): add or remove a route star / pan / zoom / fly the route / clear the route | **click a star** (again to remove it; **X** also adds the selected star) / **arrow keys** or **right-drag** (Shift slows the arrows) / **mouse wheel**, **Page Up/Down** or **+/-** / **H** flies every leg as one long jump / **Backspace**; **Home** or **C** recentres, and hovering a star says whether it is inhabited, how dangerous it is, and whether it has a station or port |
+| Enhanced galaxy map (launcher toggle): add or remove a route star / pan / zoom / fly the route / clear the route | **click a star** (a far one plots a course through other stars; click again to remove it and its stops; **X** does the same for the selected star) / **arrow keys** or **right-drag** (Shift slows the arrows) / **mouse wheel**, **Page Up/Down** or **+/-** / **H** flies every leg as one long jump / **Backspace**; **Home** or **C** recentres, and hovering a star says whether it is populated (green) or unpopulated (red) and, if populated, how dangerous it is, plus the fuel a jump there needs |
 | Map page (while the map is open): controls / system map / system description / star sky | **F5 / F6 / F7 / F8** (the icons on the console row do the same; F7 needs a selected star, and a click on a body of its diagram shows that body's facts) |
 | System map (F6 on the map: this system; **N** or **R** with a star selected: that star's system) | Click a body to target it, **T** then click to autopilot to it, click the arrows at the lower right or hold **Left/Right** to move the time point, right-drag to turn, **F11/F12** or Page Up/Down to zoom, **C** centres on the picked body, **Home** the star, **F6**/**Delete** back to now; **F5**, **F7-F10** return to the map's own pages |
 | Map page: economy / people; zoom in / out (the sky's zoom in picture mode) | **F9 / F10; F11 / F12** |
@@ -82,6 +82,7 @@ right button is the steering hold. The left button remains the console pointer
 | Save / load newest snapshot | **F5** / **Shift+F5** |
 | Change ship | **Page Up / Page Down** |
 | Docked rows / actions | **Up/Down**, **Enter**, **1**..**4**, **Backspace**, **B**/**N** trade |
+| Scroll a station list (market, shipyard, outfitting...): one row up / down | the **up / down arrows** on the list (original), or **Up / Down** keys; with the launcher's *Mouse-wheel scrolling in station lists* on, the **mouse wheel** too |
 | Journal / communications pages (docked) | **J** / **C** (port pages; the original journal is the ship library's viewer and the comms list is `F343`'s; see `docs/notes/missions.md`) |
 | Quit from the preference pages | click `Quit`, or select it and press Enter |
 

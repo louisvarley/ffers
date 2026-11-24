@@ -11,7 +11,7 @@ the dashboard first, then regenerate or edit this page to match.
 
 ## Summary
 
-**0 of 243 work items are open: 0 in progress, 0 not started.** The foundation,
+**0 of 244 work items are open: 0 in progress, 0 not started.** The foundation,
 model-engine, visible-slice and audio milestones are complete (45 items).
 
 | Area | Open | In progress | Not started | Done / total |
@@ -26,8 +26,8 @@ model-engine, visible-slice and audio milestones are complete (45 items).
 | Saves | 0 | 0 | 0 | 25/25 |
 | Classic split cleanup | 0 | 0 | 0 | 2/2 |
 | Release and sign-off | 0 | 0 | 0 | 7/7 |
-| Enhancements | 0 | 0 | 0 | 12/12 |
-| **Total** | **0** | **0** | **0** | **243 / 243** |
+| Enhancements | 0 | 0 | 0 | 13/13 |
+| **Total** | **0** | **0** | **0** | **244 / 244** |
 
 ## Critical path
 
@@ -143,4 +143,5 @@ Optional, toggleable improvements — each a launcher toggle, save-safe and mid-
 - [x] `enhancement-9` NPC relative speed (selected NPC shows relative speed + hull + shield)
 - [x] `enhancement-10` Combat Targeting Computer (dashboard button, list of local ships, auto target)
 - [x] `enhancement-11` Edge target indicator (arrow/bar for out-of-view target)
-- [x] `enhancement-12` Enhanced galaxy map (flat 2D starfield, click-to-route, arrow/right-drag pan, wheel zoom, hover info (inhabited, danger, station), lines to Sol and home, one long route jump) - behind `enhancement.enhanced_galaxy_map` (EXP-048); off keeps the original 3D `GalaxyMap` unchanged.
+- [x] `enhancement-12` Enhanced galaxy map (flat 2D starfield, click-to-route, arrow/right-drag pan, wheel zoom, hover info (populated, danger), lines to Sol and home, one long route jump) - behind `enhancement.enhanced_galaxy_map` (EXP-048); off keeps the original 3D `GalaxyMap` unchanged.
+- [x] `enhancement-14` Mouse-wheel scrolling in station lists - behind `enhancement.list_scroll` (EXP-050); the down arrow is now the original's one-row scroll.
