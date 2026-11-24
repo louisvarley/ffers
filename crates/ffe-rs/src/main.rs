@@ -44,6 +44,9 @@ const WINDOW_TITLE: &str = "FFE-RS 0.9 - Depth-order helpers, experimental fligh
 /// How long a shot's beam stays drawn: one frame of the original at about 18
 /// frames a second.
 const BEAM_HOLD_SECONDS: f64 = 1.0 / 18.0;
+/// How long F908's hyperspace sample (`HYPE.RAW`, 94,140 samples at 22.05 kHz) plays, a little
+/// under, so a replay joins the end of the last one (`enhancement-12`).
+const HYPERSPACE_SAMPLE_SECONDS: f64 = 4.0;
 /// F1088's set speed for a ship leaving a station's slot (`player+0x1b8`).
 const STATION_LAUNCH_SET_SPEED: i32 = 0xb5d;
 const LAUNCH_LIFT_HINT: &str = "Launch permission granted: moving into the lift.";
@@ -1442,6 +1445,9 @@ fn run() -> Result<(), String> {
     // The galaxy map's state and the tables it reads (cache v21 to v25).
     let mut galaxy: Option<GalaxyMap> = None;
     let mut map_drag: Option<(i32, i32)> = None;
+    // The enhanced (flat) galaxy map (`enhancement-12`) and its right-drag pan.
+    let mut enhanced_map: Option<ffe_rs::enhanced_map::EnhancedMap> = None;
+    let mut enhanced_drag: Option<(i32, i32)> = None;
     // The map's `DATA_005100` page selection (F834/F840). Reset when the map opens.
     let mut map_console = ffe_rs::console::MapConsole::default();
     // The page the map's F7-F10 icons show over the map (F842/F843): the body
@@ -1489,11 +1495,21 @@ fn run() -> Result<(), String> {
     // cannot produce a jump; the accumulator is `DATA_009188`.
     let mut mouse_point: Option<(i32, i32)> = None;
     let mut right_was_down = false;
+    // Whether the OS cursor is hidden for Classic relative-mouse steering.
+    let mut cursor_hidden = false;
     let mut mouse_accumulator = input::MouseAccumulator::default();
     // The console's time acceleration step (0 = 1x .. 4 = 10000x).
     let mut acceleration = 0usize;
     // The jump under way (F908's mode 4), for F1094's arrival.
     let mut in_transit: Option<ffe_rs::navigation::Jumped> = None;
+    // The multi-step route (`enhancement-12`) `H` is about to fly as one jump, and
+    // the seconds until the hyperspace sound is played again (a long transit
+    // outlasts the one sample).
+    let mut route_legs: Vec<ffe_rs::enhanced_map::Waypoint> = Vec::new();
+    let mut hyperspace_sound_left = 0.0f64;
+    // The enhanced map's hover: the last hovered star and its station/port note.
+    let mut hover_code: Option<u32> = None;
+    let mut hover_note: Option<String> = None;
     // F2's status/equipment page (`F1120`, `DATA_008871 & 8`).
     let mut status_page = false;
     // F5's console icon (action 0xf5): the parked ship's engines/equipment page. Off by
@@ -1562,6 +1578,8 @@ fn run() -> Result<(), String> {
     let mut station_eye = false;
     // The galaxy map while it is closed, with the system it was opened in.
     let mut parked_galaxy = None;
+    // The enhanced (flat) map while it is closed, with the system it was opened in.
+    let mut parked_enhanced = None;
     let mut model_viewer: Option<ModelViewer> = None;
     // F1104/F917: the game-over screen. The death stream starts it from its own
     // destruction event; the current F953 path below uses the same API.
@@ -2185,6 +2203,24 @@ fn run() -> Result<(), String> {
             dy: if mouse_pressed { 0 } else { mouse_dy },
         };
         mouse_accumulator.update(mouse_steer);
+        // Classic relative-mouse steering: hide the cursor and re-centre it each
+        // held frame so it cannot reach the window edge and stop the turn. The
+        // cursor is restored as soon as the hold (or Classic) ends.
+        let capture_mouse =
+            !prefs.modern && right_down && state.mode == ffe_rs::flight::Mode::Flight;
+        if capture_mouse {
+            if !cursor_hidden {
+                window.set_cursor_visibility(false);
+                cursor_hidden = true;
+            }
+            window.warp_cursor_to_center();
+            // The next frame measures from the warped centre, not the pre-warp
+            // point, so the re-centre must not read as a mouse jump.
+            mouse_point = Some((160, 79));
+        } else if cursor_hidden {
+            window.set_cursor_visibility(true);
+            cursor_hidden = false;
+        }
         // Persist every applied preference page in one atomic versioned file.
         // Full-screen stays session-only and is deliberately not written.
         let next_config = config_from_prefs(&prefs, &stored_config);
@@ -2274,6 +2310,17 @@ fn run() -> Result<(), String> {
                     // F908's mode 4: the clock runs at the hyperspace rate until
                     // the arrival time, which ends the transit (F1066/F1094).
                     transit_over = nav.transit_step(&cache, elapsed);
+                    // enhancement-12: the original plays its one sample at the start of
+                    // a jump; a longer transit (a route, a far star) plays it again
+                    // until the last second, so the sound lasts as long as the tunnel.
+                    if enhancements.enhanced_galaxy_map {
+                        hyperspace_sound_left -= elapsed;
+                        let real_left = nav.transit.map_or(0.0, |t| t.real_seconds_left());
+                        if hyperspace_sound_left <= 0.0 && real_left > 1.0 {
+                            sound.play(Cue::Hyperspace);
+                            hyperspace_sound_left = HYPERSPACE_SAMPLE_SECONDS;
+                        }
+                    }
                     let step = clock_before.map_or(0.0, |before| nav.clock - before);
                     event_seconds = state
                         .combat
@@ -2859,6 +2906,7 @@ fn run() -> Result<(), String> {
         let npc_capsule_click = enhancements.npc_labels
             && state.mode == ffe_rs::flight::Mode::Flight
             && galaxy.is_none()
+            && enhanced_map.is_none()
             && system_map.is_none()
             && click_point.is_some_and(|(x, y)| ffe_rs::combat_computer::npc_button_hit(x, y));
         let console_click = console_click.filter(|_| !npc_capsule_click);
@@ -2949,9 +2997,9 @@ fn run() -> Result<(), String> {
             && model_viewer.is_none()
         {
             let map_open = nav.as_ref().is_some_and(|nav| nav.view != NavView::Closed);
-            let map_owned = nav
-                .as_ref()
-                .is_some_and(|nav| map_keys::owns_keys(nav.view, galaxy.is_some()));
+            let map_owned = nav.as_ref().is_some_and(|nav| {
+                map_keys::owns_keys(nav.view, galaxy.is_some() || enhanced_map.is_some())
+            });
             let other_screen = pressed(Key::F1)
                 || pressed(Key::F2)
                 || pressed(Key::F4)
@@ -2961,6 +3009,9 @@ fn run() -> Result<(), String> {
                     nav.view = NavView::Closed;
                     if let (Some(map), Some(home)) = (galaxy.take(), nav.current_position()) {
                         parked_galaxy = Some((home, map));
+                    }
+                    if let (Some(map), Some(home)) = (enhanced_map.take(), nav.current_position()) {
+                        parked_enhanced = Some((home, map));
                     }
                 }
             }
@@ -3023,7 +3074,7 @@ fn run() -> Result<(), String> {
             // system map is showing: it must not also swap the console's page.
             && !nav
                 .as_ref()
-                .is_some_and(|nav| map_keys::owns_keys(nav.view, galaxy.is_some()))
+                .is_some_and(|nav| map_keys::owns_keys(nav.view, galaxy.is_some() || enhanced_map.is_some()))
         {
             // F1056's action 0xf5 swaps F1117's normal page and F1120's engines-off page.
             engines_page = !engines_page;
@@ -3141,10 +3192,9 @@ fn run() -> Result<(), String> {
         // map-local and the port's global save, view, screenshot and viewer
         // keys are not run; everywhere else they are unchanged. See `map_keys`
         // and docs/notes/galaxy-map.md.
-        let map_page_open = nav
-            .as_ref()
-            .is_some_and(|nav| map_keys::owns_keys(nav.view, galaxy.is_some()))
-            && model_lab.is_none()
+        let map_page_open = nav.as_ref().is_some_and(|nav| {
+            map_keys::owns_keys(nav.view, galaxy.is_some() || enhanced_map.is_some())
+        }) && model_lab.is_none()
             && model_viewer.is_none();
         if let Some(click) = console_click {
             if let Some(note) = click.unported() {
@@ -3347,38 +3397,68 @@ fn run() -> Result<(), String> {
                 }
                 // The galaxy map (the original's F3 screen) stands in for the system list.
                 if nav.view == NavView::Galaxy {
-                    if galaxy.is_none() && sector_tables.is_some() {
+                    if sector_tables.is_some() {
                         if let Some(home) = nav.current_position() {
-                            // The map reopens where it was left (its camera and
-                            // selection persist in the player's data), unless the
-                            // ship has jumped since.
-                            galaxy = match parked_galaxy.take() {
-                                Some((at, map)) if at == home => Some(map),
-                                _ => Some(GalaxyMap::new(home, nav.reach().unwrap_or(0))),
-                            };
+                            if enhancements.enhanced_galaxy_map {
+                                // The enhanced (flat) map reopens where it was left.
+                                if enhanced_map.is_none() {
+                                    enhanced_map = match parked_enhanced.take() {
+                                        Some((at, map)) if at == home => Some(map),
+                                        _ => Some(ffe_rs::enhanced_map::EnhancedMap::new(
+                                            home,
+                                            nav.reach().unwrap_or(0),
+                                        )),
+                                    };
+                                }
+                            } else if galaxy.is_none() {
+                                // The original 3D map reopens where it was left (its
+                                // centre, zoom and selection persist), unless the ship
+                                // has jumped since. Its rotation is levelled: the owner
+                                // found a persisted turn disorienting ("the map rotates
+                                // around when I come back").
+                                galaxy = match parked_galaxy.take() {
+                                    Some((at, mut map)) if at == home => {
+                                        map.spin = [0, 0];
+                                        Some(map)
+                                    }
+                                    _ => Some(GalaxyMap::new(home, nav.reach().unwrap_or(0))),
+                                };
+                            }
                             // F834: a fresh map page with the map icon lit.
                             map_console = ffe_rs::console::MapConsole::default();
                             map_page = None;
                         }
                     }
-                } else if let Some(map) = galaxy.take() {
-                    map_page = None;
-                    if let Some(home) = nav.current_position() {
-                        parked_galaxy = Some((home, map));
+                } else {
+                    if let Some(map) = galaxy.take() {
+                        map_page = None;
+                        if let Some(home) = nav.current_position() {
+                            parked_galaxy = Some((home, map));
+                        }
+                    }
+                    if let Some(map) = enhanced_map.take() {
+                        if let Some(home) = nav.current_position() {
+                            parked_enhanced = Some((home, map));
+                        }
                     }
                 }
-                if galaxy.is_none() || nav.view != NavView::Galaxy {
+                if (galaxy.is_none() && enhanced_map.is_none()) || nav.view != NavView::Galaxy {
                     system_map = None;
                     system_map_source = None;
                 }
                 // F840's F6 (this system, F966) and `n`/`r` (the selected star's
-                // system, F974) open the original's 3D system map.
-                if let (Some(map), true, true) = (galaxy.as_ref(), active, system_map.is_none()) {
+                // system, F974) open the original's 3D system map. The selected
+                // star comes from whichever map is showing (3D or enhanced).
+                if active && system_map.is_none() && nav.view == NavView::Galaxy {
+                    let map_selected = galaxy
+                        .as_ref()
+                        .and_then(|map| map.selected.clone())
+                        .or_else(|| enhanced_map.as_ref().and_then(|map| map.selected.clone()));
                     let home = pressed(Key::F6)
                         || console_click.and_then(map_keys::click) == Some(MapAction::Select);
                     let remote = (pressed(Key::N) || pressed(Key::R)) && map_page.is_none();
-                    if home || (remote && map.selected.is_some()) {
-                        let selected = map.selected.clone().filter(|_| !home);
+                    if home || (remote && map_selected.is_some()) {
+                        let selected = map_selected.filter(|_| !home);
                         let built = match &selected {
                             Some(star) if star.code != nav.current_system_code() => {
                                 ffe_rs::navigation::map_entry(
@@ -3821,12 +3901,152 @@ fn run() -> Result<(), String> {
                         map_drag = None;
                     }
                 }
+                // The enhanced (flat) map's own controls (`enhancement-12`):
+                // right-drag pans, the wheel zooms, X adds a route waypoint and
+                // Home/C recentre on the current system.
+                if let Some(map) = enhanced_map.as_mut().filter(|_| !sysmap_open) {
+                    let point = inp
+                        .get_unscaled_mouse_pos(MouseMode::Pass)
+                        .and_then(|(x, y)| {
+                            display::logical_point(&prefs.display, x, y, inp.get_size())
+                        });
+                    // Right-drag pans the map (drag right: view moves right).
+                    if active && inp.get_mouse_down(MouseButton::Right) {
+                        if let (Some(before), Some(now)) = (enhanced_drag, point) {
+                            let units_per_pixel = 1.0 / map.zoom;
+                            let dx = (now.0 - before.0) as f64 * units_per_pixel;
+                            let dy = (now.1 - before.1) as f64 * units_per_pixel;
+                            map.pan((-dx).round() as i32, dy.round() as i32);
+                        }
+                        enhanced_drag = point;
+                    } else {
+                        enhanced_drag = None;
+                    }
+                    // The wheel zooms (scroll up zooms in).
+                    if let Some((_, y)) = inp.get_scroll_wheel() {
+                        if y != 0.0 {
+                            map.zoom_by(if y > 0.0 { 1.25 } else { 0.8 });
+                        }
+                    }
+                    // The arrow keys pan the view the way they do on the 3D map (Right looks
+                    // further right; Shift slows them), and Page Up/Down or +/- zoom it.
+                    {
+                        let held = |key| inp.is_key_down(key);
+                        let slow = held(Key::LeftShift) || held(Key::RightShift);
+                        let rate = if slow { 0.25 } else { 1.0 };
+                        let step = 110.0 * rate * elapsed;
+                        let (mut right, mut up) = (0.0, 0.0);
+                        if held(Key::Left) {
+                            right -= step;
+                        }
+                        if held(Key::Right) {
+                            right += step;
+                        }
+                        if held(Key::Up) {
+                            up += step;
+                        }
+                        if held(Key::Down) {
+                            up -= step;
+                        }
+                        if right != 0.0 || up != 0.0 {
+                            map.pan_pixels(right, up);
+                        }
+                        if held(Key::PageUp) || held(Key::Equal) || held(Key::NumPadPlus) {
+                            map.zoom_by(1.0 + 1.5 * rate * elapsed);
+                        }
+                        if held(Key::PageDown) || held(Key::Minus) || held(Key::NumPadMinus) {
+                            map.zoom_by(1.0 / (1.0 + 1.5 * rate * elapsed));
+                        }
+                    }
+                    if pressed(Key::Home) || pressed(Key::C) {
+                        map.recentre();
+                    }
+                    // Refresh the selection after any pan, then X marks it.
+                    if let Some(tables) = sector_tables.as_ref() {
+                        map.select(tables);
+                    }
+                    // A click on a star selects it and adds it to the route; a click on
+                    // a star already on the route takes it off again.
+                    if let (Some(tables), Some((x, y))) = (
+                        sector_tables.as_ref(),
+                        point.filter(|_| {
+                            active
+                                && mouse_edge
+                                && console_click.is_none()
+                                && !inp.get_mouse_down(MouseButton::Right)
+                        }),
+                    ) {
+                        if y < ffe_rs::enhanced_map::VIEW_H {
+                            let plots = map.plots(tables);
+                            if let Some(plot) = ffe_rs::enhanced_map::hit(&plots, x, y).copied() {
+                                let name: String = scene
+                                    .as_ref()
+                                    .and_then(|viewer| viewer.system_name(plot.code))
+                                    .map(|name| name.iter().map(|b| char::from(*b)).collect())
+                                    .unwrap_or_default();
+                                map.pick(plot.code, plot.position, plot.kind);
+                                message = match map.toggle_waypoint(plot.code, plot.position) {
+                                    ffe_rs::enhanced_map::Toggled::Added => format!(
+                                        "{name} added: route of {} jump(s). Click it again to remove it; H flies the route.",
+                                        map.route.len()
+                                    ),
+                                    ffe_rs::enhanced_map::Toggled::Removed => format!(
+                                        "{name} removed: route of {} jump(s).",
+                                        map.route.len()
+                                    ),
+                                    ffe_rs::enhanced_map::Toggled::Ignored => {
+                                        format!("{name} is the system you are in.")
+                                    }
+                                };
+                            }
+                        }
+                    }
+                    if pressed(Key::X) {
+                        if let Some(selected) = map.selected.clone() {
+                            if map.remove_waypoint_from(selected.code) > 0 {
+                                // X on a waypoint removes it and everything after.
+                                message =
+                                    format!("Route shortened to {} step(s).", map.route.len());
+                            } else {
+                                map.add_waypoint(selected.code, selected.position);
+                                message = format!(
+                                    "Route: {} step(s). H to fly the route, Backspace clears it.",
+                                    map.route.len()
+                                );
+                            }
+                        } else {
+                            message =
+                                "No star is selected: centre the map on one first.".to_owned();
+                        }
+                    }
+                    if pressed(Key::Backspace) && !map.route.is_empty() {
+                        map.clear_route();
+                        message = "Route cleared.".to_owned();
+                    }
+                    if trace_flight {
+                        eprintln!(
+                            "trace map centre={:?} zoom={:.6} route={:?} selected={:?}",
+                            map.centre,
+                            map.zoom,
+                            map.route.iter().map(|w| w.code).collect::<Vec<_>>(),
+                            map.selected.as_ref().map(|s| s.code),
+                        );
+                    }
+                }
                 // F840/F832: the star nearest the map's centre is the jump
                 // destination. It is stored in the navigator (the original's
                 // `+0x25c..0x264`/`+0x27c`), not as a body lock, so `H` still jumps
                 // after the map closes. A centre with no star clears it (F837).
                 if let (Some(map), Some(tables)) = (galaxy.as_mut(), sector_tables.as_ref()) {
                     map.update_selection(tables);
+                    match map.selected.as_ref() {
+                        Some(selected) => nav.set_destination(selected.code, selected.position),
+                        None => nav.clear_destination(),
+                    }
+                } else if let (Some(map), Some(tables)) =
+                    (enhanced_map.as_mut(), sector_tables.as_ref())
+                {
+                    map.select(tables);
                     match map.selected.as_ref() {
                         Some(selected) => nav.set_destination(selected.code, selected.position),
                         None => nav.clear_destination(),
@@ -3862,7 +4082,19 @@ fn run() -> Result<(), String> {
                     && click_point.and_then(|(x, y)| ffe_rs::console::systems_click(x, y))
                         == Some(ffe_rs::console::SystemsClick::Hyperspace);
                 if pressed(Key::H) || jump_icon || console_click == Some(Click::Hyperspace) {
-                    if nav.destination.is_some() {
+                    if enhanced_map
+                        .as_ref()
+                        .is_some_and(|map| !map.route.is_empty())
+                    {
+                        // The marked route is flown as one jump: its legs run together
+                        // as a single, longer transit (the jump below).
+                        // (The route stays on the map: a refused jump leaves it to edit,
+                        // and a made one reopens the map at the new system without it.)
+                        if let Some(map) = enhanced_map.as_ref() {
+                            route_legs = map.route.clone();
+                        }
+                        hyperspace = true;
+                    } else if nav.destination.is_some() {
                         hyperspace = true;
                     } else {
                         message =
@@ -3876,10 +4108,10 @@ fn run() -> Result<(), String> {
                     // original navigation computer is a mouse list (its rows are hot
                     // areas 0xd1..0xe2), so it has no selection keys.
                     if nav.view != NavView::Places {
-                        if pressed(Key::Up) && galaxy.is_none() {
+                        if pressed(Key::Up) && galaxy.is_none() && enhanced_map.is_none() {
                             nav.step_selection(-1);
                         }
-                        if pressed(Key::Down) && galaxy.is_none() {
+                        if pressed(Key::Down) && galaxy.is_none() && enhanced_map.is_none() {
                             nav.step_selection(1);
                         }
                     }
@@ -3892,7 +4124,9 @@ fn run() -> Result<(), String> {
                         }
                     }
                     let mut enter = pressed(Key::Enter) && nav.view != NavView::Places;
-                    if let Some((x, y)) = click_point.filter(|_| galaxy.is_none()) {
+                    if let Some((x, y)) =
+                        click_point.filter(|_| galaxy.is_none() && enhanced_map.is_none())
+                    {
                         let count = nav.lines(ship_position(&original, &state)).len();
                         let row = match nav.view {
                             NavView::System => Screen::nav_row(x, y).filter(|row| *row < count),
@@ -3936,6 +4170,7 @@ fn run() -> Result<(), String> {
                         // F909 reads Left Alt's key state as the jump starts:
                         // held, the jump is a forced mis-jump.
                         let forced = inp.is_key_down(Key::LeftAlt);
+                        let mut legs_flown = 1;
                         // F908: the scripts may hold the jump (global 0xf).
                         let jump = if ffe_rs::scripts::permits(
                             &mut state,
@@ -3945,12 +4180,28 @@ fn run() -> Result<(), String> {
                             ffe_rs::scripts::veto::JUMP,
                             1,
                         ) {
-                            nav.hyperspace_to_destination_with(&cache, forced)
+                            if route_legs.is_empty() {
+                                nav.hyperspace_to_destination_with(&cache, forced)
+                            } else {
+                                // enhancement-12: every marked leg as one transit.
+                                let legs: Vec<(u32, [i32; 3])> = std::mem::take(&mut route_legs)
+                                    .into_iter()
+                                    .map(|leg| (leg.code, leg.position))
+                                    .collect();
+                                legs_flown = legs.len();
+                                nav.hyperspace_route(&cache, &legs, forced)
+                            }
                         } else {
+                            route_legs.clear();
                             Err(String::new())
                         };
                         match jump {
                             Ok(jumped) => {
+                                // enhancement-12: a long jump or a whole route plays a
+                                // longer tunnel and sound, by the distance flown.
+                                if enhancements.enhanced_galaxy_map {
+                                    nav.stretch_transit(jumped.distance, legs_flown);
+                                }
                                 // F912: at the arrival point with no velocity
                                 // and no set speed; F1030 holds it there. The
                                 // jump ends any autopilot (F909 cleared the
@@ -3967,6 +4218,7 @@ fn run() -> Result<(), String> {
                                 );
                                 // F908's sample `0x21`.
                                 sound.play(Cue::Hyperspace);
+                                hyperspace_sound_left = HYPERSPACE_SAMPLE_SECONDS;
                                 let lost = apply_misjump(
                                     &jumped,
                                     &mut state,
@@ -4022,6 +4274,7 @@ fn run() -> Result<(), String> {
                         && !status_page
                         && !prefs.open
                         && galaxy.is_none()
+                        && enhanced_map.is_none()
                         && system_map.is_none();
                     let mut npc_click_consumed = false;
                     if npc_targeting {
@@ -9165,6 +9418,7 @@ fn run() -> Result<(), String> {
             && !prefs.open
             && nav.as_ref().is_some_and(|nav| nav.view == NavView::Closed)
             && galaxy.is_none()
+            && enhanced_map.is_none()
             && system_map.is_none();
         // The button is part of the dashboard, so it also shows over the navigation computer's
         // places list (a click there closes that list and opens ours).
@@ -9175,6 +9429,7 @@ fn run() -> Result<(), String> {
                 .as_ref()
                 .is_some_and(|nav| matches!(nav.view, NavView::Closed | NavView::Places))
             && galaxy.is_none()
+            && enhanced_map.is_none()
             && system_map.is_none();
         let npc_view_still = npc_flight && combat_labels_view == Some(views.mode);
         if let Some(nav) = nav.as_mut() {
@@ -9307,6 +9562,7 @@ fn run() -> Result<(), String> {
             });
         }
         screen.galaxy = None;
+        screen.enhanced_galaxy = None;
         screen.system_map = None;
         screen.map_console = map_console;
         if let (Some(sm), Some(nav)) = (system_map.as_ref(), nav.as_ref()) {
@@ -9353,6 +9609,55 @@ fn run() -> Result<(), String> {
                 }
                 Err(error) => message = format!("Map error: {error}"),
             }
+        }
+        if let (Some(map), Some(tables), Some(viewer), Some(nav)) = (
+            enhanced_map.as_mut(),
+            sector_tables.as_ref(),
+            scene.as_ref(),
+            nav.as_ref(),
+        ) {
+            let mouse = inp
+                .get_unscaled_mouse_pos(MouseMode::Pass)
+                .and_then(|(x, y)| display::logical_point(&prefs.display, x, y, inp.get_size()));
+            // The hovered star's station/port note, generated lazily (only when
+            // the mouse moves onto a different star).
+            let mut station_note = |plot: &ffe_rs::enhanced_map::Plot| {
+                if hover_code != Some(plot.code) {
+                    hover_code = Some(plot.code);
+                    hover_note =
+                        ffe_rs::navigation::map_entry(&cache, plot.code, plot.position, plot.kind)
+                            .ok()
+                            .and_then(|entry| {
+                                let created = ffe_rs::navigation::clock_words(nav.clock);
+                                ffe_rs::navigation::bodies_since(&cache, &entry, created, created)
+                                    .ok()
+                            })
+                            .map(|bodies| {
+                                if bodies.iter().any(|body| body.kind.is_place()) {
+                                    "Has a station or port".to_owned()
+                                } else {
+                                    "No station or port".to_owned()
+                                }
+                            });
+                }
+                hover_note.clone()
+            };
+            let mut context = ffe_rs::enhanced_map::SceneContext {
+                sectors: tables,
+                systems: system_details.as_ref(),
+                name_of: &|code| {
+                    viewer
+                        .system_name(code)
+                        .map(|name| name.iter().map(|b| char::from(*b)).collect())
+                },
+                string_of: &|selector| viewer.system_string(selector),
+                report_for: &|distance| nav.report_for(distance),
+                drive_fuel: nav.drive.map_or(0, |drive| drive.fuel),
+                date: nav.date_text(),
+                mouse,
+                station_note: &mut station_note,
+            };
+            screen.enhanced_galaxy = Some(ffe_rs::enhanced_map::scene(map, &mut context));
         }
         screen.dock = None;
         screen.ship_view = None;
@@ -10683,6 +10988,7 @@ fn run() -> Result<(), String> {
                 && state.mode == ffe_rs::flight::Mode::Flight
                 && nav.view != NavView::Closed
                 && galaxy.is_none()
+                && enhanced_map.is_none()
         }) {
             let ship = original
                 .as_ref()

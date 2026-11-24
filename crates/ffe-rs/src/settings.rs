@@ -66,11 +66,13 @@ pub struct Enhancements {
     pub npc_labels: bool,
     /// `enhancement-11`: an edge indicator points at an off-screen target.
     pub edge_indicator: bool,
+    /// `enhancement-12`: the enhanced (flat) galaxy map with multi-step routes.
+    pub enhanced_galaxy_map: bool,
 }
 
 impl Enhancements {
     /// The `enhancement.<name>` key suffixes, in item order.
-    pub const KEYS: [&'static str; 11] = [
+    pub const KEYS: [&'static str; 12] = [
         "turrets_paused",
         "missile_launch",
         "autopilot_waypoint",
@@ -82,6 +84,7 @@ impl Enhancements {
         "npc_speed",
         "npc_labels",
         "edge_indicator",
+        "enhanced_galaxy_map",
     ];
 
     /// The field at `index` in [`Self::KEYS`] order.
@@ -98,6 +101,7 @@ impl Enhancements {
             8 => &mut self.npc_speed,
             9 => &mut self.npc_labels,
             10 => &mut self.edge_indicator,
+            11 => &mut self.enhanced_galaxy_map,
             _ => return None,
         })
     }
@@ -125,7 +129,7 @@ impl Enhancements {
     }
 
     /// Every field in [`Self::KEYS`] order.
-    fn values(&self) -> [bool; 11] {
+    fn values(&self) -> [bool; 12] {
         [
             self.turrets_paused,
             self.missile_launch,
@@ -138,6 +142,7 @@ impl Enhancements {
             self.npc_speed,
             self.npc_labels,
             self.edge_indicator,
+            self.enhanced_galaxy_map,
         ]
     }
 }

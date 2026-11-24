@@ -506,6 +506,30 @@ impl GameWindow {
     pub fn is_active(&mut self) -> bool {
         self.window.is_active()
     }
+
+    /// Hide or show the OS cursor. The Classic preset hides it while the right
+    /// button steers the ship, and restores it as soon as the hold ends.
+    pub fn set_cursor_visibility(&mut self, visible: bool) {
+        self.window.set_cursor_visibility(visible);
+    }
+
+    /// Re-centre the OS cursor in the window (Windows only; the release target).
+    /// Classic mouse steering calls this each held frame so the cursor cannot
+    /// reach the window edge and stop the turn.
+    #[cfg(windows)]
+    pub fn warp_cursor_to_center(&self) {
+        use winapi::um::winuser::SetCursorPos;
+        let (x, y) = self.window.get_position();
+        let (width, height) = self.window.get_size();
+        let cx = x + width as isize / 2;
+        let cy = y + height as isize / 2;
+        unsafe {
+            SetCursorPos(cx as i32, cy as i32);
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub fn warp_cursor_to_center(&self) {}
 }
 
 /// Open the game window. `minifb`'s scale is left at 1x and its stretch mode is

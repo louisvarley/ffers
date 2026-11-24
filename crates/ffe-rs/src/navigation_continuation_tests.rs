@@ -303,6 +303,7 @@ fn malformed_continuation_records_are_rejected() {
     nav.transit = Some(Transit {
         remaining: 5.0,
         total: 10.0,
+        stretch: 1.0,
     });
     nav.schedule_deadline(1, 3);
     nav.crossed = vec![1, 2];

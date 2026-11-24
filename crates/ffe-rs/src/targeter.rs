@@ -99,21 +99,19 @@ pub const ACQUIRE_DISTANCE: i32 = 6;
 
 /// `enhancement-11`'s inset from the view edges, in pixels.
 pub const EDGE_MARGIN: i32 = 4;
-/// The arrow's overall length, from tip to tail, in pixels.
-pub const EDGE_LENGTH: f64 = 24.0;
-/// The arrowhead's depth and half-width.
+/// The triangle's depth (tip to base) and half-width, in pixels. `enhancement-11`
+/// draws a small triangle in the target's colour, not the original's long
+/// shafted arrow.
 pub const EDGE_HEAD: f64 = 12.0;
-pub const EDGE_HEAD_HALF_WIDTH: f64 = 10.0;
-/// The shaft's half-width.
-pub const EDGE_SHAFT_HALF_WIDTH: f64 = 4.0;
+pub const EDGE_HEAD_HALF_WIDTH: f64 = 7.0;
 
-/// `enhancement-11`: a screen-edge arrow that points at a target outside the
-/// flight view: a solid arrow (head and shaft) as seven corners, tip first and
-/// then round the outline. The corners are fractional; the screen smooths them.
+/// `enhancement-11`: a screen-edge triangle that points at a target outside the
+/// flight view: the tip and its two base corners. The corners are fractional;
+/// the screen smooths them.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct EdgeIndicator {
     pub colour: u8,
-    pub points: [(f64, f64); 7],
+    pub points: [(f64, f64); 3],
 }
 
 impl EdgeIndicator {
@@ -158,17 +156,12 @@ pub fn edge_indicator(enabled: bool, point: [f64; 3], colour: u8) -> Option<Edge
     let length = (dx * dx + dy * dy).sqrt();
     let (ux, uy) = (dx / length, dy / length);
     let (px, py) = (-uy, ux);
-    // Corners as (distance back from the tip, sideways): the head's two
-    // wings and notches, then the tail.
+    // The triangle: the tip on the edge, and the two base corners behind it.
     let corner =
         |back: f64, side: f64| (tip.0 - ux * back + px * side, tip.1 - uy * back + py * side);
     let mut points = [
         corner(0.0, 0.0),
         corner(EDGE_HEAD, EDGE_HEAD_HALF_WIDTH),
-        corner(EDGE_HEAD, EDGE_SHAFT_HALF_WIDTH),
-        corner(EDGE_LENGTH, EDGE_SHAFT_HALF_WIDTH),
-        corner(EDGE_LENGTH, -EDGE_SHAFT_HALF_WIDTH),
-        corner(EDGE_HEAD, -EDGE_SHAFT_HALF_WIDTH),
         corner(EDGE_HEAD, -EDGE_HEAD_HALF_WIDTH),
     ];
     // Slide the whole arrow in so no corner leaves the inset view (a target
@@ -660,24 +653,21 @@ mod tests {
     fn the_edge_indicator_points_at_the_right_edge() {
         let arrow = edge_indicator(true, [4.0, 0.0, 1.0], COMBAT_COLOUR).unwrap();
         assert_eq!(arrow.colour, COMBAT_COLOUR);
-        // Far right, vertically centred: the tip is on the inset right edge and the tail is
-        // behind it, to its left.
+        // Far right, vertically centred: the tip is on the inset right edge and the
+        // triangle's base is behind it, to its left.
         let tip = arrow.tip();
         assert!((tip.0 - f64::from(160 + 160 - EDGE_MARGIN)).abs() < 0.5);
         assert!((tip.1 - 79.0).abs() < 1.0);
-        assert!((arrow.points[3].0 - (tip.0 - EDGE_LENGTH)).abs() < 0.5);
-        // The head is wider than the shaft and `EDGE_HEAD` deep.
+        // The base corners sit `EDGE_HEAD` back, spread `EDGE_HEAD_HALF_WIDTH` wide.
         assert!((arrow.points[1].0 - (tip.0 - EDGE_HEAD)).abs() < 0.5);
-        assert!(
-            (arrow.points[1].1 - arrow.points[6].1).abs()
-                > (arrow.points[2].1 - arrow.points[5].1).abs()
-        );
+        assert!((arrow.points[2].0 - (tip.0 - EDGE_HEAD)).abs() < 0.5);
+        assert!((arrow.points[1].1 - arrow.points[2].1).abs() > 0.0);
         // Above the view: the tip is on the top edge.
         let up = edge_indicator(true, [0.0, 4.0, 1.0], NAVIGATION_COLOUR).unwrap();
         assert!((up.tip().1 - f64::from(EDGE_MARGIN)).abs() < 0.5);
         assert!((up.tip().0 - 160.0).abs() < 1.0);
-        // Behind the eye with no side, and towards each view corner, every corner of the arrow
-        // stays inside the view.
+        // Behind the eye with no side, and towards each view corner, every corner of the
+        // triangle stays inside the view.
         for point in [
             [0.0, 0.0, -1.0],
             [9.0, 7.0, 1.0],

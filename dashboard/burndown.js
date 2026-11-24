@@ -16,7 +16,7 @@
 window.FFE_BURNDOWN = {
   project: "ffe-rs",
   unit: "work items",
-  updated: "2026-11-21",
+  updated: "2026-11-23",
   milestones: [
     {
       id: "parity-audit",
@@ -362,7 +362,8 @@ window.FFE_BURNDOWN = {
         { id: "enhancement-8", title: "ECM can disable NN500 missiles", status: "done" },
         { id: "enhancement-9", title: "NPC relative speed (selected NPC shows relative speed + hull + shield)", status: "done" },
         { id: "enhancement-10", title: "Combat Targeting Computer (dashboard button, list of local ships, auto target)", status: "done" },
-        { id: "enhancement-11", title: "Edge target indicator (arrow/bar for out-of-view target)", status: "done" }
+        { id: "enhancement-11", title: "Edge target indicator (arrow/bar for out-of-view target)", status: "done" },
+        { id: "enhancement-12", title: "Enhanced galaxy map (flat 2D map, click-to-route, arrow/right-drag pan, wheel zoom, hover info (inhabited, danger, station), lines to Sol and home, one long route jump)", status: "done" }
       ]
     }
   ],
@@ -1763,6 +1764,16 @@ window.FFE_BURNDOWN = {
       date: "2026-11-21",
       remaining: 0,
       note: "release-7 closed: the owner has signed off the like-for-like parity. The burndown reaches zero — all 242 work items are done. Any further issues will be raised as new bugs. Total 242; done 242, remaining 0."
+    },
+    {
+      date: "2026-11-23",
+      remaining: 0,
+      note: "Owner request: fix the 'Fuel Required but can't jump' gap and add the enhanced galaxy map. (1) The original's procedural galaxy is honoured: hyperspace_to_destination_with now generates any in-range system on demand (navigation::generated_entry, the F832 path the system map already uses), jump_possible is the destination's range/fuel report, and from_save regenerates a saved system the fixed offer list does not carry (previously such a save failed to load). (2) New enhancement-12 (enhanced_galaxy_map, off by default, EXP-048): the flat top-down map (enhanced_map module) with depth-sized dots, right-drag pan, middle-wheel zoom, hover station/port notes, a Sol direction+distance pointer, Home/C recentre and X multi-step routes with a ~5s 'Preparing hyperdrive' pause per leg. Evidence: 329 ffe-rs lib tests (4 new enhanced_map), 8/8 galaxy_map_view and 36/36 navigation cache-gated tests, both bins check, rustfmt clean. Total 243; done 243, remaining 0."
+    },
+    {
+      date: "2026-11-24",
+      remaining: 0,
+      note: "Enhanced galaxy map (enhancement-12) reworked on the owner's review; no item added or reopened. Audit fixes: the Sol pointer aimed at its sector corner (up to 80 px off) and now at the Sol star; the arrow keys stepped the hidden system list and now pan the map; labels and pointers no longer print over the legend or notes. Added: click a star to add/remove it from the route, a line to the player's own system, red unflyable route legs, hover info with a danger rating from the patrol byte F688 draws pirates from, keyboard zoom, and one long route jump (Navigator::hyperspace_route; transit stretched to the distance, hyperspace sound replayed through it). Total 243; done 243, remaining 0."
     },
   ]
 };

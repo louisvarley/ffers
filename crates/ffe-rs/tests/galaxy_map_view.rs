@@ -334,6 +334,108 @@ fn the_map_destination_and_jump_frames() {
     }
 }
 
+/// A star not among the systems on offer is still a valid jump destination:
+/// the original's galaxy is procedural, so the port generates its system on
+/// demand (F832/F860/F905) and enters it.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn a_jump_to_a_star_beyond_the_offer_generates_its_system() {
+    use ffe_rs::navigation::{DriveState, Navigator};
+    let cache =
+        ffe_content::read(&std::fs::read(std::env::var_os("FFE_WORLD_CACHE").unwrap()).unwrap())
+            .unwrap();
+    let tables =
+        ffe_core::sector::Tables::new(cache.asset("base:world/galaxy-tables").unwrap()).unwrap();
+    let mut nav = Navigator::new(&cache).unwrap();
+    let here = nav.current_position().unwrap();
+    let (sx, sy) = ((here[0] >> 16) as u16, (here[1] >> 16) as u16);
+    // A nearby star that is not one of the systems on offer.
+    let mut chosen = None;
+    'outer: for dy in -1i32..=1 {
+        for dx in -1i32..=1 {
+            if dx == 0 && dy == 0 {
+                continue;
+            }
+            let (x, y) = (sx.wrapping_add(dx as u16), sy.wrapping_add(dy as u16));
+            let stars = tables.stars(x, y);
+            for (index, star) in stars.iter().enumerate() {
+                let code = ffe_rs::galaxy_map::sector_code(x, y) | (index as u32) << 26;
+                if nav.entry_for_code(code).is_none() {
+                    chosen = Some((code, ffe_core::sector::position(x, y, &star.vector)));
+                    break 'outer;
+                }
+            }
+        }
+    }
+    let (code, position) = chosen.expect("a nearby star beyond the offer");
+    assert!(nav.entry_for_code(code).is_none());
+    nav.set_destination(code, position);
+    // A tiny ship with a big drive reaches any neighbour; the range gate is
+    // covered elsewhere, this test is for the on-demand generation.
+    nav.drive = Some(DriveState {
+        mass: 1,
+        class: 10,
+        fuel: 9999,
+    });
+    assert!(nav.jump_possible());
+    let jumped = nav.hyperspace_to_destination(&cache).unwrap();
+    nav.finish_transit(&cache);
+    assert_eq!(nav.current_code(), code);
+    assert!(nav.entry_for_code(code).is_some());
+    assert_eq!(nav.destination, None);
+    assert!(jumped.days > 0.0);
+    // The generated system also survives a save/load round trip.
+    let saved = nav.save_state();
+    let reloaded = Navigator::from_save(&cache, &saved).unwrap();
+    assert_eq!(reloaded.current_code(), code);
+}
+
+/// The enhanced (flat) map projects the local stars, selects the nearest, and
+/// measures a route, all from the real sector tables.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn the_enhanced_map_plots_stars_and_routes() {
+    use ffe_rs::enhanced_map::EnhancedMap;
+    let cache =
+        ffe_content::read(&std::fs::read(std::env::var_os("FFE_WORLD_CACHE").unwrap()).unwrap())
+            .unwrap();
+    let tables =
+        ffe_core::sector::Tables::new(cache.asset("base:world/galaxy-tables").unwrap()).unwrap();
+    let home = [
+        0x1717_6a00u32 as i32,
+        0x1524_3200u32 as i32,
+        0xffff_cc00u32 as i32,
+    ];
+    let mut map = EnhancedMap::new(home, 1000);
+    map.select(&tables);
+    assert!(map.selected.is_some());
+    let plots = map.plots(&tables);
+    assert!(!plots.is_empty(), "the local sectors have stars");
+    for plot in &plots {
+        assert!(
+            (0..320).contains(&plot.x) && (0..158).contains(&plot.y),
+            "{plot:?}"
+        );
+        assert!((1..=3).contains(&plot.size), "{plot:?}");
+    }
+    // The selection is one of the plotted stars, and the Sol pointer is fixed.
+    let selected = map.selected.as_ref().unwrap();
+    assert!(plots.iter().any(|plot| plot.code == selected.code));
+    assert_eq!(
+        map.sol().2,
+        ffe_core::sector::distance(home, ffe_rs::enhanced_map::SOL_POSITION)
+    );
+    assert!(map.range_radius() > 0);
+    // A two-step route measures two legs.
+    map.add_waypoint(plots[0].code, plots[0].position);
+    map.add_waypoint(plots[1].code, plots[1].position);
+    assert_eq!(map.legs().len(), 2);
+    assert_eq!(
+        map.legs()[0],
+        ffe_core::sector::distance(home, plots[0].position)
+    );
+}
+
 /// Scrolling picks the star nearest the centre; a long way from any star picks none.
 #[test]
 #[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]

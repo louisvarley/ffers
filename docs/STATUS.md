@@ -28,7 +28,7 @@ and reference replays and Classic uses original frame comparisons.
 ## Work list to finish the game — 2026-11-04 (handoff)
 
 This is the order to work the burndown's items in, by burndown id; the live
-counts are in [BURNDOWN.md](BURNDOWN.md) (0 of 242 open on 21 November; `release-1`
+counts are in [BURNDOWN.md](BURNDOWN.md) (0 of 243 open on 24 November; `release-1`
 closed the playthrough checkpoints — `--trade`, `--save-roundtrip` and `--jump`
 plus `verify-playthrough.py`'s nine-stage chain — `v0.48-14`
 closed the whole-frame scene oracle and `persist-4` the legacy commander replay,

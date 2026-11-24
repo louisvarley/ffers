@@ -3,10 +3,11 @@
 The port has two flight presets, chosen on the Escape pages' `Advanced Options` page
 (the source **F3** is the galaxy map, not a preset switch):
 
-- **Modern** (default): the port's own WASD/arrow scheme.
-- **Classic**: the original's scheme. **Hold the right mouse button and move the
+- **Classic** (default): the original's scheme. **Hold the right mouse button and move the
   mouse to steer**; **Enter raises the set speed** and right Shift lowers it; the
-  keyboard steering is `,`/`.` yaw, A/Z pitch and `[`/`]` roll.
+  keyboard steering is `,`/`.` yaw, A/Z pitch and `[`/`]` roll. The cursor is
+  hidden and re-centred each held frame, so steering never stops at the window edge.
+- **Modern**: the port's own WASD/arrow scheme.
 
 The routing lives in `ffe_rs::input` (`flight_controls`, `original_keys`,
 `turret_keys`, `MouseAccumulator`) and is applied in `main.rs`. It is pure and
@@ -64,6 +65,7 @@ right button is the steering hold. The left button remains the console pointer
 | Hyperspace to the chosen destination (also after the map closes) | **H**, or the jump icon on the ship diagram (F1116's record 0x45, shown when the destination is in range with the fuel and the ship is at least 12,000 km out) |
 | Engines on/off in flight (F1056's action 9; cancels the autopilot when it is flying; switching on engages it on a locked target) | Click either engine nozzle on the ship diagram |
 | Re-centre the galaxy map | **C** |
+| Enhanced galaxy map (launcher toggle): add or remove a route star / pan / zoom / fly the route / clear the route | **click a star** (again to remove it; **X** also adds the selected star) / **arrow keys** or **right-drag** (Shift slows the arrows) / **mouse wheel**, **Page Up/Down** or **+/-** / **H** flies every leg as one long jump / **Backspace**; **Home** or **C** recentres, and hovering a star says whether it is inhabited, how dangerous it is, and whether it has a station or port |
 | Map page (while the map is open): controls / system map / system description / star sky | **F5 / F6 / F7 / F8** (the icons on the console row do the same; F7 needs a selected star, and a click on a body of its diagram shows that body's facts) |
 | System map (F6 on the map: this system; **N** or **R** with a star selected: that star's system) | Click a body to target it, **T** then click to autopilot to it, click the arrows at the lower right or hold **Left/Right** to move the time point, right-drag to turn, **F11/F12** or Page Up/Down to zoom, **C** centres on the picked body, **Home** the star, **F6**/**Delete** back to now; **F5**, **F7-F10** return to the map's own pages |
 | Map page: economy / people; zoom in / out (the sky's zoom in picture mode) | **F9 / F10; F11 / F12** |
@@ -135,8 +137,8 @@ the yaw keys/axis and the pitch keys/axis, and flips the mouse x and y.
 - Switching disarms every held key and resets the mouse accumulator; a key held
   through the switch must be released and pressed again (the same rule as pause
   and focus loss).
-- The choice is stored in `saves/controls.cfg` as `modern` or `classic`
-  (`ffe_rs::settings`). A missing or malformed file falls back to Modern. The
+- The choice is stored in `saves/config.cfg` as `modern` or `classic`
+  (`ffe_rs::settings`). A missing or malformed file falls back to Classic. The
   other preference values remain session-only.
 
 ## Display (port extension)

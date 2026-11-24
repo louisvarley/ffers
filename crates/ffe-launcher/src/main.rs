@@ -929,7 +929,7 @@ struct EnhancementGroup {
     items: &'static [Enhancement],
 }
 
-const ENHANCEMENT_GROUPS: [EnhancementGroup; 4] = [
+const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
     EnhancementGroup {
         heading: "Combat & missiles",
         items: &[
@@ -1013,6 +1013,17 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 4] = [
                         out of view.",
             },
         ],
+    },
+    EnhancementGroup {
+        heading: "Galaxy map",
+        items: &[Enhancement {
+            slot: 11,
+            title: "Enhanced galaxy map",
+            about: "Replaces the 3D star map with a flat, clearer one: click stars to build a \
+                    route and fly it as one long jump, arrow-key or right-drag pan, wheel zoom, \
+                    lines pointing home and to Sol, and hover info (inhabited, safe or \
+                    dangerous, station).",
+        }],
     },
 ];
 

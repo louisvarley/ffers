@@ -48,8 +48,13 @@ mass 16) reaches 18.75 light years.
   and take-off state, then F905 regenerates the system's bodies; the scanner and the next map are rebuilt from those.
   A new game has no fuel: buy military fuel at the station's market.
 - The test systems (Test-1 to Test-4) now have codes of real sectors near Sol, so they have positions of their own.
-- Not here: the galaxy map's mouse hover pick, and the systems beyond the set on offer
-  (the 12 hand-coded ones, four test ones and a new game's start-system neighbours). Since 2026-10-26 `Navigator::new_game` offers the
+- Not here: the galaxy map's mouse hover pick. The systems beyond the set on offer
+  (the 12 hand-coded ones, four test ones and a new game's start-system neighbours)
+  **are** reachable since 2026-11-23: `hyperspace_to_destination_with` generates a
+  destination system on demand through the same F832 path the system map uses
+  (`navigation::generated_entry`), and `from_save` regenerates a saved system the fixed
+  list does not carry — the original's galaxy is procedural, so any in-range star is a
+  valid jump. Since 2026-10-26 `Navigator::new_game` offers the
   start system's real galaxy-table neighbours within 30 LY (`navigation::galaxy_around`), generated from F852/F860's
   star and F841 type word through F832's seed/mass/stars and F830/F869's name/population; Titican (4.42 LY from
   Gateway) and its station Argent are reachable, while the `--start sol` sandbox keeps the 16-entry list. F909

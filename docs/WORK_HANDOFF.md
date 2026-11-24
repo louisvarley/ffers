@@ -1,5 +1,100 @@
 # Work handoff
 
+## Active — owner request 2026-11-23: galaxy-map bugs + enhanced map (toggle-gated)
+
+**Scope (owner, new work; not an existing dashboard ID).** Two bugs on the
+galaxy map / hyperjump, then an "enhanced galaxy map" feature set added as
+launcher toggles, plus a `.md` that documents the toggle-addition workflow.
+
+**Bugs to fix first.**
+
+1. *"Fuel Required: 8t" but no jump.* **Fixed 2026-11-23.** The real gap was not a
+   misleading fuel line: the original's galaxy is fully procedural and jumps to
+   any in-range star, but the port only carried the fixed "on offer" systems and
+   refused the rest as "unexplored". `hyperspace_to_destination_with` now
+   generates a destination system on demand (`navigation::generated_entry`, the
+   same F832 path the system map uses), `jump_possible` is the destination's
+   range/fuel report (not entry presence), and `from_save` regenerates a saved
+   system the fixed list does not carry. Verified by
+   `a_jump_to_a_star_beyond_the_offer_generates_its_system` (jump + save/load
+   round trip) plus the 36 cache-gated `navigation` and 7 `galaxy_map_view` tests.
+2. *Map rotates while off-screen.* `GalaxyMap` is only live when
+   `nav.view == NavView::Galaxy` (parked otherwise), and `map.rotate` is guarded
+   by `galaxy.is_some()`; need the exact repro to confirm whether the drift is
+   (a) `spin` persisting across park/restore, (b) the left-drag rotation also
+   steering the cockpit look, or (c) `spin` i16 wrap. Record repro, then fix.
+
+**Feature (each its own toggle, off by default, save-safe; docs + DEVIATIONS + test).**
+
+- Multi-step jumps: `X` on an in-range system appends a waypoint (circle + line),
+  the chain re-plans each leg from the previous waypoint; jumping runs the whole
+  route with "Preparing hyperdrive…" and a ~5 s pause per leg, showing per-leg
+  distance and fuel-remaining.
+- Hover shows whether a system has a station/port.
+- `Home`/`C` recentre the map on the current system.
+- SOL direction + distance indicator.
+- Middle-mouse zoom; right-drag pan.
+- Rebuild the map screen to be easier to read and **drop the 3D projection**
+  (owner: "remove need to have this map be 3d").
+
+**Relevant files:** `crates/ffe-rs/src/{galaxy_map,map_keys,map_pages,system_map,
+screen,settings,navigation,main}.rs`, `crates/ffe-launcher/src/main.rs`,
+`docs/notes/{galaxy-map,hyperspace,enhancements}.md`, `docs/DEVIATIONS.md`,
+`docs/CONTROLS.md`, `dashboard/burndown.js`, `docs/README.md`.
+
+**Smallest verification:** `cargo test -p ffe-rs --lib galaxy_map` and
+`cargo test -p ffe-rs --test galaxy_map_view -- --ignored` (needs the world cache).
+
+**Status:** owner decisions in (bugs first; enhanced map = toggle replacement,
+2D with a depth-size cue, "go wild on usefulness"; `H` stays the jump key, `Home`/
+`C` recentre, `X` adds route waypoints). Bug 1 **fixed** 2026-11-23 (arbitrary
+in-range jumps generate their system on demand, save/load included; the earlier
+"Unexplored" label was wrong and reverted). `docs/notes/adding-enhancements.md`
+written and linked. **Enhanced map (`enhancement-12`) delivered 2026-11-23**: the
+`enhanced_map` module (flat top-down projection, depth-sized dots, selection,
+route legs, Sol pointer, range radius), `Screen::draw_enhanced_galaxy`, the
+`main.rs` open/input/draw/route wiring, the `~5s` "Preparing hyperdrive…"
+multi-step `X`→`H` jump, middle-wheel zoom (added `session::Frame::wheel`),
+right-drag pan, `Home`/`C` recentre and hover station/port notes. Toggle wired in
+`settings.rs` + launcher "Galaxy map" group. Evidence: 329 lib tests (4 new
+`enhanced_map`), 8/8 `galaxy_map_view` cache-gated tests (new
+`the_enhanced_map_plots_stars_and_routes`), 36/36 `navigation`, `cargo fmt
+--check` and both bins clean. **Bug 2 fixed 2026-11-23**: the 3D map's persisted
+camera rotation was disorienting; on reopen its `spin` is levelled (centre, zoom
+and selection still persist, so the map does not "rotate around" on return).
+CONTROLS.md keys and the burndown/dashboard entry for `enhancement-12` are done.
+**Map UI polish + edge indicator 2026-11-23**: dots are coloured by allegiance
+(`enhanced_map::system_marker`: Federation blue, Empire red, Alliance green,
+Independent amber; uninhabited white), inhabited + selected systems are name-
+labelled, the selected star shows its stats (faction · population · F869
+description), the Sol distance text is gone (arrow stays), the route flags a
+stranded waypoint with an amber warning triangle (uninhabited, no fuel to
+leave), `X` on a waypoint removes it and everything after
+(`remove_waypoint_from`), and the enhancement-11 edge arrow is now a small
+triangle. Evidence: 330 lib tests (targeter 14 green), 8/8 `galaxy_map_view`.
+
+**Controls audit + fix (2026-11-24, player report).** Classic routing verified
+correct against the original (18 `input` unit tests + 3 cache-gated `controls`
+integration tests pass). Two issues fixed: (1) the docs said Modern was the
+default while the code/launcher default to Classic — `docs/CONTROLS.md` and
+`CLAUDE.MD` now say **Classic (default)**, and the stale `controls.cfg` mention
+was corrected to `config.cfg`; (2) Classic mouse steering now hides the cursor
+and re-centres it each held frame (`GameWindow::set_cursor_visibility` +
+`warp_cursor_to_center`, Windows `SetCursorPos`), so it no longer stops at the
+window edge like the original's relative mickeys. 330 lib tests, `cargo fmt
+--check`, bin check clean.
+
+**Next (owner report 2026-11-23, not started):**
+- *Mars/Sol takeoff*: `L` on Mars (Sol) does not take off — the surface-launch
+  path (`begin_surface_launch` → `begin_takeoff`) reads correct; needs a repro
+  to find why the landed state is not launching there.
+- *Police never appear/attack* after offences — investigate F238/F239 police
+  spawn (`Navigator::spawn_police`, `police_launches`).
+- *Enhanced laser mode* (new toggle): first-person views (front/rear/turret)
+  draw the laser as a fixed line from the bottom to mid-reticle (Saker look);
+  third-person unchanged.
+- *Lion transport* third-person laser comes from mid-ship — gun-mount origin bug.
+
 ## Closed 2026-11-21 — `release-1` full playthrough checkpoints (accepted ~90%)
 
 **Delivered.** One checkpoint per playthrough stage, chained by

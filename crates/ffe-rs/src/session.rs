@@ -90,6 +90,8 @@ pub struct Frame {
     pub mouse: Option<(f32, f32)>,
     pub left: bool,
     pub right: bool,
+    /// The scroll wheel since the last frame (`x`, `y`); `None` for a replay.
+    pub wheel: Option<(f32, f32)>,
 }
 
 impl Frame {
@@ -105,6 +107,7 @@ impl Frame {
             mouse: window.get_unscaled_mouse_pos(MouseMode::Pass),
             left: window.get_mouse_down(MouseButton::Left),
             right: window.get_mouse_down(MouseButton::Right),
+            wheel: window.get_scroll_wheel(),
         }
     }
 
@@ -170,6 +173,11 @@ impl Frame {
             MouseButton::Right => self.right,
             MouseButton::Middle => false,
         }
+    }
+
+    /// The scroll wheel since the last frame (`x`, `y`); `None` for a replay.
+    pub fn get_scroll_wheel(&self) -> Option<(f32, f32)> {
+        self.wheel
     }
 
     pub fn get_unscaled_mouse_pos(&self, _mode: MouseMode) -> Option<(f32, f32)> {
@@ -254,6 +262,7 @@ impl Frame {
             },
             left: parts[7].contains('L'),
             right: parts[7].contains('R'),
+            wheel: None,
         })
     }
 }
@@ -456,6 +465,7 @@ mod tests {
             mouse: Some((512.5, 300.0)),
             left: true,
             right: false,
+            wheel: Some((0.0, 1.0)),
         };
         let again = Frame::parse(&frame.line()).unwrap();
         assert_eq!(again.down, frame.down);

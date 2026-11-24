@@ -52,10 +52,13 @@ For agents working on this project:
 - Use **JJFFE 2.8a7** as the gameplay reference; FFED3D is a rendering research
   reference only. Fix verified bugs with regression tests and a recorded
   deviation; default fixes are allowed. Do not inherit unreviewed Aniso changes.
-- Target Windows x64 first; original visuals by default. Owner updated the
-  development input default to Modern (W/S and arrows); retain the original-key
-  Classic preset via F3 (hold the right mouse button to steer, Enter/Shift set
-  speed). Offer the preset separately from graphics settings.
+- Target Windows x64 first; original visuals by default. The default control
+  preset is the original-key **Classic** scheme (hold the right mouse button to
+  steer, Enter/Shift set speed, A/Z pitch, `,`/`.` yaw, `[`/`]` roll); the port's
+  own **Modern** W/S/arrow scheme stays available. The preset is chosen on the
+  Escape pages' `Advanced Options` page or the launcher's Settings (the source
+  **F3** is the galaxy map, not a preset switch), and is offered separately from
+  graphics settings.
 - No customization in this checkout: graphics packs, meshes, gameplay mods,
   scripting and modernized gameplay are out of scope (the original plan made
   image-only packs the v1 customization).

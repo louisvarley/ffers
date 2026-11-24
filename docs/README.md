@@ -118,6 +118,11 @@ display filters: [README](notes/display-filters-README.md),
 [implementation record](notes/display-filters-implementation-summary.md),
 [testing](notes/display-filters-testing.md).
 
+**Enhancements (launcher toggles):**
+[enhancements](notes/enhancements.md) — the items and rules;
+[adding-enhancements](notes/adding-enhancements.md) — the recipe for wiring a
+new toggle-gated feature.
+
 ## Archive
 
 [archive/](archive/README.md) keeps superseded and out-of-scope documents

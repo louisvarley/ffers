@@ -12,6 +12,7 @@ pub mod damage;
 pub mod death;
 pub mod display;
 pub mod docking;
+pub mod enhanced_map;
 pub mod filters;
 pub mod flight;
 pub mod fmv;

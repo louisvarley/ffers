@@ -3,7 +3,8 @@
 Owner request (2026-11-20): a set of optional, toggleable improvements to the
 like-for-like port. Each is a single toggle in the launcher under an
 "Enhancements" page, stored in `saves/config.cfg` (session/config scope), never
-in the commander save.
+in the commander save. The step-by-step recipe for adding a new one is
+[adding-enhancements.md](adding-enhancements.md).
 
 ## Rules (owner, 2026-11-20)
 
@@ -91,6 +92,33 @@ EXP-046.
 - `enhancement-11` — **Edge target indicator.** An arrow/bar showing the direction
   to the target when it is out of view.
 
+### Galaxy map
+
+- `enhancement-12` — **Enhanced galaxy map.** Replaces the original's 3D star map
+  with a flat, easier-to-read top-down starfield (stars lower in the galaxy are
+  drawn smaller for a depth cue), and adds: right-drag pan, middle-wheel zoom,
+  hover notes for whether a system has a station/port, pointer lines from the
+  middle of the view to Sol and to the player's own system (with the distance
+  when it is off view), `Home`/`C` recentre, and multi-step routes. **A click on a
+  star selects it and adds it to the route; a second click takes it off again**
+  (`X` still adds the selected star, and removes it with everything after it).
+  The route is drawn as rings and a line from the current system through each
+  waypoint, a leg the range or the fuel cannot cover in red, with a total
+  distance and fuel line (red when it cannot be flown). **The arrow keys pan the
+  map** (Shift slows them, as on the 3D map), as does the right-drag; the wheel,
+  Page Up/Down and `+`/`-` zoom. **Hovering a star says** whether anyone lives
+  there (with its faction and population), how dangerous it is to arrive in, and
+  whether it has a station or port; the console panel names the selected star's
+  danger too. `H` flies the whole
+  route **as one jump**: every leg is checked first, the legs' jump times run
+  together as a single transit, and the tunnel and the hyperspace sound last for
+  the distance flown (2.5 s + 0.22 s per light year + 0.5 s per extra leg, up to
+  20 s), where the original plays about 0.1 s a light year. A single selected star
+  with no route keeps the original `H`/Enter jump (with the same stretch).
+  Danger is the system record's patrol byte, the value F688 draws a new arrival's
+  pirate groups from (`RND(patrol * 4)` groups): none is "Safe", 1-2 "Low", 3-4
+  "Moderate", 5 and over "High".
+
 ## Implementation convention
 
 ### Keys
@@ -117,6 +145,7 @@ its own options on exit).
 | `enhancement-9` | `enhancement.npc_speed` | `npc_speed` | off |
 | `enhancement-10` | `enhancement.npc_labels` | `npc_labels` | off |
 | `enhancement-11` | `enhancement.edge_indicator` | `edge_indicator` | off |
+| `enhancement-12` | `enhancement.enhanced_galaxy_map` | `enhanced_galaxy_map` | off |
 
 Values are `on|off` when written; `on|off|true|false|1|0` are accepted when
 read. A missing key keeps the default (off). An unknown `enhancement.*` name is
@@ -145,6 +174,7 @@ entry (`EXP-xxx`, `enhancement`) and a regression test.
 | `enhancement-7` `mission_fixes` | `mission_fixes` module, `navigation::{request_clearance,reserve_script_bay,script_ship_id}`, `scripts::{next_ship_id,apply,expand_at}`, `screen::draw_profile`, `main.rs` system/view/dialogue boundaries | no id serial, no bay eviction, no F1125 pulse, three medals, no deadline text, `Full` stays `Full`, acceleration unchanged, departures get no bay |
 | `enhancement-10` `npc_labels` | `combat_computer::{npc_labels, label_colour, npc_button, npc_row, close_on_leave}`, `main.rs` NPC button/list, `screen::{npc_button,npc_list_open,draw_npc_list}` | no button and no list; `l` is the original text-label toggle, no target changes |
 | `enhancement-11` `edge_indicator` | `targeter::edge_indicator`, `screen::Screen::edge_indicator` | no arrow pixels; F1100's text forms unchanged |
+| `enhancement-12` `enhanced_galaxy_map` | `enhanced_map` module, `screen::{EnhancedGalaxy, draw_enhanced_galaxy}`, `main.rs` map open/input/draw/route | the original 3D `GalaxyMap` path is unchanged; the flat map, route and Sol pointer are only built when the toggle is on |
 
 `enhancement-10` also closes its list and drops the ship selected through it
 (`nav.ship_lock`/`nav.missile_lock`) when the player leaves flight, opens a page,

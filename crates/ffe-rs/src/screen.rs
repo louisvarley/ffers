@@ -123,6 +123,49 @@ pub struct SystemMapScene {
     pub date: String,
 }
 
+/// The enhanced (flat) galaxy map as the screen draws it (`enhanced_map`).
+#[derive(Debug, Clone, Default)]
+pub struct EnhancedGalaxy {
+    /// Every star dot: x, y, radius (pixels), colour (faction or danger).
+    pub dots: Vec<(i32, i32, i32, u8)>,
+    /// System-name labels at screen points (inhabited systems and the selection).
+    pub labels: Vec<(i32, i32, String)>,
+    /// The selected star: x, y, radius.
+    pub selected: Option<(i32, i32, i32)>,
+    /// The star under the mouse: x, y, radius.
+    pub hovered: Option<(i32, i32, i32)>,
+    /// The route as projected points: the home first, then each waypoint.
+    pub route: Vec<(i32, i32)>,
+    /// Whether each leg of the route (the point after `route[i]`) can be flown
+    /// with the range and the fuel left; a leg that cannot is drawn red.
+    pub leg_ok: Vec<bool>,
+    /// Waypoints (screen points) whose arrival strands the player: uninhabited
+    /// and without the fuel to leave, drawn with a warning triangle.
+    pub warnings: Vec<(i32, i32)>,
+    /// The drive's reach circle radius about the home point.
+    pub range_radius: i32,
+    /// The player's own system: its projected point and the line to it from
+    /// the middle of the view.
+    pub home: (i32, i32),
+    pub home_pointer: crate::enhanced_map::Pointer,
+    /// Sol's projected point (possibly off-view) and its distance from home.
+    pub sol: (i32, i32, i32),
+    pub sector: String,
+    pub fuel: Option<String>,
+    pub date: String,
+    /// The console panel's lines (text and colour), the star's name and facts.
+    pub info: Vec<(String, u8)>,
+    /// The route's total distance and fuel, when a route is set.
+    pub route_summary: Option<(String, u8)>,
+    /// What hovering a star says (text and colour): whether it is inhabited, how
+    /// dangerous it is, and whether it has a station or port.
+    pub hover: Vec<(String, u8)>,
+    /// What the dot colours mean: (colour, name).
+    pub legend: Vec<(u8, &'static str)>,
+    /// The controls line along the top of the view.
+    pub hint: String,
+}
+
 /// One commodity line of the station's market screen.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarketRow {
@@ -588,6 +631,9 @@ pub struct Screen {
     pub combat_readouts: Vec<crate::combat_computer::Readout>,
     /// The galaxy map to draw instead of the flight view, when it is open.
     pub galaxy: Option<MapScene>,
+    /// The enhanced (flat) galaxy map, drawn instead of [`Self::galaxy`] when
+    /// the enhancement is on.
+    pub enhanced_galaxy: Option<EnhancedGalaxy>,
     /// The original's 3D system map, drawn in place of the galaxy map.
     pub system_map: Option<SystemMapScene>,
     /// The galaxy map's console selection (`F834`/`F840`), applied on top of
@@ -1096,6 +1142,7 @@ impl Screen {
             labels: Vec::new(),
             combat_readouts: Vec::new(),
             galaxy: None,
+            enhanced_galaxy: None,
             system_map: None,
             map_console: crate::console::MapConsole::default(),
             has_lock: false,
@@ -2773,6 +2820,11 @@ impl Screen {
             self.present();
             return;
         }
+        if let Some(page) = self.enhanced_galaxy.take() {
+            self.draw_enhanced_galaxy(&page);
+            self.present();
+            return;
+        }
         if let Some(map) = self.galaxy.take().filter(|_| scene.is_some()) {
             self.draw_galaxy(scene.unwrap(), &map);
             self.present();
@@ -4247,6 +4299,235 @@ impl Screen {
             self.text(195, y, &line, 15);
             y += 8;
         }
+    }
+
+    /// The enhanced (flat) galaxy map: the stars as faction- or danger-coloured
+    /// dots, the reach circle, the route with its unflyable legs in red and its
+    /// strand warnings, the lines home and to Sol, the system-name labels, the
+    /// colour legend, the controls line and the console text, over the cabin.
+    fn draw_enhanced_galaxy(&mut self, scene: &EnhancedGalaxy) {
+        use crate::enhanced_map as em;
+        self.frame[..320 * VIEW_HEIGHT]
+            .copy_from_slice(&self.cabins[self.cabin_index][..320 * VIEW_HEIGHT]);
+        let shadowed = |screen: &mut Self, x: usize, y: usize, value: &str, colour: u8| {
+            screen.text(x + 1, y + 1, value, 0);
+            screen.text(x, y, value, colour);
+        };
+        // Darken the strips the legend, the controls line and the notes sit on, so
+        // they read over the busiest part of the starfield.
+        self.dim_rect(0, 0, 320, 24, 45);
+        let notes = 1
+            + usize::from(scene.fuel.is_some())
+            + usize::from(scene.route_summary.is_some())
+            + scene.hover.len();
+        let notes_top = 158 - 10 * notes - 2;
+        self.dim_rect(0, notes_top, 200, 158, 45);
+        // The drive's reach circle about the home system.
+        self.circle(
+            scene.home.0,
+            scene.home.1,
+            scene.range_radius.max(1) * 2,
+            em::REACH_COLOUR,
+        );
+        // The route line from home through each waypoint (red where the leg
+        // cannot be flown), and the waypoint rings.
+        for (index, pair) in scene.route.windows(2).enumerate() {
+            let ok = scene.leg_ok.get(index).copied().unwrap_or(true);
+            self.line(
+                pair[0],
+                pair[1],
+                if ok {
+                    em::ROUTE_COLOUR
+                } else {
+                    em::THREAT_HIGH
+                },
+            );
+        }
+        for (index, point) in scene.route.iter().skip(1).enumerate() {
+            let ok = scene.leg_ok.get(index).copied().unwrap_or(true);
+            self.circle(
+                point.0,
+                point.1,
+                12,
+                if ok {
+                    em::ROUTE_COLOUR
+                } else {
+                    em::THREAT_HIGH
+                },
+            );
+        }
+        // Warning triangles on waypoints that would strand the player.
+        for (x, y) in &scene.warnings {
+            let amber = self.palette[0x5f];
+            self.fill_value(&[(*x, *y - 5), (*x - 4, *y + 3), (*x + 4, *y + 3)], amber);
+        }
+        // The hovered star gets a thin white ring (it can be clicked), the
+        // selected one a yellow ring, both under their dots.
+        if let Some((x, y, size)) = scene.hovered {
+            self.circle(x, y, (size + 14).max(18), 15);
+        }
+        if let Some((x, y, size)) = scene.selected {
+            self.circle(x, y, (size + 8).max(12), 18);
+        }
+        // Stars (a dot's `size` is its radius).
+        for (x, y, size, colour) in &scene.dots {
+            self.circle(*x, *y, (*size).max(1) * 2, *colour);
+        }
+        // System-name labels, shadowed for readability.
+        for (x, y, name) in &scene.labels {
+            if name.is_empty() {
+                continue;
+            }
+            let (x, y) = ((*x + 3).max(0) as usize, (*y - 4).max(0) as usize);
+            // Not under the legend and controls line, nor the notes in the corner.
+            if y < 24 || (x < 200 && y + 8 > notes_top) {
+                continue;
+            }
+            self.text(x + 1, y + 1, name, 0);
+            self.text(x, y, name, 15);
+        }
+        // The line from the middle of the view to the player's own system, with
+        // an arrowhead at its end, and "You" with the distance when it is off view.
+        let (cx, cy) = (160, VIEW_HEIGHT as i32 / 2);
+        let pointer = scene.home_pointer;
+        // Where the "You" label went when the line home runs off the view, so the
+        // Sol label can keep clear of it.
+        let mut home_label: Option<(i32, i32, i32)> = None;
+        if (pointer.tip.0 - cx).abs() + (pointer.tip.1 - cy).abs() > 10 {
+            self.line((cx, cy), pointer.tip, em::HOME_COLOUR);
+            self.arrow_head((cx, cy), pointer.tip, 6, em::HOME_COLOUR);
+        }
+        if pointer.on_view {
+            self.circle(scene.home.0, scene.home.1, 14, em::HOME_COLOUR);
+            shadowed(
+                self,
+                (scene.home.0 + 8).clamp(0, 300) as usize,
+                (scene.home.1 + 4).clamp(0, 148) as usize,
+                "You",
+                em::HOME_COLOUR,
+            );
+        } else {
+            let label = format!(
+                "You {}.{:02} ly",
+                pointer.distance / 100,
+                pointer.distance % 100
+            );
+            let width = self.font.width(&label).unwrap_or(0) as i32;
+            let (lx, ly) = (
+                (pointer.tip.0 - width / 2).clamp(2, 318 - width),
+                (pointer.tip.1 + if pointer.tip.1 < cy { 6 } else { -12 }).clamp(2, 148),
+            );
+            home_label = Some((lx, ly, width));
+            shadowed(self, lx as usize, ly as usize, &label, em::HOME_COLOUR);
+        }
+        // The Sol direction pointer (yellow); no distance text.
+        let (sx, sy, _) = scene.sol;
+        if (0..320).contains(&sx) && (0..VIEW_HEIGHT as i32).contains(&sy) {
+            self.circle(sx, sy, 6, 18);
+            self.text(
+                sx.saturating_add(4) as usize,
+                sy.saturating_sub(4) as usize,
+                "Sol",
+                18,
+            );
+        } else if sx != cx || sy != cy {
+            // Off view: the line stops at the same inset edge as the line home.
+            let (ex, ey) = em::edge_point((sx, sy));
+            self.line((cx, cy), (ex, ey), 18);
+            self.arrow_head((cx, cy), (ex, ey), 6, 18);
+            let width = self.font.width("Sol").unwrap_or(0) as i32;
+            let lx = (ex - width / 2).clamp(2, 318 - width);
+            let mut ly = (ey + if ey < cy { 6 } else { -12 }).clamp(2, 148);
+            // The two lines can run the same way: stack the labels, not overprint them.
+            if let Some((hx, hy, hw)) = home_label {
+                if (lx - hx).abs() < hw.max(width) + 2 && (ly - hy).abs() < 10 {
+                    ly = if hy >= 14 { hy - 10 } else { hy + 10 };
+                }
+            }
+            shadowed(self, lx as usize, ly as usize, "Sol", 18);
+        }
+        // The colour legend (each name in its colour) and the controls line.
+        let mut lx = 6usize;
+        for (colour, name) in &scene.legend {
+            shadowed(self, lx, 4, name, *colour);
+            lx += self.font.width(name).unwrap_or(0) + 8;
+        }
+        shadowed(self, 6, 14, &scene.hint, 15);
+        // The left text block, from the bottom up: the sector, the fuel line, the
+        // route summary, then what hovering a star says (name first, so it is on top).
+        let mut block: Vec<(&str, u8)> = vec![(scene.sector.as_str(), 15)];
+        if let Some(fuel) = &scene.fuel {
+            block.push((fuel, 15));
+        }
+        if let Some((route, colour)) = &scene.route_summary {
+            block.push((route, *colour));
+        }
+        for (line, colour) in scene.hover.iter().rev() {
+            block.push((line, *colour));
+        }
+        for (row, (line, colour)) in block.into_iter().enumerate() {
+            shadowed(self, 6, 147 - 10 * row, line, colour);
+        }
+        // The console text: the date, then the star's lines wrapped to 120 pixels.
+        self.text(195, 164, &scene.date, 17);
+        let mut y = 173;
+        for (paragraph, colour) in &scene.info {
+            let mut line = String::new();
+            for word in paragraph.split(' ') {
+                let trial = if line.is_empty() {
+                    word.to_owned()
+                } else {
+                    format!("{line} {word}")
+                };
+                if self.font.width(&trial).is_ok_and(|width| width > 120) && !line.is_empty() {
+                    if y < 194 {
+                        self.text(195, y, &line, *colour);
+                    }
+                    y += 8;
+                    line = word.to_owned();
+                } else {
+                    line = trial;
+                }
+            }
+            if y < 194 {
+                self.text(195, y, &line, *colour);
+            }
+            y += 8;
+        }
+    }
+
+    /// Darken the view's rectangle `x0..x1` by `y0..y1` to `keep` per cent of its
+    /// brightness.
+    fn dim_rect(&mut self, x0: usize, y0: usize, x1: usize, y1: usize, keep: u32) {
+        for y in y0..y1.min(VIEW_HEIGHT) {
+            for x in x0..x1.min(320) {
+                let pixel = self.frame[y * 320 + x];
+                let scale = |shift: u32| (((pixel >> shift) & 0xff) * keep / 100) << shift;
+                self.frame[y * 320 + x] = scale(16) | scale(8) | scale(0);
+            }
+        }
+    }
+
+    /// A small solid arrowhead at `tip`, pointing away from `from`.
+    fn arrow_head(&mut self, from: (i32, i32), tip: (i32, i32), size: i32, colour: u8) {
+        let (dx, dy) = (f64::from(tip.0 - from.0), f64::from(tip.1 - from.1));
+        let length = (dx * dx + dy * dy).sqrt();
+        if length < 1.0 {
+            return;
+        }
+        let (ux, uy) = (dx / length, dy / length);
+        let size = f64::from(size);
+        let back = |along: f64, across: f64| {
+            (
+                (f64::from(tip.0) - ux * along - uy * across).round() as i32,
+                (f64::from(tip.1) - uy * along + ux * across).round() as i32,
+            )
+        };
+        let value = self.palette[usize::from(colour)];
+        self.fill_value(
+            &[tip, back(size, size * 0.5), back(size, -size * 0.5)],
+            value,
+        );
     }
 
     /// The system map (F977): the orbit curves, the bodies' dots and names, the
