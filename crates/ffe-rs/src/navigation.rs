@@ -1589,6 +1589,11 @@ pub struct Navigator {
     /// icon and `H` offer it even when the star the map points at is out of range.
     /// The game loop sets it each frame from [`Self::check_route`].
     pub course_ready: bool,
+    /// The station whose outer door stays open after a launch until the ship is clear of
+    /// it (set at [`Traffic::LaunchDone`], cleared by the game loop). F651 frees the bay
+    /// and sets the door closing at once, with the ship still creeping out of the slot, so
+    /// the grey door came down over the launch; the door now waits for the ship to be out.
+    pub door_hold: Option<usize>,
     /// The markets of the stations visited in this system.
     markets: HashMap<(u32, usize), StationMarket>,
     /// Markets a save carried, taken by [`Self::market`] in place of a fresh
@@ -3229,6 +3234,7 @@ impl Navigator {
                 .unwrap_or_default(),
             drive: None,
             course_ready: false,
+            door_hold: None,
             final_leg: false,
             clearance_at: None,
             frame: None,
@@ -7771,8 +7777,11 @@ impl Navigator {
         self.carry += seconds;
         let whole = self.carry.floor();
         self.carry -= whole;
-        for port in self.traffic.values_mut() {
-            port.move_door(tics);
+        for (index, port) in &mut self.traffic {
+            // A launched ship is still in the open door: it stays open (word 0).
+            if self.door_hold != Some(*index) {
+                port.move_door(tics);
+            }
             if whole >= 1.0 {
                 // F867: the clearance timed out and F651 freed the bay. An NPC
                 // that was still on its way goes back to transit and asks again.

@@ -8030,6 +8030,10 @@ fn run() -> Result<(), String> {
         // Traffic control: doors, clearance timeouts and the docking and launch stages.
         if active && !death_control && !paused && model_lab.is_none() && model_viewer.is_none() {
             if let Some(nav) = nav.as_mut() {
+                // The launched ship holds its station's door open until it is clear.
+                if launch_grace.is_none() {
+                    nav.door_hold = None;
+                }
                 for event in nav.tick_traffic(frame.tics, frame.seconds()) {
                     match event {
                         Traffic::Stage(text) => {
@@ -8076,6 +8080,9 @@ fn run() -> Result<(), String> {
                             state.docking_requested = false;
                             state.system_flight = true;
                             launch_grace = Some(index);
+                            // F651 (in the stages) set the door closing; it waits until the
+                            // ship is out of the slot instead of coming down over it.
+                            nav.door_hold = Some(index);
                             // F1098's `0x20` launch, F1092's engine bed. F1088/
                             // F1089 change no song: the random song is F1094's,
                             // after a hyperspace exit.
