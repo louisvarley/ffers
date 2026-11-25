@@ -261,6 +261,22 @@ impl App {
     /// can, else open its page) or skip it. A skipped version is remembered, so the popup comes
     /// back only for a newer one; the footer's update button stays for later.
     fn update_popup(&mut self, ctx: &egui::Context) {
+        if let UpdateState::Installing(_, release) = &self.update {
+            // The install runs in the background and the launcher restarts when it is done.
+            let tag = release.tag.clone();
+            egui::Modal::new(egui::Id::new("update_progress")).show(ctx, |ui| {
+                ui.set_width(360.0);
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(
+                        RichText::new(format!("Updating to {tag}..."))
+                            .font(draw::font(20.0, draw::REGULAR))
+                            .color(CREAM),
+                    );
+                });
+            });
+            return;
+        }
         let UpdateState::Available(release) = &self.update else {
             return;
         };
@@ -269,59 +285,40 @@ impl App {
         }
         let release = release.clone();
         let installs = update::can_install(&self.install_dir) && release.asset_url.is_some();
-        let (mut download, mut skip) = (false, false);
+        let (mut update_now, mut skip) = (false, false);
         egui::Modal::new(egui::Id::new("update_popup")).show(ctx, |ui| {
-            ui.set_width(520.0);
+            ui.set_width(360.0);
             ui.label(
-                RichText::new("A new version is available")
-                    .font(draw::font(26.0, draw::BOLD))
+                RichText::new("New version available")
+                    .font(draw::font(24.0, draw::BOLD))
                     .color(CREAM),
             );
             ui.add_space(6.0);
             ui.label(
                 RichText::new(format!(
-                    "{} is ready to download. You have v{}.",
+                    "{} (you have v{})",
                     release.tag,
                     env!("CARGO_PKG_VERSION")
                 ))
-                .font(draw::font(19.0, draw::REGULAR))
-                .color(CREAM),
+                .font(draw::font(18.0, draw::REGULAR))
+                .color(DIM),
             );
-            let notes: String = release
-                .notes
-                .lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .take(8)
-                .collect::<Vec<_>>()
-                .join(
-                    "
-",
-                );
-            if !notes.is_empty() {
-                ui.add_space(8.0);
-                egui::ScrollArea::vertical()
-                    .max_height(150.0)
-                    .show(ui, |ui| {
-                        ui.label(RichText::new(notes).color(DIM));
-                    });
-            }
             ui.add_space(14.0);
             ui.horizontal(|ui| {
                 let label = if installs {
-                    "Download and install"
+                    "Update"
                 } else {
-                    "Open the download page"
+                    "Open download page"
                 };
                 if ui.add(pill(label, true)).clicked() {
-                    download = true;
+                    update_now = true;
                 }
                 if ui.add(pill("Skip", false)).clicked() {
                     skip = true;
                 }
             });
         });
-        if download {
+        if update_now {
             self.update_action(release);
         } else if skip {
             self.launcher.skipped_update = release.tag;
