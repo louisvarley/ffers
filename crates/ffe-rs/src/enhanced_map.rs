@@ -855,6 +855,7 @@ pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::En
         hover,
         legend,
         hint: HINT.to_owned(),
+        page: None,
     }
 }
 

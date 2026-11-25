@@ -164,6 +164,9 @@ pub struct EnhancedGalaxy {
     pub legend: Vec<(u8, &'static str)>,
     /// The controls line along the top of the view.
     pub hint: String,
+    /// F7-F10's page (the system description, the sky, ...): drawn over the cabin in
+    /// place of the map, as the original map's pages are.
+    pub page: Option<crate::map_pages::Page>,
 }
 
 /// One commodity line of the station's market screen.
@@ -4339,6 +4342,14 @@ impl Screen {
     /// colour legend, the controls line and the console text, over the cabin.
     fn draw_enhanced_galaxy(&mut self, scene: &EnhancedGalaxy) {
         use crate::enhanced_map as em;
+        // A page (details, picture, economy, people) takes the view as the original's do.
+        if let Some(page) = &scene.page {
+            self.frame[..320 * VIEW_HEIGHT]
+                .copy_from_slice(&self.cabins[self.cabin_index][..320 * VIEW_HEIGHT]);
+            self.draw_map_page(page);
+            self.text(195, 164, &scene.date, 17);
+            return;
+        }
         // A dark, slightly blue space (a little lighter toward the bottom) under a grid, in
         // place of the cabin's art, as Elite Dangerous' galaxy map has.
         for y in 0..VIEW_HEIGHT {

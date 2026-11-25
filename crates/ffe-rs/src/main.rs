@@ -3492,9 +3492,13 @@ fn run() -> Result<(), String> {
                 if nav.view == NavView::Galaxy {
                     if sector_tables.is_some() {
                         if let Some(home) = nav.current_position() {
+                            // A map that opens now starts on a fresh page; one already open
+                            // keeps the page F7-F10 chose.
+                            let mut fresh = false;
                             if enhancements.enhanced_galaxy_map {
                                 // The enhanced (flat) map reopens where it was left.
                                 if enhanced_map.is_none() {
+                                    fresh = true;
                                     enhanced_map = match parked_enhanced.take() {
                                         Some((at, map)) if reusable_at(at, home) => Some(map),
                                         _ => Some(ffe_rs::enhanced_map::EnhancedMap::new(
@@ -3504,6 +3508,7 @@ fn run() -> Result<(), String> {
                                     };
                                 }
                             } else if galaxy.is_none() {
+                                fresh = true;
                                 // The original 3D map reopens where it was left (its
                                 // centre, zoom and selection persist), unless the ship
                                 // has jumped since. Its rotation is levelled: the owner
@@ -3518,8 +3523,10 @@ fn run() -> Result<(), String> {
                                 };
                             }
                             // F834: a fresh map page with the map icon lit.
-                            map_console = ffe_rs::console::MapConsole::default();
-                            map_page = None;
+                            if fresh {
+                                map_console = ffe_rs::console::MapConsole::default();
+                                map_page = None;
+                            }
                         }
                     }
                 } else {
@@ -3802,163 +3809,6 @@ fn run() -> Result<(), String> {
                     if held(Key::PageDown) || held(Key::Minus) || held(Key::NumPadMinus) {
                         map.zoom_by(zoom);
                     }
-                    // F840 owns F5-F12 while this page is showing (map_keys):
-                    // F5 the controls page, F6 select, F7 details, F8 picture,
-                    // F9/F10 details with next/previous, F11/F12 zoom. The
-                    // details and picture screens are later slices; their keys
-                    // light the original button and report that state. F969's
-                    // console hot areas send the same function-key actions, so
-                    // a click on the map row is routed the same way.
-                    let mut actions = Vec::new();
-                    if let Some(action) = console_click.and_then(map_keys::click) {
-                        actions.push(action);
-                    }
-                    let mut map_key = false;
-                    for (offset, key) in [
-                        Key::F5,
-                        Key::F6,
-                        Key::F7,
-                        Key::F8,
-                        Key::F9,
-                        Key::F10,
-                        Key::F11,
-                        Key::F12,
-                    ]
-                    .into_iter()
-                    .enumerate()
-                    {
-                        if pressed(key) {
-                            map_key = true;
-                            if let Some(action) = map_keys::action(5 + offset as u8) {
-                                actions.push(action);
-                            }
-                        }
-                    }
-                    for action in actions {
-                        match action {
-                            // In picture mode F11/F12 step its zoom (F845's `0xfb` and
-                            // `0xfc`) and redraw the sky; otherwise they zoom the map.
-                            MapAction::ZoomIn | MapAction::ZoomOut
-                                if map_page.as_ref().is_some_and(|p| p.background.is_some()) =>
-                            {
-                                let next = if action == MapAction::ZoomIn {
-                                    sky_zoom - 1
-                                } else {
-                                    sky_zoom + 1
-                                };
-                                if (1..=255).contains(&next) {
-                                    if let Some(viewer) = scene.as_ref() {
-                                        match ffe_rs::map_pages::picture(
-                                            &cache, viewer, map.centre, next,
-                                        ) {
-                                            Ok(page) => {
-                                                sky_zoom = next;
-                                                map_page = Some(page);
-                                            }
-                                            Err(error) => {
-                                                message = format!("Map page error: {error}");
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            MapAction::ZoomIn => map.zoom_by(-zoom),
-                            MapAction::ZoomOut => map.zoom_by(zoom),
-                            MapAction::Page => {
-                                map_console = ffe_rs::console::MapConsole::default();
-                                map_page = None;
-                                message = "Map controls: F6 select, F7 details, F8 picture, \
-                                           F9/F10 next/previous, F11/F12 zoom."
-                                    .to_owned();
-                            }
-                            action => {
-                                // F6 returns from a page to the map; F7 is the
-                                // system description (F842), which needs a
-                                // selected star as F843's `0xf7` does.
-                                if action == MapAction::Select {
-                                    map_page = None;
-                                }
-                                // F7, F9 and F10 are F843's `0xf7`, `0xf9` and
-                                // `0xfa`: each needs a selected star, and F9/F10
-                                // draw nothing for a system with no information.
-                                let mut shown = false;
-                                // F8: the sky as seen from the map's centre (F844).
-                                if action == MapAction::Picture {
-                                    if let Some(viewer) = scene.as_ref() {
-                                        match ffe_rs::map_pages::picture(
-                                            &cache, viewer, map.centre, sky_zoom,
-                                        ) {
-                                            Ok(page) => {
-                                                map_page = Some(page);
-                                                shown = true;
-                                            }
-                                            Err(error) => {
-                                                message = format!("Map page error: {error}");
-                                                shown = true;
-                                            }
-                                        }
-                                    }
-                                }
-                                if matches!(
-                                    action,
-                                    MapAction::Details | MapAction::Next | MapAction::Previous
-                                ) {
-                                    if let (Some(viewer), Some(selected)) =
-                                        (scene.as_ref(), map.selected.as_ref())
-                                    {
-                                        let built = match action {
-                                            MapAction::Details => ffe_rs::map_pages::description(
-                                                &cache,
-                                                viewer,
-                                                Some(selected),
-                                            )
-                                            .map(Some),
-                                            MapAction::Next => ffe_rs::map_pages::economy(
-                                                &cache,
-                                                viewer,
-                                                selected,
-                                                &|index| {
-                                                    nav.market_tables()?
-                                                        .name(index)
-                                                        .map(str::to_owned)
-                                                },
-                                            ),
-                                            _ => {
-                                                ffe_rs::map_pages::people(&cache, viewer, selected)
-                                            }
-                                        };
-                                        match built {
-                                            Ok(Some(page)) => {
-                                                map_page = Some(page);
-                                                shown = true;
-                                            }
-                                            Ok(None) => shown = true,
-                                            Err(error) => {
-                                                message = format!("Map page error: {error}");
-                                                shown = true;
-                                            }
-                                        }
-                                    }
-                                }
-                                if let Some(page) = map_keys::page(action) {
-                                    map_console = page;
-                                }
-                                if shown {
-                                    continue;
-                                }
-                                message = match action {
-                                    MapAction::Select => "Map controls selected.".to_owned(),
-                                    MapAction::Picture => {
-                                        "The map's sky needs the model data.".to_owned()
-                                    }
-                                    _ => "No star is selected: centre the map on one.".to_owned(),
-                                };
-                            }
-                        }
-                    }
-                    if map_key {
-                        held_controls.disarm(&keys_down);
-                    }
                     map.zoom = map.zoom.max(0x2000);
                     if pressed(Key::C) {
                         map.recentre();
@@ -4183,6 +4033,193 @@ fn run() -> Result<(), String> {
                                 .map_err(|e| e.to_string())
                             ),
                         );
+                    }
+                }
+                // The map page's function keys and console icons (F5-F12) work on
+                // either map: the original 3D one and the enhanced flat one share the
+                // centre and selected star they read, and the zoom is applied to
+                // whichever is open.
+                let map_state = galaxy
+                    .as_ref()
+                    .map(|map| (map.centre, map.selected.clone()))
+                    .or_else(|| {
+                        enhanced_map
+                            .as_ref()
+                            .map(|map| (map.centre, map.selected.clone()))
+                    });
+                if let Some((centre, selected_star)) = map_state.filter(|_| !sysmap_open) {
+                    let mut zoom_steps = 0i32;
+                    // F840 owns F5-F12 while this page is showing (map_keys):
+                    // F5 the controls page, F6 select, F7 details, F8 picture,
+                    // F9/F10 details with next/previous, F11/F12 zoom. The
+                    // details and picture screens are later slices; their keys
+                    // light the original button and report that state. F969's
+                    // console hot areas send the same function-key actions, so
+                    // a click on the map row is routed the same way.
+                    let mut actions = Vec::new();
+                    if let Some(action) = console_click.and_then(map_keys::click) {
+                        actions.push(action);
+                    }
+                    let mut map_key = false;
+                    for (offset, key) in [
+                        Key::F5,
+                        Key::F6,
+                        Key::F7,
+                        Key::F8,
+                        Key::F9,
+                        Key::F10,
+                        Key::F11,
+                        Key::F12,
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        if pressed(key) {
+                            map_key = true;
+                            if let Some(action) = map_keys::action(5 + offset as u8) {
+                                actions.push(action);
+                            }
+                        }
+                    }
+                    for action in actions {
+                        match action {
+                            // In picture mode F11/F12 step its zoom (F845's `0xfb` and
+                            // `0xfc`) and redraw the sky; otherwise they zoom the map.
+                            MapAction::ZoomIn | MapAction::ZoomOut
+                                if map_page.as_ref().is_some_and(|p| p.background.is_some()) =>
+                            {
+                                let next = if action == MapAction::ZoomIn {
+                                    sky_zoom - 1
+                                } else {
+                                    sky_zoom + 1
+                                };
+                                if (1..=255).contains(&next) {
+                                    if let Some(viewer) = scene.as_ref() {
+                                        match ffe_rs::map_pages::picture(
+                                            &cache, viewer, centre, next,
+                                        ) {
+                                            Ok(page) => {
+                                                sky_zoom = next;
+                                                map_page = Some(page);
+                                            }
+                                            Err(error) => {
+                                                message = format!("Map page error: {error}");
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            MapAction::ZoomIn => zoom_steps -= 1,
+                            MapAction::ZoomOut => zoom_steps += 1,
+                            MapAction::Page => {
+                                map_console = ffe_rs::console::MapConsole::default();
+                                map_page = None;
+                                message = "Map controls: F6 select, F7 details, F8 picture, \
+                                       F9/F10 next/previous, F11/F12 zoom."
+                                    .to_owned();
+                            }
+                            action => {
+                                // F6 returns from a page to the map; F7 is the
+                                // system description (F842), which needs a
+                                // selected star as F843's `0xf7` does.
+                                if action == MapAction::Select {
+                                    map_page = None;
+                                }
+                                // F7, F9 and F10 are F843's `0xf7`, `0xf9` and
+                                // `0xfa`: each needs a selected star, and F9/F10
+                                // draw nothing for a system with no information.
+                                let mut shown = false;
+                                // F8: the sky as seen from the map's centre (F844).
+                                if action == MapAction::Picture {
+                                    if let Some(viewer) = scene.as_ref() {
+                                        match ffe_rs::map_pages::picture(
+                                            &cache, viewer, centre, sky_zoom,
+                                        ) {
+                                            Ok(page) => {
+                                                map_page = Some(page);
+                                                shown = true;
+                                            }
+                                            Err(error) => {
+                                                message = format!("Map page error: {error}");
+                                                shown = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                if matches!(
+                                    action,
+                                    MapAction::Details | MapAction::Next | MapAction::Previous
+                                ) {
+                                    if let (Some(viewer), Some(selected)) =
+                                        (scene.as_ref(), selected_star.as_ref())
+                                    {
+                                        let built = match action {
+                                            MapAction::Details => ffe_rs::map_pages::description(
+                                                &cache,
+                                                viewer,
+                                                Some(selected),
+                                            )
+                                            .map(Some),
+                                            MapAction::Next => ffe_rs::map_pages::economy(
+                                                &cache,
+                                                viewer,
+                                                selected,
+                                                &|index| {
+                                                    nav.market_tables()?
+                                                        .name(index)
+                                                        .map(str::to_owned)
+                                                },
+                                            ),
+                                            _ => {
+                                                ffe_rs::map_pages::people(&cache, viewer, selected)
+                                            }
+                                        };
+                                        match built {
+                                            Ok(Some(page)) => {
+                                                map_page = Some(page);
+                                                shown = true;
+                                            }
+                                            Ok(None) => shown = true,
+                                            Err(error) => {
+                                                message = format!("Map page error: {error}");
+                                                shown = true;
+                                            }
+                                        }
+                                    }
+                                }
+                                if let Some(page) = map_keys::page(action) {
+                                    map_console = page;
+                                }
+                                if shown {
+                                    continue;
+                                }
+                                message = match action {
+                                    MapAction::Select => "Map controls selected.".to_owned(),
+                                    MapAction::Picture => {
+                                        "The map's sky needs the model data.".to_owned()
+                                    }
+                                    _ if enhanced_map.is_some() => {
+                                        "No star is selected: click one on the map.".to_owned()
+                                    }
+                                    _ => "No star is selected: centre the map on one.".to_owned(),
+                                };
+                            }
+                        }
+                    }
+                    if map_key {
+                        held_controls.disarm(&keys_down);
+                    }
+                    if zoom_steps != 0 {
+                        if let Some(map) = galaxy.as_mut() {
+                            let slow =
+                                inp.is_key_down(Key::LeftShift) || inp.is_key_down(Key::RightShift);
+                            let rate = if slow { 0.25 } else { 1.0 };
+                            let zoom = (f64::from(0x1f40) * rate * elapsed / 0.02) as i32;
+                            map.zoom_by(zoom * zoom_steps);
+                            map.zoom = map.zoom.max(0x2000);
+                        } else if let Some(map) = enhanced_map.as_mut() {
+                            map.zoom_by(1.25f64.powi(-zoom_steps));
+                        }
                     }
                 }
                 // F840/F832: the star nearest the map's centre is the jump
@@ -9833,7 +9870,9 @@ fn run() -> Result<(), String> {
                 date: nav.date_text(),
                 mouse,
             };
-            screen.enhanced_galaxy = Some(ffe_rs::enhanced_map::scene(map, &context));
+            let mut scene_page = ffe_rs::enhanced_map::scene(map, &context);
+            scene_page.page = map_page.clone();
+            screen.enhanced_galaxy = Some(scene_page);
         }
         screen.dock = None;
         screen.ship_view = None;
