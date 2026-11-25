@@ -6246,7 +6246,15 @@ fn run() -> Result<(), String> {
                                             pad_board = false;
                                             sound.play(Cue::UiBeep);
                                         }
-                                        Err(error) => message = error,
+                                        Err(error) => {
+                                            // Said on the console's message line too: the
+                                            // board's own hint replaces `message` on the
+                                            // next frame, and a refusal must not pass
+                                            // unseen.
+                                            pending_log.add(Source::Launch, error.clone());
+                                            sound.play(Cue::UiBeep);
+                                            message = error;
+                                        }
                                     }
                                 }
                             } else if let Some(nav) = nav.as_mut() {

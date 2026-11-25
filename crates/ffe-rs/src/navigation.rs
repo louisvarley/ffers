@@ -5206,7 +5206,10 @@ impl Navigator {
             return Err("Already launching.".to_owned());
         }
         if !self.starport(index).request(PLAYER) {
-            return Err("Launch refused: traffic control is busy.".to_owned());
+            return Err(
+                "Launch refused: traffic control is busy with another ship. Try again shortly,                  or launch without clearance (L)."
+                    .to_owned(),
+            );
         }
         self.docked = Some(index);
         self.launch_cleared = true;
