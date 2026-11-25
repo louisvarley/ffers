@@ -519,6 +519,33 @@ fn new_game_takes_off_from_the_pad_into_free_flight() {
     takes_off_from_the_pad(1);
 }
 
+/// The launcher's "Sol (Mars)" start (type 2): an Eagle on the pad of a starport on Mars.
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn sol_start_takes_off_from_mars() {
+    takes_off_from_the_pad(2);
+}
+
+/// Another ship holding the starport's clearance must not strand the player: the pad's launch
+/// action starts the climb whatever traffic control says (the Sol (Mars) start's report:
+/// "Launch refused: traffic control is busy." on every press of L).
+#[test]
+#[ignore = "Local-only: needs the content cache (FFE_WORLD_CACHE)"]
+fn a_busy_starport_does_not_stop_the_pad_launch() {
+    use ffe_rs::navigation::Navigator;
+    let cache = cache();
+    for start_type in [0, 2] {
+        let mut nav = Navigator::new_game(&cache, start_type).unwrap();
+        let index = nav.docked.expect("landed at the start starport");
+        // Another ship (id 7) holds the port's clearance.
+        assert!(nav.starport(index).request(7));
+        assert!(!nav.starport(index).request(1), "the port is busy");
+        nav.begin_launch()
+            .unwrap_or_else(|error| panic!("start {start_type}: {error}"));
+        assert_eq!(nav.takeoff_state(), Some(ffe_core::traffic::state::TAKEOFF));
+    }
+}
+
 /// The DOS default start (F829 record 0) on Hope: the same `0x30` -> `0x24` ->
 /// `0x26` -> `0x00` path, with F603's gravity from Hope and F1033's altitude
 /// from its terrain instead of the old pad-climb fallback.

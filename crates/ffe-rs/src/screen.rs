@@ -1229,6 +1229,19 @@ impl Screen {
         beam: &crate::combat::LaserBeam,
         camera: &Camera,
     ) {
+        if let Some(frame) = self.render_beam(scene, state, beam, camera) {
+            self.draw_frame(scene, &frame);
+        }
+    }
+
+    /// The beam model's frame for `beam`, with the jitter stream advanced as drawing it does.
+    fn render_beam(
+        &mut self,
+        scene: &ModelViewer,
+        state: &Flight,
+        beam: &crate::combat::LaserBeam,
+        camera: &Camera,
+    ) -> Option<Frame> {
         let scale = model_scale(scene).unwrap_or(DEFAULT_MODEL_SCALE);
         let rows = beam.axes.map(|axis| camera.direction(axis));
         // F1776 copies the firing object (`F1533`, 0x152 bytes) and changes only
@@ -1253,17 +1266,18 @@ impl Screen {
         // so a hit's `distance >> 7` ends it on the target.
         inputs.globals[4] = u16::from(beam.code.unwrap_or(self.lasers[beam.mount]));
         inputs.globals[37] = beam.length;
-        if let Ok(frame) = scene.render_scene_with_scale(
-            crate::combat::BEAM_MODEL,
-            None,
-            rows,
-            origin,
-            light,
-            &inputs,
-        ) {
-            self.jitter.cursor = frame.jitter;
-            self.draw_frame(scene, &frame);
-        }
+        let frame = scene
+            .render_scene_with_scale(
+                crate::combat::BEAM_MODEL,
+                None,
+                rows,
+                origin,
+                light,
+                &inputs,
+            )
+            .ok()?;
+        self.jitter.cursor = frame.jitter;
+        Some(frame)
     }
 
     /// F1111's fixed gunsight: secondary bitmap 1 (id 97) at (129,48), drawn
@@ -3164,7 +3178,15 @@ impl Screen {
                     // enhancement-13: a fixed sight line from the foot of the
                     // view to the reticle, the Saker's look, instead of the beam
                     // from the gun mount.
-                    self.line((160, 156), (160, 79), 0x5f);
+                    // The line takes the colour of the laser fitted: the beam model's ray
+                    // is red, orange, white, yellow, blue or green by laser type.
+                    let colour = scene
+                        .and_then(|scene| self.render_beam(scene, state, &beam, &camera))
+                        .and_then(|frame| ray_colour(&frame.shapes));
+                    match colour {
+                        Some(value) => self.line_value((160, 156), (160, 79), value),
+                        None => self.line((160, 156), (160, 79), 0x5f),
+                    }
                 } else if let Some(scene) = scene {
                     self.draw_beam(scene, state, &beam, &camera);
                 }
@@ -5023,6 +5045,16 @@ fn beam_visible(view: ViewMode) -> bool {
     )
 }
 
+/// The colour of a beam model's ray: its line shape's, which the model sets by laser type.
+fn ray_colour(shapes: &[Shape]) -> Option<u32> {
+    shapes.iter().find_map(|shape| match shape {
+        Shape::Line(_, _, [r, g, b]) => {
+            Some((u32::from(*r) << 16) | (u32::from(*g) << 8) | u32::from(*b))
+        }
+        _ => None,
+    })
+}
+
 /// The views `enhancement-13`'s fixed laser sight replaces: the first-person
 /// cockpit views (front, rear and the two turrets), not the external view.
 fn first_person_view(view: ViewMode) -> bool {
@@ -5302,5 +5334,43 @@ mod f1680_transition_tests {
         assert!(matches!(at([1.0e8, 0.0, 1.0e6]), Draw::Culled { .. }));
         // Behind the eye: `z + radius < 0x40`.
         assert!(matches!(at([0.0, 0.0, -1.0e6]), Draw::Culled { .. }));
+    }
+}
+
+#[cfg(test)]
+mod laser_sight_tests {
+    use super::{ray_colour, Shape};
+
+    /// The fixed laser sight is drawn in the colour of the fitted laser: the beam model's
+    /// ray (its line shape), not its flash or its wedge.
+    #[test]
+    fn the_sight_takes_the_rays_colour() {
+        let shapes = |ray: [u8; 3]| {
+            vec![
+                Shape::Flat(vec![(0, 0), (1, 0), (1, 1)], [228, 4, 4]),
+                Shape::Line((0, 0), (5, 5), ray),
+                Shape::Polygon(Vec::new(), [244, 196, 68]),
+            ]
+        };
+        // The colours the pulse, beam, military and mining lasers' rays have.
+        let colours = [
+            [244, 68, 68],
+            [244, 148, 36],
+            [240, 240, 240],
+            [244, 244, 100],
+            [4, 4, 244],
+            [0, 240, 0],
+        ];
+        let seen: Vec<u32> = colours
+            .iter()
+            .map(|ray| ray_colour(&shapes(*ray)).unwrap())
+            .collect();
+        for (i, a) in seen.iter().enumerate() {
+            for b in &seen[i + 1..] {
+                assert_ne!(a, b, "two laser types drew the same sight colour");
+            }
+        }
+        assert_eq!(seen[5], 0x00f000);
+        assert_eq!(ray_colour(&[Shape::Point((0, 0), [1, 2, 3])]), None);
     }
 }

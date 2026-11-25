@@ -36,7 +36,9 @@ numbers are the original request numbers and are not the display order.
 - `enhancement-13` — **Fixed laser sight.** In the first-person views (front,
   rear and the two turrets) draw the laser as a clean line from the foot of the
   view to the reticle — the default Saker's look — instead of the beam from the
-  gun mount. The external (third-person) view is unchanged.
+  gun mount. The line is drawn in the fitted laser's own colour (the beam model's ray:
+  red, orange, white, yellow, blue or green by laser type). The external (third-person)
+  view is unchanged.
 
 ### Autopilot (three toggles)
 

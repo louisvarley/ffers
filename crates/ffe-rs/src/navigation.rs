@@ -5235,7 +5235,17 @@ impl Navigator {
         if self.sequence.is_some() || self.takeoff.is_some() {
             return Err("Already launching.".to_owned());
         }
-        if !self.starport(index).request(PLAYER) {
+        let open_air = self
+            .bodies
+            .get(index)
+            .is_some_and(|b| b.kind == Kind::Starport);
+        // F654's answer matters for an indoor station's lift. At an open-air starport the
+        // launch action (F1056's action 9) takes the ship off its pad whatever the answer: F381's
+        // Launch Request is the only place traffic control is asked, a launch without
+        // clearance is an offence (F237, charged by the caller) and not a refusal, and a
+        // pad another ship's grant is holding must not strand the player (the grant outlasts
+        // eight game hours).
+        if !self.starport(index).request(PLAYER) && !open_air {
             return Err("Launch refused: traffic control is busy.".to_owned());
         }
         self.docked = Some(index);

@@ -264,17 +264,19 @@ impl App {
         if let UpdateState::Installing(_, release) = &self.update {
             // The install runs in the background and the launcher restarts when it is done.
             let tag = release.tag.clone();
-            egui::Modal::new(egui::Id::new("update_progress")).show(ctx, |ui| {
-                ui.set_width(360.0);
-                ui.horizontal(|ui| {
-                    ui.spinner();
-                    ui.label(
-                        RichText::new(format!("Updating to {tag}..."))
-                            .font(draw::font(20.0, draw::REGULAR))
-                            .color(CREAM),
-                    );
+            egui::Modal::new(egui::Id::new("update_progress"))
+                .frame(popup_frame(ctx))
+                .show(ctx, |ui| {
+                    ui.set_width(360.0);
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(
+                            RichText::new(format!("Updating to {tag}..."))
+                                .font(draw::font(20.0, draw::REGULAR))
+                                .color(CREAM),
+                        );
+                    });
                 });
-            });
             return;
         }
         let UpdateState::Available(release) = &self.update else {
@@ -286,38 +288,40 @@ impl App {
         let release = release.clone();
         let installs = update::can_install(&self.install_dir) && release.asset_url.is_some();
         let (mut update_now, mut skip) = (false, false);
-        egui::Modal::new(egui::Id::new("update_popup")).show(ctx, |ui| {
-            ui.set_width(360.0);
-            ui.label(
-                RichText::new("New version available")
-                    .font(draw::font(24.0, draw::BOLD))
-                    .color(CREAM),
-            );
-            ui.add_space(6.0);
-            ui.label(
-                RichText::new(format!(
-                    "{} (you have v{})",
-                    release.tag,
-                    env!("CARGO_PKG_VERSION")
-                ))
-                .font(draw::font(18.0, draw::REGULAR))
-                .color(DIM),
-            );
-            ui.add_space(14.0);
-            ui.horizontal(|ui| {
-                let label = if installs {
-                    "Update"
-                } else {
-                    "Open download page"
-                };
-                if ui.add(pill(label, true)).clicked() {
-                    update_now = true;
-                }
-                if ui.add(pill("Skip", false)).clicked() {
-                    skip = true;
-                }
+        egui::Modal::new(egui::Id::new("update_popup"))
+            .frame(popup_frame(ctx))
+            .show(ctx, |ui| {
+                ui.set_width(360.0);
+                ui.label(
+                    RichText::new("New version available")
+                        .font(draw::font(24.0, draw::BOLD))
+                        .color(CREAM),
+                );
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(format!(
+                        "{} (you have v{})",
+                        release.tag,
+                        env!("CARGO_PKG_VERSION")
+                    ))
+                    .font(draw::font(18.0, draw::REGULAR))
+                    .color(DIM),
+                );
+                ui.add_space(14.0);
+                ui.horizontal(|ui| {
+                    let label = if installs {
+                        "Update"
+                    } else {
+                        "Open download page"
+                    };
+                    if ui.add(pill(label, true)).clicked() {
+                        update_now = true;
+                    }
+                    if ui.add(pill("Skip", false)).clicked() {
+                        skip = true;
+                    }
+                });
             });
-        });
         if update_now {
             self.update_action(release);
         } else if skip {
@@ -1293,6 +1297,12 @@ fn option_row(ui: &mut egui::Ui, title: &str, about: &str, control: impl FnOnce(
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), control);
     });
     ui.add_space(4.0);
+}
+
+/// The frame of the launcher's pop-up windows: the standard pop-up look with room around its
+/// contents.
+fn popup_frame(ctx: &egui::Context) -> egui::Frame {
+    egui::Frame::popup(&ctx.style()).inner_margin(egui::Margin::same(22))
 }
 
 fn pill(label: &str, selected: bool) -> egui::Button<'static> {
