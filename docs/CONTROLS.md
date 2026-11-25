@@ -18,11 +18,16 @@ unit-tested, so a preset cannot silently pick up the other preset's keys.
 
 The launcher's **Settings > Controls** page chooses the scheme: **Classic**, **Modern** or
 **Custom**. Classic and Modern show their keys and the controller layout as read-only lists.
-**Custom** is a list of the 32 actions of the tables below, each with up to three bindings:
+**Custom** lists the 32 actions of the tables below in five groups (Flying, Weapons, Targets,
+autopilot and docking, Views and maps, Other), each with up to three bindings:
 keyboard keys, game controller buttons, triggers and sticks (by their standard names, so an
 Xbox, PlayStation or Switch pad all work), and the raw buttons and axes of a joystick. Click
-**+** beside an action and press the control to bind it (Esc cancels; the bare modifier keys have
-buttons, as the page cannot hear them); click a binding to remove it. A new Custom scheme starts
+**+ Add** beside an action and press the control to bind it: a prompt says what to press (Esc
+cancels; the bare modifier keys have buttons in it, as the page cannot hear them). Bindings are
+coloured by device (keyboard, controller, joystick); click one to remove it. A binding another
+action also uses has an amber outline that says which. A box at the top finds an action or a
+key by name, a per-action **Reset** appears where an action differs from Modern, and **Reset
+all to Modern** asks first. A new Custom scheme starts
 as a copy of Modern, with the controller layout, and is saved whichever scheme is selected.
 The in-game `Port Options` page has a **Custom** row as well.
 

@@ -138,6 +138,10 @@ struct App {
     listening: Option<ffe_rs::input::Action>,
     /// The controller reader the Controls tab uses to hear a binding (made when first needed).
     pads: Option<ffe_rs::gamepad::Gamepads>,
+    /// The Controls tab's filter text for the action list.
+    control_filter: String,
+    /// "Reset all" is waiting for a yes.
+    confirm_reset: bool,
 }
 
 impl App {
@@ -171,6 +175,8 @@ impl App {
             update: UpdateState::Idle,
             listening: None,
             pads: None,
+            control_filter: String::new(),
+            confirm_reset: false,
         };
         update::remove_leftovers(&app.install_dir);
         app.start(Job::Game);

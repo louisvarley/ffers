@@ -292,6 +292,57 @@ pub fn action_label(action: Action) -> &'static str {
     }
 }
 
+/// The actions in the groups the launcher lists them under, in order. Every action is in
+/// exactly one group.
+pub const GROUPS: [(&str, &[Action]); 5] = [
+    (
+        "Flying",
+        &[
+            Action::ThrustUp,
+            Action::ThrustDown,
+            Action::PitchUp,
+            Action::PitchDown,
+            Action::YawLeft,
+            Action::YawRight,
+            Action::RollLeft,
+            Action::RollRight,
+            Action::Brake,
+        ],
+    ),
+    (
+        "Weapons",
+        &[Action::Fire, Action::Missile, Action::Ecm, Action::Chaff],
+    ),
+    (
+        "Targets, autopilot and docking",
+        &[
+            Action::Target,
+            Action::Autopilot,
+            Action::StopAutopilot,
+            Action::Docking,
+            Action::Launch,
+            Action::Hyperspace,
+            Action::Navigation,
+        ],
+    ),
+    (
+        "Views and maps",
+        &[
+            Action::ViewCycle,
+            Action::ViewFront,
+            Action::ViewRear,
+            Action::ViewTurret,
+            Action::ViewExternal,
+            Action::ViewMissile,
+            Action::CombatView,
+            Action::GalaxyMap,
+            Action::MapCentre,
+            Action::Status,
+        ],
+    ),
+    ("Other", &[Action::Pause, Action::EscapeCapsule]),
+];
+
 /// The controller input the default (Classic and Modern) layout gives an action, if any.
 pub fn default_pad(action: Action) -> Option<Pad> {
     Some(match action {
@@ -486,6 +537,24 @@ impl CustomControls {
         (held, fresh)
     }
 
+    /// The other actions that `input` is also bound to, for the launcher's clash warning. Two
+    /// pairs share a key on purpose (and in Modern): chaff and centring the map are both `C`,
+    /// since one is for flight and the other for the map.
+    pub fn also_used_by(&self, action: Action, input: Input) -> Vec<Action> {
+        Action::NAMES
+            .into_iter()
+            .map(|(_, other)| other)
+            .filter(|other| {
+                *other != action
+                    && self.get(*other).contains(&input)
+                    && !matches!(
+                        (action, *other),
+                        (Action::Chaff, Action::MapCentre) | (Action::MapCentre, Action::Chaff)
+                    )
+            })
+            .collect()
+    }
+
     /// Whether any action is bound to `input`.
     pub fn uses(&self, input: Input) -> bool {
         self.map.values().any(|inputs| inputs.contains(&input))
@@ -639,6 +708,47 @@ mod tests {
         // One key bound to two actions delivers both (Modern's C is chaff and map centre).
         let (held, _) = custom.deliver(&[Key::C], &[Key::C], &[], &[]);
         assert_eq!(held, vec![Key::C]);
+    }
+
+    #[test]
+    fn every_action_is_in_exactly_one_group() {
+        let mut seen = Vec::new();
+        for (_, group) in GROUPS {
+            for action in group {
+                assert!(!seen.contains(action), "{} is in two groups", action.name());
+                seen.push(*action);
+            }
+        }
+        for action in actions() {
+            assert!(seen.contains(&action), "{} is in no group", action.name());
+        }
+        assert_eq!(seen.len(), Action::NAMES.len());
+    }
+
+    #[test]
+    fn a_clash_names_the_other_actions_but_modern_has_none() {
+        // Modern's own bindings clash nowhere (chaff and the map centre share C on purpose).
+        let custom = CustomControls::modern();
+        for action in actions() {
+            for input in custom.get(action) {
+                assert!(
+                    custom.also_used_by(action, *input).is_empty(),
+                    "{}: {input:?}",
+                    action.name()
+                );
+            }
+        }
+        // Binding Space to the pause key as well makes both actions say so.
+        let mut custom = custom;
+        assert!(custom.add(Action::Pause, Input::Key(Key::Space)));
+        assert_eq!(
+            custom.also_used_by(Action::Pause, Input::Key(Key::Space)),
+            [Action::Fire]
+        );
+        assert_eq!(
+            custom.also_used_by(Action::Fire, Input::Key(Key::Space)),
+            [Action::Pause]
+        );
     }
 
     #[test]
