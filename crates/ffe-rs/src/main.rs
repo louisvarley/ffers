@@ -495,6 +495,9 @@ fn mining_action(
 fn config_from_prefs(prefs: &Prefs, previous: &settings::Config) -> settings::Config {
     settings::Config {
         modern: prefs.modern,
+        custom: prefs.custom,
+        // The launcher's Custom bindings; the game never edits them.
+        custom_controls: previous.custom_controls.clone(),
         display: prefs.display,
         // The launcher's start-in-full-screen choice; the in-game toggle is
         // session-only and never written back.
@@ -1400,6 +1403,7 @@ fn run() -> Result<(), String> {
         .and_then(settings::Config::from_config)
         .unwrap_or(config);
     prefs.modern = config.modern;
+    prefs.custom = config.custom;
     prefs.display = config.display;
     // A replay never starts full screen: it must open like the recording did.
     prefs.fullscreen = config.fullscreen && !session.replaying();
@@ -1921,10 +1925,37 @@ fn run() -> Result<(), String> {
         // This frame's input and time: live, or the next recorded frame.
         // A game controller's keys join the live frame before it is recorded.
         let preset = input::Preset::from_modern(prefs.modern);
-        let mut inp = session.frame_with(&mut window, real_dt, |frame| {
-            gamepads.apply(preset, &mut frame.down, &mut frame.pressed);
+        // The Custom scheme (the launcher's Settings > Controls): its bindings, from the
+        // keyboard, the controller and the joystick, deliver the game keys before the frame is
+        // recorded. While flying with nothing open, the default keys of every action are taken
+        // away so a rebound action no longer answers to its old keys.
+        let custom_flying = prefs.custom
+            && state.mode == ffe_rs::flight::Mode::Flight
+            && !prefs.open
+            && !paused
+            && !pad_board
+            && !status_page
+            && state.death.is_none()
+            && model_lab.is_none()
+            && model_viewer.is_none()
+            && galaxy.is_none()
+            && enhanced_map.is_none()
+            && system_map.is_none()
+            && nav.as_ref().is_none_or(|nav| nav.view == NavView::Closed);
+        let custom_controls = prefs.custom.then_some(&stored_config.custom_controls);
+        let mut inp = session.frame_with(&mut window, real_dt, |frame| match custom_controls {
+            Some(custom) => gamepads.apply_custom(
+                custom,
+                custom_flying,
+                &mut frame.down,
+                &mut frame.pressed,
+                &mut frame.repeated,
+            ),
+            None => gamepads.apply(preset, &mut frame.down, &mut frame.pressed),
         });
-        inp.remap(&bindings);
+        if !prefs.custom {
+            inp.remap(&bindings);
+        }
         let measured = inp.dt;
         // The planet capture is scripted: a fixed 0.1 s (the original model's
         // largest frame) per presented frame, so the approach takes minutes of
@@ -4475,7 +4506,11 @@ fn run() -> Result<(), String> {
                     // lights the ECM bits; F718's missile update then destroys
                     // the models in `DATA_000029`. There is no energy or ammo
                     // cost in the source.
-                    if pressed(Key::E) || pressed(Key::Semicolon) || pressed(Key::Insert) {
+                    // In Custom `E` is only the roll key: the E.C.M. answers to its own binding.
+                    if (pressed(Key::E) && !prefs.custom)
+                        || pressed(Key::Semicolon)
+                        || pressed(Key::Insert)
+                    {
                         match state.loadout.ecm() {
                             Some(ecm) => {
                                 let naval = ecm == ffe_core::equipment::Ecm::Naval;

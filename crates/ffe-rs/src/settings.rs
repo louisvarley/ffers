@@ -15,14 +15,16 @@
 //! minifb key names (`bind.A=Up` makes Up act as A), or
 //! `bind.<action>=<physical key>` with the action names of
 //! [`crate::input::Action`] (`bind.pitch_up=NumPad8`). Entries that do not name
-//! a known key or action are kept unchanged and have no effect. There is no
-//! remapping screen; `docs/CONTROLS.md` lists the names.
+//! a known key or action are kept unchanged and have no effect. The launcher's
+//! Settings > Controls page edits the separate `controls=custom` scheme
+//! (`custom.<action>=` lines, [`crate::controls`]); `docs/CONTROLS.md` lists the names.
 //!
 //! The optional enhancements (`docs/notes/enhancements.md`) are
 //! `enhancement.<name>=on|off` lines, all off unless a line turns one on. An
 //! unknown `enhancement.*` name is ignored and a known one with a bad value
 //! keeps its default, so a damaged line never resets the rest of the file.
 
+use crate::controls::CustomControls;
 use crate::display::DisplaySettings;
 use std::collections::BTreeMap;
 use std::fs;
@@ -163,7 +165,12 @@ impl Enhancements {
 /// [`crate::session::bindings`] validates and applies them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Config {
+    /// The Modern flight keys are read (true for Modern and for Custom, which reads like it).
     pub modern: bool,
+    /// The Custom control scheme is selected (`controls=custom`); `modern` is then true too.
+    pub custom: bool,
+    /// The Custom scheme's bindings, kept whichever scheme is selected.
+    pub custom_controls: CustomControls,
     pub display: DisplaySettings,
     /// Start in the borderless full-screen window (the launcher's Display
     /// setting). Alt+Enter and the in-game toggle stay session-only.
@@ -186,6 +193,8 @@ impl Default for Config {
         let prefs = crate::prefs::Prefs::default();
         Self {
             modern: prefs.modern,
+            custom: false,
+            custom_controls: CustomControls::modern(),
             display: prefs.display,
             fullscreen: false,
             space_colour: prefs.space_colour,
@@ -209,8 +218,15 @@ impl Config {
         out.push_str(&format!("version={CONFIG_VERSION}\n"));
         out.push_str(&format!(
             "controls={}\n",
-            if self.modern { "modern" } else { "classic" }
+            if self.custom {
+                "custom"
+            } else if self.modern {
+                "modern"
+            } else {
+                "classic"
+            }
         ));
+        out.push_str(&self.custom_controls.to_config());
         out.push_str(&format!("space_colour={}\n", self.space_colour.min(4)));
         out.push_str(&format!("shape_detail={}\n", self.shape_detail.min(3)));
         for (index, value) in self.others.iter().enumerate() {
@@ -260,10 +276,19 @@ impl Config {
                     version = Some(parsed);
                 }
                 "controls" => match value {
-                    "modern" => config.modern = true,
-                    "classic" => config.modern = false,
+                    "modern" => (config.modern, config.custom) = (true, false),
+                    "classic" => (config.modern, config.custom) = (false, false),
+                    // Custom reads like Modern, with its own bindings.
+                    "custom" => (config.modern, config.custom) = (true, true),
                     _ => return None,
                 },
+                // The Custom scheme's bindings (`crate::controls`): a damaged entry is dropped
+                // and never loses the rest of the file.
+                _ if key.starts_with("custom.") => {
+                    config
+                        .custom_controls
+                        .set_from_config(&key["custom.".len()..], value);
+                }
                 "space_colour" => {
                     let parsed: usize = value.parse().ok()?;
                     if parsed > 4 {
@@ -498,6 +523,60 @@ fn save_text(path: &Path, text: &str) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_custom_scheme_is_saved_and_starts_as_modern() {
+        use crate::controls::Input;
+        use crate::input::Action;
+        use minifb::Key;
+        // A fresh file selects nothing custom and offers Modern's bindings to edit.
+        let fresh = Config::default();
+        assert!(!fresh.custom && !fresh.custom_controls.changed());
+        // Selecting Custom and rebinding fire survives a save and a load.
+        let mut config = Config {
+            modern: true,
+            custom: true,
+            ..Config::default()
+        };
+        config
+            .custom_controls
+            .set_from_config("fire", "Key:F|Joy:Button2");
+        let text = config.to_config();
+        assert!(text.contains("controls=custom\n"), "{text}");
+        assert!(text.contains("custom.fire=Key:F|Joy:Button2\n"), "{text}");
+        let loaded = Config::from_config(&text).unwrap();
+        assert_eq!(loaded, config);
+        assert!(
+            loaded.modern && loaded.custom,
+            "Custom reads the Modern keys"
+        );
+        assert_eq!(
+            loaded.custom_controls.get(Action::Fire),
+            [Input::Key(Key::F), Input::JoyButton(2)]
+        );
+        // The bindings are kept when another scheme is selected, and the old schemes still read.
+        let classic = Config {
+            custom_controls: config.custom_controls.clone(),
+            ..Config::default()
+        };
+        let text = classic.to_config();
+        assert!(text.contains("controls=classic\n"), "{text}");
+        assert_eq!(Config::from_config(&text).unwrap(), classic);
+        assert!(
+            Config::from_config("version=2\ncontrols=modern\n")
+                .unwrap()
+                .modern
+        );
+        // A damaged binding line costs only that binding.
+        let damaged = Config::from_config(
+            "version=2\ncontrols=custom\ncustom.fire=Nope|Key:F\ncustom.zzz=Key:F\n",
+        )
+        .unwrap();
+        assert_eq!(
+            damaged.custom_controls.get(Action::Fire),
+            [Input::Key(Key::F)]
+        );
+    }
 
     #[test]
     fn docking_options_round_trip_and_reject_bad_indices() {

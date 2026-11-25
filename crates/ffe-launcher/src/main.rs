@@ -6,6 +6,7 @@
 
 mod checks;
 mod config;
+mod controls_ui;
 mod draw;
 mod update;
 
@@ -95,6 +96,7 @@ enum Page {
 enum Tab {
     Display,
     Game,
+    Controls,
     Enhancements,
 }
 
@@ -132,6 +134,10 @@ struct App {
     /// The folder the launcher's program files are in (and updates are written to).
     install_dir: PathBuf,
     update: UpdateState,
+    /// The action whose new Custom binding the Controls tab is waiting for a press of.
+    listening: Option<ffe_rs::input::Action>,
+    /// The controller reader the Controls tab uses to hear a binding (made when first needed).
+    pads: Option<ffe_rs::gamepad::Gamepads>,
 }
 
 impl App {
@@ -163,6 +169,8 @@ impl App {
                 .and_then(|exe| exe.parent().map(Path::to_path_buf))
                 .unwrap_or_else(|| PathBuf::from(".")),
             update: UpdateState::Idle,
+            listening: None,
+            pads: None,
         };
         update::remove_leftovers(&app.install_dir);
         app.start(Job::Game);
@@ -671,6 +679,7 @@ impl App {
                 for (tab, label) in [
                     (Tab::Display, "Display"),
                     (Tab::Game, "Game options"),
+                    (Tab::Controls, "Controls"),
                     (Tab::Enhancements, "Enhancements"),
                 ] {
                     if ui.add(pill(label, self.tab == tab)).clicked() {
@@ -697,6 +706,7 @@ impl App {
                     ui.add_enabled_ui(!running, |ui| match self.tab {
                         Tab::Display => self.display_tab(ui),
                         Tab::Game => self.game_tab(ui),
+                        Tab::Controls => self.controls_tab(ui),
                         Tab::Enhancements => self.enhancements_tab(ui),
                     });
                     {
@@ -710,9 +720,14 @@ impl App {
                             match self.tab {
                                 Tab::Display => self.config.display = defaults.display,
                                 Tab::Game => {
-                                    self.config.modern = defaults.modern;
                                     self.config.others = defaults.others;
                                     self.config.maps = defaults.maps;
+                                }
+                                Tab::Controls => {
+                                    self.config.modern = defaults.modern;
+                                    self.config.custom = defaults.custom;
+                                    self.config.custom_controls = defaults.custom_controls;
+                                    self.listening = None;
                                 }
                                 Tab::Enhancements => {
                                     self.config.enhancements = defaults.enhancements;
@@ -818,23 +833,6 @@ impl App {
     fn game_tab(&mut self, ui: &mut egui::Ui) {
         self.videos_section(ui);
         let config = &mut self.config;
-        section(ui, "Controls");
-        option_row(
-            ui,
-            "Control keys",
-            if config.modern {
-                MODERN_CONTROLS
-            } else {
-                CLASSIC_CONTROLS
-            },
-            |ui| {
-                choice(
-                    ui,
-                    &mut config.modern,
-                    &[(false, "Classic"), (true, "Modern")],
-                );
-            },
-        );
         section(ui, "Other options");
         toggle_grid(ui, "others", &mut config.others, &prefs::OTHER_LABELS);
         section(ui, "Galaxy map");

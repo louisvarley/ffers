@@ -8,6 +8,7 @@ pub mod combat;
 pub mod combat_computer;
 pub mod console;
 mod console_table;
+pub mod controls;
 pub mod course;
 pub mod damage;
 pub mod death;

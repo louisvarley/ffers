@@ -8,10 +8,36 @@ The port has two flight presets, chosen on the Escape pages' `Advanced Options` 
   keyboard steering is `,`/`.` yaw, A/Z pitch and `[`/`]` roll. The cursor is
   hidden and re-centred each held frame, so steering never stops at the window edge.
 - **Modern**: the port's own WASD/arrow scheme.
+- **Custom**: your own bindings (see below), set in the launcher.
 
 The routing lives in `ffe_rs::input` (`flight_controls`, `original_keys`,
 `turret_keys`, `MouseAccumulator`) and is applied in `main.rs`. It is pure and
 unit-tested, so a preset cannot silently pick up the other preset's keys.
+
+## Control schemes and the Custom bindings
+
+The launcher's **Settings > Controls** page chooses the scheme: **Classic**, **Modern** or
+**Custom**. Classic and Modern show their keys and the controller layout as read-only lists.
+**Custom** is a list of the 32 actions of the tables below, each with up to three bindings:
+keyboard keys, game controller buttons, triggers and sticks (by their standard names, so an
+Xbox, PlayStation or Switch pad all work), and the raw buttons and axes of a joystick. Click
+**+** beside an action and press the control to bind it (Esc cancels; the bare modifier keys have
+buttons, as the page cannot hear them); click a binding to remove it. A new Custom scheme starts
+as a copy of Modern, with the controller layout, and is saved whichever scheme is selected.
+The in-game `Port Options` page has a **Custom** row as well.
+
+Custom reads like Modern, and works by delivering the game key an action uses in Modern while
+one of its bindings is held. **While flying with nothing open, the default keys of every action
+are taken away**, so an action you rebound no longer answers to its old keys; the menus, the
+docked screens and the maps keep the normal keyboard, and your bindings work there too. The mouse
+does not steer in Custom, and the E.C.M. answers to `;` (Modern's `E` is its roll key). Escape,
+6-0 (the speed of time), U, F5 and Shift+F5 are fixed; so are a controller's Start (the options
+pages) and D-pad up and down (time faster and slower) unless you bind them to an action.
+
+`config.cfg` carries `controls=classic|modern|custom` and one
+`custom.<action>=<input>|<input>` line per action (`none` for an action with nothing bound).
+An input is `Key:<minifb key name>`, `Pad:<name>` (`South`, `LeftBumper`, `LeftStickUp`, ...),
+`Joy:Button<code>` or `Joy:Axis<code>+` / `-`; one that does not parse is dropped on its own.
 
 ## Where the bindings come from
 

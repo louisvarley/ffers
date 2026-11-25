@@ -39,7 +39,7 @@ const ALL_KEYS: &[Key] = &[
     Key::NumPadEnter, Key::LeftAlt, Key::RightAlt, Key::LeftSuper, Key::RightSuper,
 ];
 
-fn key_name(key: Key) -> String {
+pub fn key_name(key: Key) -> String {
     format!("{key:?}")
 }
 
@@ -72,7 +72,7 @@ pub fn bindings(remap: &std::collections::BTreeMap<String, String>) -> Vec<(Key,
     bindings
 }
 
-fn key_from(name: &str) -> Option<Key> {
+pub fn key_from(name: &str) -> Option<Key> {
     ALL_KEYS.iter().copied().find(|key| key_name(*key) == name)
 }
 

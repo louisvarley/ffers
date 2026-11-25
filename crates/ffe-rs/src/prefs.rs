@@ -173,6 +173,8 @@ pub enum Action {
     Map(usize),
     Sound(usize),
     Modern(bool),
+    /// Port addition: the Custom control scheme (bindings from the launcher).
+    Custom,
     /// Port-only docking approach choices (indices into the tables above).
     StationApproach(usize),
     StarportApproach(usize),
@@ -281,7 +283,11 @@ pub struct Prefs {
     pub others: [bool; 10],
     pub maps: [bool; 5],
     pub sound: [bool; 10],
+    /// The Modern keys are read (Modern and Custom both).
     pub modern: bool,
+    /// The Custom control scheme is selected (`modern` is then true too): the launcher's
+    /// Settings > Controls sets its bindings.
+    pub custom: bool,
     /// Port addition: [`STATION_APPROACH_KM`] index for the autopilot's
     /// station approach (where clearance is asked, the music starts and the
     /// time acceleration drops).
@@ -311,6 +317,7 @@ impl Default for Prefs {
             maps: [true; 5],
             sound: [true; 10],
             modern: false,
+            custom: false,
             station_approach: 0,
             starport_approach: 0,
             display: DisplaySettings::default(),
@@ -362,6 +369,7 @@ impl Prefs {
     /// galaxy map, not a preset switch.
     pub fn toggle_modern(&mut self) {
         self.modern = !self.modern;
+        self.custom = false;
     }
 
     /// The rows of the current page, in the original's order.
@@ -524,7 +532,7 @@ impl Prefs {
                     38,
                     "Modern",
                     Action::Modern(true),
-                    Mark::Radio(self.modern),
+                    Mark::Radio(self.modern && !self.custom),
                     true,
                     15,
                 ));
@@ -534,6 +542,15 @@ impl Prefs {
                     "Classic",
                     Action::Modern(false),
                     Mark::Radio(!self.modern),
+                    true,
+                    15,
+                ));
+                rows.push(row(
+                    32,
+                    58,
+                    "Custom (set in the launcher)",
+                    Action::Custom,
+                    Mark::Radio(self.custom),
                     true,
                     15,
                 ));
@@ -906,6 +923,13 @@ impl Prefs {
             }
             Action::Modern(modern) => {
                 self.modern = modern;
+                self.custom = false;
+                Activate::None
+            }
+            // Custom reads the Modern keys, with the bindings the launcher saved.
+            Action::Custom => {
+                self.modern = true;
+                self.custom = true;
                 Activate::None
             }
             Action::StationApproach(index) if index < STATION_APPROACH_KM.len() => {
