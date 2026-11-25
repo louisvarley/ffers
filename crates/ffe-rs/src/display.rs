@@ -513,23 +513,53 @@ impl GameWindow {
         self.window.set_cursor_visibility(visible);
     }
 
-    /// Re-centre the OS cursor in the window (Windows only; the release target).
-    /// Classic mouse steering calls this each held frame so the cursor cannot
-    /// reach the window edge and stop the turn.
+    /// Re-centre the OS cursor in the window's client area (Windows only; the
+    /// release target). Classic mouse steering calls this each held frame so the
+    /// cursor cannot reach the window edge and stop the turn.
+    ///
+    /// Returns where the cursor really is afterwards, in client pixels, so the
+    /// caller can measure the next frame's movement from it. (The window's
+    /// outer rectangle includes the title bar and borders, so the client centre
+    /// cannot be worked out from `get_position`: assuming it put a constant
+    /// offset in every frame's movement, which steered the ship on its own.)
+    /// `None` where the cursor cannot be placed or read.
     #[cfg(windows)]
-    pub fn warp_cursor_to_center(&self) {
-        use winapi::um::winuser::SetCursorPos;
-        let (x, y) = self.window.get_position();
-        let (width, height) = self.window.get_size();
-        let cx = x + width as isize / 2;
-        let cy = y + height as isize / 2;
+    pub fn warp_cursor_to_center(&self) -> Option<(f32, f32)> {
+        use winapi::shared::windef::{HWND, POINT, RECT};
+        use winapi::um::winuser::{
+            ClientToScreen, GetClientRect, GetCursorPos, ScreenToClient, SetCursorPos,
+        };
+        let hwnd = self.window.get_window_handle() as HWND;
+        if hwnd.is_null() {
+            return None;
+        }
+        // SAFETY: `hwnd` is this window's live handle and every pointer is to a
+        // local that outlives the call.
         unsafe {
-            SetCursorPos(cx as i32, cy as i32);
+            let mut client: RECT = std::mem::zeroed();
+            if GetClientRect(hwnd, &mut client) == 0 {
+                return None;
+            }
+            let mut centre = POINT {
+                x: (client.right - client.left) / 2,
+                y: (client.bottom - client.top) / 2,
+            };
+            if ClientToScreen(hwnd, &mut centre) == 0 || SetCursorPos(centre.x, centre.y) == 0 {
+                return None;
+            }
+            // Read it back: the system may round or clamp the position.
+            let mut landed: POINT = std::mem::zeroed();
+            if GetCursorPos(&mut landed) == 0 || ScreenToClient(hwnd, &mut landed) == 0 {
+                return None;
+            }
+            Some((landed.x as f32, landed.y as f32))
         }
     }
 
     #[cfg(not(windows))]
-    pub fn warp_cursor_to_center(&self) {}
+    pub fn warp_cursor_to_center(&self) -> Option<(f32, f32)> {
+        None
+    }
 }
 
 /// Open the game window. `minifb`'s scale is left at 1x and its stretch mode is
@@ -698,6 +728,27 @@ impl Presenter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_window_centre_is_not_the_old_fixed_steering_point() {
+        // Classic mouse steering measures each frame's movement from where the
+        // re-centred cursor lands. It used to assume logical (160, 79); the real
+        // centre of the 320x200 picture is (160, 100), so the difference of
+        // (0, 21) was read as mouse movement every frame and turned the ship on
+        // its own. The centre of any window maps to the centre of the picture.
+        let settings = DisplaySettings::default();
+        for (width, height) in [(1280usize, 960usize), (1600, 1200), (1920, 1080)] {
+            let centre = logical_point(
+                &settings,
+                (width / 2) as f32,
+                (height / 2) as f32,
+                (width, height),
+            )
+            .unwrap();
+            assert_eq!(centre, (160, 100), "{width}x{height}");
+            assert_ne!(centre, (160, 79));
+        }
+    }
 
     #[test]
     fn the_defaults_are_the_ports_existing_1280x960_4_3_window() {

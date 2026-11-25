@@ -155,15 +155,42 @@ impl Gamepads {
     /// held last frame, its `pressed` list.
     pub fn apply(&mut self, preset: Preset, down: &mut Vec<Key>, pressed: &mut Vec<Key>) {
         let now = self.read().map_or_else(Vec::new, |pad| keys(&pad, preset));
+        self.apply_keys(now, preset, down, pressed);
+    }
+
+    fn apply_keys(
+        &mut self,
+        now: Vec<Key>,
+        preset: Preset,
+        down: &mut Vec<Key>,
+        pressed: &mut Vec<Key>,
+    ) {
+        let roll = roll_keys(preset);
         for key in &now {
             if !down.contains(key) {
                 down.push(*key);
+            }
+            // The bumpers only roll the ship, which reads the held keys. They are
+            // never a key press: Modern's roll-right key is E, and a press of E
+            // fires the E.C.M. (its sound, or "No E.C.M. system fitted"), so every
+            // tap of RB set it off.
+            if roll.contains(key) {
+                continue;
             }
             if !self.held.contains(key) && !pressed.contains(key) {
                 pressed.push(*key);
             }
         }
         self.held = now;
+    }
+}
+
+/// The keys the bumpers hold for `preset`: roll left, roll right.
+fn roll_keys(preset: Preset) -> [Key; 2] {
+    if preset == Preset::Modern {
+        [Key::Q, Key::E]
+    } else {
+        [Key::LeftBracket, Key::RightBracket]
     }
 }
 
@@ -199,6 +226,28 @@ mod tests {
             ..Pad::default()
         };
         assert!(keys(&pad, Preset::Modern).is_empty());
+    }
+
+    #[test]
+    fn the_bumpers_roll_the_ship_without_pressing_a_key() {
+        // Modern's roll-right key is E, which is also the E.C.M.: a bumper must be
+        // held (to roll) but never "pressed" (which would fire it).
+        for (preset, left, right) in [
+            (Preset::Modern, Key::Q, Key::E),
+            (Preset::Classic, Key::LeftBracket, Key::RightBracket),
+        ] {
+            let pad = Pad {
+                left_bumper: true,
+                right_bumper: true,
+                south: true,
+                ..Pad::default()
+            };
+            let mut pads = Gamepads::new();
+            let (mut down, mut pressed) = (Vec::new(), Vec::new());
+            pads.apply_keys(keys(&pad, preset), preset, &mut down, &mut pressed);
+            assert!(down.contains(&left) && down.contains(&right), "{preset:?}");
+            assert_eq!(pressed, [Key::Space], "{preset:?}: only fire is a press");
+        }
     }
 
     #[test]

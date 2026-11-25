@@ -1681,7 +1681,7 @@ fn run() -> Result<(), String> {
         .as_ref()
         .map(|scene| ShipList::from_cache(&cache, scene))
         .unwrap_or_default();
-    // The systems, their bodies and the autopilot (Tab, G, Backspace). The default
+    // The systems, their bodies and the autopilot (G, N, Backspace). The default
     // boot is F998's type 0 at Hope in Gateway; `--start 1` keeps Ross 154 and
     // `--start sol` the development sandbox for the existing screenshots.
     let mut nav = Some(
@@ -2210,10 +2210,14 @@ fn run() -> Result<(), String> {
                 window.set_cursor_visibility(false);
                 cursor_hidden = true;
             }
-            window.warp_cursor_to_center();
-            // The next frame measures from the warped centre, not the pre-warp
-            // point, so the re-centre must not read as a mouse jump.
-            mouse_point = Some((160, 79));
+            // The next frame measures from where the cursor really landed, not
+            // the pre-warp point, so the re-centre must not read as a mouse
+            // jump. It is the client centre, not a fixed logical point: any
+            // other point makes every frame read the same offset as movement,
+            // and the ship turns by itself ("RMB rotates ship constantly").
+            if let Some((x, y)) = window.warp_cursor_to_center() {
+                mouse_point = display::logical_point(&prefs.display, x, y, inp.get_size());
+            }
         } else if cursor_hidden {
             window.set_cursor_visibility(true);
             cursor_hidden = false;
@@ -3357,7 +3361,7 @@ fn run() -> Result<(), String> {
                     && marked_route(&enhanced_map, &parked_enhanced, nav.current_position())
                         .is_some_and(|route| nav.check_route(&route).is_ok());
             }
-            // Navigation: Tab the system map, G the galaxy, Up/Down choose, Enter
+            // Navigation: G the galaxy, N the places list, Up/Down choose, Enter
             // flies to the body (or jumps to the system), Backspace stops the autopilot.
             if let Some(nav) = nav.as_mut().filter(|_| {
                 state.mode == ffe_rs::flight::Mode::Flight
@@ -3374,10 +3378,6 @@ fn run() -> Result<(), String> {
                         nav.open(view);
                     }
                 };
-                if pressed(Key::Tab) && !nav.landed_view() {
-                    toggle(nav, NavView::System);
-                    held_controls.disarm(&keys_down);
-                }
                 // The console's navigation-computer icon (`n`): the original's
                 // list of the system's stations and starports. The key is `n`
                 // (action 0x6e, ffe.asm 78415/78537).
@@ -5040,8 +5040,8 @@ fn run() -> Result<(), String> {
                         && original.is_some()
                     {
                         // F1056's action 9 in flight (`JUMP_004420`), from the
-                        // engine nozzles (plain Tab is the port's system map in
-                        // flight, docs/CONTROLS.md): the 0x24
+                        // engine nozzles (the port has not wired plain Tab in
+                        // flight to it, docs/CONTROLS.md): the 0x24
                         // climb becomes 0x26, the autopilot is cancelled (F1018),
                         // else `player+0xe9` bit 0 toggles the engines; switching
                         // them on runs F1020, which engages the autopilot on a

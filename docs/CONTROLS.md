@@ -59,7 +59,6 @@ right button is the steering hold. The left button remains the console pointer
 | Stop the autopilot | **Backspace** |
 | Request / cancel docking clearance | **D** |
 | Launch from a station or landed state / toggle labels in flight | **L**, or the original action 9: **Tab** while landed |
-| System map | **Tab** (in flight only; on a pad or the surface Tab launches, as `F1056`'s action 9) |
 | Navigation computer (stations and starports) | **N** |
 | Galaxy map: choose the star at the centre as the jump destination | **F3** (the source map screen; **G** is the port shortcut) |
 | Hyperspace to the chosen destination (also after the map closes) | **H**, or the jump icon on the ship diagram (F1116's record 0x45, shown when the destination is in range with the fuel and the ship is at least 12,000 km out) |
@@ -89,8 +88,8 @@ right button is the steering hold. The left button remains the console pointer
 The galaxy map's F5-F12 are **map-local**: they drive the original's F834/F840
 page only while the map is showing. Outside it the global keys are unchanged
 (F5 save, Shift+F5 load, F6-F10 views, F11 screenshot, F12/Shift+F12 model
-viewer/lab). The Tab system map and the `n` places list are not the original
-map page and keep the global keys. Clicking the map's console icons does not
+viewer/lab). The `n` places list is not the original map page and keeps the
+global keys. Clicking the map's console icons does not
 change the flight view while the page is open.
 
 An open-air takeoff is flown, not automatic: the launch action starts F1013's
@@ -277,7 +276,6 @@ double an axis.
 | `stop_autopilot` | Backspace |
 | `docking` | D |
 | `launch` | L, Tab (Tab launches on a pad or the surface) |
-| `system_map` | Tab |
 | `navigation` | N |
 | `galaxy_map` | F3, G |
 | `hyperspace` | H |

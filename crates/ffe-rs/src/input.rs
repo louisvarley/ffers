@@ -167,7 +167,6 @@ pub enum Action {
     StopAutopilot,
     Docking,
     Launch,
-    SystemMap,
     Navigation,
     GalaxyMap,
     Hyperspace,
@@ -188,7 +187,7 @@ impl Action {
     /// Every accepted action name, in documentation order. Names are lowercase
     /// `snake_case` so they cannot collide with minifb's key names (`A`, `Up`,
     /// `Key0`, ...).
-    pub const NAMES: [(&'static str, Action); 33] = [
+    pub const NAMES: [(&'static str, Action); 32] = [
         ("thrust_up", Action::ThrustUp),
         ("thrust_down", Action::ThrustDown),
         ("pitch_up", Action::PitchUp),
@@ -207,7 +206,6 @@ impl Action {
         ("stop_autopilot", Action::StopAutopilot),
         ("docking", Action::Docking),
         ("launch", Action::Launch),
-        ("system_map", Action::SystemMap),
         ("navigation", Action::Navigation),
         ("galaxy_map", Action::GalaxyMap),
         ("hyperspace", Action::Hyperspace),
@@ -266,10 +264,9 @@ impl Action {
             Self::Autopilot => &[K],
             Self::StopAutopilot => &[Backspace],
             Self::Docking => &[D],
-            // Tab launches from a pad or the surface and opens the system map in
-            // flight, as `docs/CONTROLS.md` records.
+            // Tab is the original's action 9: it launches from a pad or the
+            // surface (`docs/CONTROLS.md`).
             Self::Launch => &[L, Tab],
-            Self::SystemMap => &[Tab],
             Self::Navigation => &[N],
             Self::GalaxyMap => &[F3, G],
             Self::Hyperspace => &[H],
