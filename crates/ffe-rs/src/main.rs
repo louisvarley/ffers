@@ -3654,10 +3654,11 @@ fn run() -> Result<(), String> {
                             }
                         }
                     }
-                    // Right-button drag turns the view (F982's mouse accumulators).
+                    // Right-button drag turns the view (F982's mouse accumulators), by
+                    // the real mouse counts as the original adds them.
                     if active && inp.get_mouse_down(MouseButton::Right) {
-                        if let (Some(before), Some(now)) = (system_map_drag, point) {
-                            sm.rotate(f64::from(now.0 - before.0), f64::from(now.1 - before.1));
+                        if system_map_drag.is_some() && point.is_some() {
+                            sm.rotate(f64::from(mouse_dx), f64::from(mouse_dy));
                         }
                         system_map_drag = point;
                     } else {
@@ -3904,9 +3905,13 @@ fn run() -> Result<(), String> {
                             }
                         }
                     }
-                    if active && mouse_down && map_page.is_none() {
-                        if let (Some(before), Some(now)) = (map_drag, point) {
-                            map.rotate((now.0 - before.0) as i16, (now.1 - before.1) as i16);
+                    // The original turns the map with the right button (F840 reads the
+                    // mouse accumulators, which only move while it is held), by the real
+                    // mouse counts; the port also lets the left button drag it.
+                    let turning = mouse_down || inp.get_mouse_down(MouseButton::Right);
+                    if active && turning && map_page.is_none() {
+                        if map_drag.is_some() && point.is_some() {
+                            map.rotate(mouse_dx as i16, mouse_dy as i16);
                         }
                         map_drag = point;
                     } else {
