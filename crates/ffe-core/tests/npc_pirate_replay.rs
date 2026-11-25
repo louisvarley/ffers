@@ -64,9 +64,9 @@ fn frames() -> Vec<Frame> {
 
 fn motion(o: &[u8]) -> Motion {
     let mut m = Motion::default();
-    for r in 0..3 {
-        for c in 0..3 {
-            m.orientation[r][c] = i32_at(o, 4 * (3 * r + c));
+    for (r, row) in m.orientation.iter_mut().enumerate() {
+        for (c, cell) in row.iter_mut().enumerate() {
+            *cell = i32_at(o, 4 * (3 * r + c));
         }
     }
     for k in 0..3 {
