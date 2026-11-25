@@ -2174,9 +2174,17 @@ fn run() -> Result<(), String> {
         );
         // Mouse steering: only the Classic preset's right-button hold moves the
         // ship (`docs/CONTROLS.md`); the left button stays the console pointer.
+        //
+        // The movement is counted in real client pixels, the port's stand-in for the
+        // mouse counts ("mickeys") the original reads: JJFFE adds the device's raw
+        // relative counts (`InputMouseReadMickeys`, sensitivity 100) to the steering
+        // accumulator whatever the window size. Counting the 320x200 picture's
+        // logical pixels instead made the ship steer about four times slower (a
+        // logical pixel is four real ones in the default window) and lost every move
+        // under one logical pixel.
         let raw_point = if active {
             inp.get_unscaled_mouse_pos(MouseMode::Pass)
-                .and_then(|(x, y)| display::logical_point(&prefs.display, x, y, inp.get_size()))
+                .map(|(x, y)| (x.round() as i32, y.round() as i32))
         } else {
             None
         };
@@ -2184,8 +2192,7 @@ fn run() -> Result<(), String> {
             (Some(now), Some(before)) => (now.0 - before.0, now.1 - before.1),
             _ => (0, 0),
         };
-        // A pointer on the letterbox or outside the window restarts the delta so
-        // re-entering cannot snap the ship.
+        // An inactive window restarts the delta so re-entering cannot snap the ship.
         mouse_point = raw_point;
         let right_down = controls_enabled && inp.get_mouse_down(MouseButton::Right);
         let mouse_pressed = right_down && !right_was_down;
@@ -2212,11 +2219,14 @@ fn run() -> Result<(), String> {
             }
             // The next frame measures from where the cursor really landed, not
             // the pre-warp point, so the re-centre must not read as a mouse
-            // jump. It is the client centre, not a fixed logical point: any
-            // other point makes every frame read the same offset as movement,
-            // and the ship turns by itself ("RMB rotates ship constantly").
-            if let Some((x, y)) = window.warp_cursor_to_center() {
-                mouse_point = display::logical_point(&prefs.display, x, y, inp.get_size());
+            // jump. It is the client centre, not an assumed point: any other
+            // point makes every frame read the same offset as movement, and the
+            // ship turns by itself ("RMB rotates ship constantly"). A replay
+            // keeps the recorded positions.
+            if !session.replaying() {
+                if let Some((x, y)) = window.warp_cursor_to_center() {
+                    mouse_point = Some((x.round() as i32, y.round() as i32));
+                }
             }
         } else if cursor_hidden {
             window.set_cursor_visibility(true);

@@ -398,10 +398,10 @@ pub struct MouseSteer {
     pub dy: i32,
 }
 
-/// Pixels of movement for a full-prototype-flight deflection.
-const MOUSE_FULL_DEFLECTION: f64 = 50.0;
-/// The original F1038 scale: one mouse count is one pixel here, and F1038
-/// shifts each count left six.
+/// Mouse counts (real pixels of movement) for a full-prototype-flight deflection.
+const MOUSE_FULL_DEFLECTION: f64 = 200.0;
+/// The original F1038 scale: one mouse count is one pixel of real movement here
+/// (the original's mickey), and F1038 shifts each count left six.
 const MOUSE_UNITS_PER_PIXEL: i32 = 64;
 
 /// A relative mouse counter in the original's `DATA_009188` form: x in the low
@@ -927,10 +927,11 @@ mod tests {
 
     #[test]
     fn the_right_mouse_button_steers_only_in_classic() {
+        // A full deflection is 200 real pixels of movement; 100 is half of it.
         let mouse = MouseSteer {
             held: true,
-            dx: 25,
-            dy: -25,
+            dx: 100,
+            dy: -100,
         };
         let classic = flight_controls(Preset::Classic, View::Ship, &[], mouse, [false; 2]);
         assert!((classic.yaw - 0.5).abs() < 1e-9, "{classic:?}");
@@ -952,7 +953,7 @@ mod tests {
             FlightControls::default()
         );
         let (pitch, yaw) = turret_mouse(Preset::Classic, mouse);
-        assert_eq!((pitch, yaw), (25 * 64, -25 * 64));
+        assert_eq!((pitch, yaw), (100 * 64, -100 * 64));
         assert_eq!(turret_mouse(Preset::Modern, mouse), (0, 0));
     }
 
@@ -960,8 +961,8 @@ mod tests {
     fn reverse_options_flip_the_keys_and_the_mouse() {
         let mouse = MouseSteer {
             held: true,
-            dx: 50,
-            dy: 50,
+            dx: 200,
+            dy: 200,
         };
         let normal = flight_controls(Preset::Classic, View::Ship, &[], mouse, [false; 2]);
         let reversed = flight_controls(Preset::Classic, View::Ship, &[], mouse, [true, true]);

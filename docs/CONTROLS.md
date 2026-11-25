@@ -99,12 +99,15 @@ the set speed (**W** Modern, **Enter** Classic) and pitch up (**Up** Modern,
 **A** Classic) to leave the pad; F1031 releases the bay when the region is
 behind.
 
+Mouse movement is counted in real pixels of pointer movement, the port's stand-in for the
+original's mouse counts (JJFFE adds the device's raw relative counts at sensitivity 100,
+whatever the window size), so the turn rate does not depend on the window or display scale.
 The mouse steering is relative, as F1038 is: while the right button is held each
 frame's movement adds to the ship's rates. Releasing the button stops the input
 and clears the accumulator, so a later press starts from zero instead of
 snapping the ship. In the **prototype** flight model (no O) the same movement is
 mapped to a short-lived stick deflection because that model has no rate state;
-one full deflection is 50 logical pixels. Both paths use the same gate (Classic
+one full deflection is 200 pixels of real mouse movement. Both paths use the same gate (Classic
 only, right button held, ship or external view).
 
 ## Modern, full table
