@@ -41,6 +41,16 @@ pub struct Plot {
     pub kind: u16,
 }
 
+/// One line of the map's grid, in view pixels (see [`EnhancedMap::grid_lines`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GridLine {
+    /// A vertical line (at an x) rather than a horizontal one (at a y).
+    pub vertical: bool,
+    pub at: i32,
+    /// A strong line (a sector edge or a multiple of it) rather than a faint one.
+    pub major: bool,
+}
+
 /// One step of the multi-step route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Waypoint {
@@ -69,8 +79,6 @@ pub struct EnhancedMap {
     pub selected: Option<Selected>,
     /// The `X` route, in the order it was marked.
     pub route: Vec<Waypoint>,
-    /// The centre moved: the selection is looked for again.
-    pub dirty: bool,
 }
 
 impl EnhancedMap {
@@ -84,7 +92,6 @@ impl EnhancedMap {
             reach,
             selected: None,
             route: Vec::new(),
-            dirty: true,
         }
     }
 
@@ -92,7 +99,6 @@ impl EnhancedMap {
     pub fn recentre(&mut self) {
         self.centre = [self.home[0], self.home[1]];
         self.zoom = DEFAULT_ZOOM;
-        self.dirty = true;
     }
 
     /// Move the centre by `x`/`y` (16.16 sectors): the right-drag pan.
@@ -101,7 +107,6 @@ impl EnhancedMap {
             self.centre[0].wrapping_add(x),
             self.centre[1].wrapping_add(y),
         ];
-        self.dirty = true;
     }
 
     /// Move the view by `right`/`up` screen pixels (the arrow keys): the stars
@@ -113,53 +118,20 @@ impl EnhancedMap {
         );
     }
 
-    /// Select `star` directly (a click on it). The selection holds until the
-    /// view is panned, when it goes back to the star nearest the centre.
+    /// Select `star` (a click on it). Only a click selects: panning the view, with
+    /// the keys or the mouse, never does, and the selection holds until another
+    /// star is clicked.
     pub fn pick(&mut self, code: u32, position: [i32; 3], kind: u16) {
         self.selected = Some(Selected {
             position,
             code,
             kind,
         });
-        self.dirty = false;
     }
 
     /// Scale the zoom by `factor` (over 1 zooms in).
     pub fn zoom_by(&mut self, factor: f64) {
         self.zoom = (self.zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
-    }
-
-    /// The star nearest the centre, exactly the original's rule (the same as the
-    /// 3D map): the star of the centre sector with the smallest `|dx| + |dy|`,
-    /// within a quarter sector.
-    pub fn select(&mut self, tables: &SectorTables) {
-        if !self.dirty {
-            return;
-        }
-        self.dirty = false;
-        let (sx, sy) = ((self.centre[0] >> 16) as u16, (self.centre[1] >> 16) as u16);
-        let fraction =
-            |value: i32| i32::from((((value & 0xfe00) as u16).wrapping_add(0x8000)) as i16) >> 9;
-        let (fx, fy) = (fraction(self.centre[0]), fraction(self.centre[1]));
-        let stars = tables.stars(sx, sy);
-        let mut best = 0x20;
-        let mut found = None;
-        for (index, star) in stars.iter().enumerate() {
-            let miss = (i32::from(star.vector[4] as i8) - fx).abs()
-                + (i32::from(star.vector[3] as i8) - fy).abs();
-            if miss < best {
-                best = miss;
-                found = Some(index);
-            }
-        }
-        self.selected = found.map(|index| {
-            let star = &stars[index];
-            Selected {
-                position: sector::position(sx, sy, &star.vector),
-                code: sector_code(sx, sy) | (index as u32) << 26,
-                kind: star.kind,
-            }
-        });
     }
 
     /// Project a 16.16 position into view coordinates: the galaxy's x runs right
@@ -236,21 +208,58 @@ impl EnhancedMap {
         (self.reach as f64 / sector_distance as f64 * 0x1_0000 as f64 * self.zoom).round() as i32
     }
 
+    /// The map's grid, as lines across the view: one per sector edge, or per 2, 4, 8...
+    /// sectors when zoomed out so they never crowd, each a strong line, with fainter
+    /// ones between them when there is room (zoomed in). Like Elite Dangerous' galaxy
+    /// map, the grid sits under the stars and moves and scales with them.
+    pub fn grid_lines(&self) -> Vec<GridLine> {
+        const SECTOR: f64 = 65_536.0;
+        // The strong lines stay between this many and twice this many pixels apart.
+        const MIN_GAP: f64 = 40.0;
+        // Fainter lines come in only when they would be at least this far apart.
+        const MIN_FAINT_GAP: f64 = 10.0;
+        let mut step = 1.0;
+        while SECTOR * step * self.zoom < MIN_GAP {
+            step *= 2.0;
+        }
+        while SECTOR * step * 0.5 * self.zoom >= MIN_GAP {
+            step *= 0.5;
+        }
+        let parts = if SECTOR * step * self.zoom / 4.0 >= MIN_FAINT_GAP {
+            4
+        } else {
+            1
+        };
+        let unit = SECTOR * step / f64::from(parts);
+        let mut lines = Vec::new();
+        for (vertical, centre, size, mid) in [
+            (true, self.centre[0], f64::from(VIEW_W), VIEW_CX),
+            (false, self.centre[1], f64::from(VIEW_H), VIEW_CY),
+        ] {
+            let half = size / 2.0 / self.zoom;
+            let first = ((f64::from(centre) - half - unit) / unit).floor() as i64;
+            let last = ((f64::from(centre) + half + unit) / unit).ceil() as i64;
+            for index in first..=last {
+                let world = index as f64 * unit;
+                let offset = (world - f64::from(centre)) * self.zoom;
+                let at = if vertical { mid + offset } else { mid - offset };
+                if (-1.0..=size).contains(&at) {
+                    lines.push(GridLine {
+                        vertical,
+                        at: at.round() as i32,
+                        major: index.rem_euclid(i64::from(parts)) == 0,
+                    });
+                }
+            }
+        }
+        lines
+    }
+
     /// The corner "Sector: x,y" line, relative to Sol (the same as the 3D map's).
     pub fn sector_text(&self) -> String {
         let x = (self.centre[0] >> 16) - SOL_SECTOR[0];
         let y = (self.centre[1] >> 16) - SOL_SECTOR[1];
         format!("Sector: {x},{y}")
-    }
-
-    /// F828's fuel line for the selected star, from the hyperdrive's report
-    /// (`Fuel Required: n`, `Insufficient Fuel (n required)` or `Out of Range`).
-    pub fn fuel_text(&self, report: Option<&ffe_core::hyperspace::Report>) -> Option<String> {
-        let selected = self.selected.as_ref()?;
-        if sector::distance(self.home, selected.position) == 0 {
-            return None;
-        }
-        report.map(fuel_line)
     }
 
     /// The distance of each route leg from the previous point, the player's
@@ -718,7 +727,6 @@ pub const UNPOPULATED: u8 = 0x10;
 
 /// Build everything the screen draws of the enhanced map for this frame.
 pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::EnhancedGalaxy {
-    map.select(ctx.sectors);
     let plots = map.plots(ctx.sectors);
     let selected_plot = map.selected.as_ref().and_then(|selected| {
         plots
@@ -761,13 +769,6 @@ pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::En
             .iter()
             .map(|waypoint| project_point(waypoint.position)),
     );
-    // The selected star's fuel line and its facts.
-    let report = map
-        .selected
-        .as_ref()
-        .and_then(|selected| (ctx.report_for)(sector::distance(map.home, selected.position)));
-    let fuel = map.fuel_text(report.as_ref());
-    let info = star_info(map, ctx);
     // Each leg: can the range and the fuel left fly it? Waypoints that leave the
     // player stranded (uninhabited, too little fuel for the next leg) get a warning.
     let legs = map.legs();
@@ -828,8 +829,7 @@ pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::En
             (course_problem(problem, total, ctx.drive_fuel), THREAT_HIGH)
         }
     });
-    let hover =
-        hovered_plot.map_or_else(Vec::new, |plot| hover_lines(&plot, map.route_end().1, ctx));
+    let hover = hovered_plot.map_or_else(Vec::new, |plot| hover_lines(&plot, map, &pairs, ctx));
     let legend: Vec<(u8, &'static str)> = vec![
         (FEDERATION, "Federation"),
         (EMPIRE, "Empire"),
@@ -849,9 +849,8 @@ pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::En
         home_pointer: map.home_pointer(),
         sol: map.sol(),
         sector: map.sector_text(),
-        fuel,
+        grid: map.grid_lines(),
         date: ctx.date.clone(),
-        info,
         route_summary,
         hover,
         legend,
@@ -859,95 +858,128 @@ pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::En
     }
 }
 
-/// What hovering a star says: its name (and faction), whether anyone lives there
-/// (green "Populated" or red "Unpopulated") and, for a populated system, how dangerous
-/// it is to arrive in.
-fn hover_lines(plot: &Plot, from: [i32; 3], ctx: &SceneContext<'_>) -> Vec<(String, u8)> {
-    let name = (ctx.name_of)(plot.code).unwrap_or_default();
-    // The jump from where the route has got to (the player's system with no route): the
-    // fuel a click on the star would plan for, or that it needs a course.
-    let fuel = (sector::distance(from, plot.position) != 0)
-        .then(|| (ctx.report_for)(sector::distance(from, plot.position)))
-        .flatten()
-        .map(|report| {
-            if report.result < 0 && report.fuel_needed < 0 {
-                (
-                    "Out of range: click to plot a course".to_owned(),
-                    UNPOPULATED,
-                )
-            } else {
-                (
-                    fuel_line(&report),
-                    if report.result < 0 { UNPOPULATED } else { 15 },
-                )
-            }
-        });
-    let Some(tables) = ctx.systems else {
-        return std::iter::once((name, 15)).chain(fuel).collect();
-    };
-    let market = tables.market(plot.code);
-    if market.population == 0 {
-        let lines = vec![(name, 15), ("Unpopulated".to_owned(), UNPOPULATED)];
-        return lines.into_iter().chain(fuel).collect();
-    }
-    let faction = match market.allegiance >> 6 {
-        1 => "Imperial",
-        2 => "Federal",
-        3 => "Alliance",
-        _ => "Independent",
-    };
-    let mut lines = vec![
-        (format!("{name} ({faction})"), 15),
-        ("Populated".to_owned(), POPULATED),
-    ];
-    if let Some(threat) = system_threat(plot.code, tables) {
-        lines.push((format!("Danger: {}", threat.label()), threat.colour()));
-    }
-    lines.extend(fuel);
-    lines
-}
+/// The red the map uses for what cannot be done (the unpopulated colour).
+const PROBLEM: u8 = UNPOPULATED;
 
-/// The console panel for the selected star: its name and distance, its faction
-/// and population, how dangerous it is, then F869's description.
-fn star_info(map: &EnhancedMap, ctx: &SceneContext<'_>) -> Vec<(String, u8)> {
-    let Some(selected) = map.selected.as_ref() else {
-        return Vec::new();
-    };
-    let name = (ctx.name_of)(selected.code).unwrap_or_default();
-    let distance = sector::distance(map.home, selected.position);
+/// What hovering a star says, in the right-hand panel: its name and distance from the
+/// player's system, whether anyone lives there (green "Populated" or red "Unpopulated"),
+/// for a populated system the original map's own text (its government, economy,
+/// allegiance and population, the lines F843's people page writes) and how dangerous it
+/// is to arrive in, then F869's description of the system and, last, what the jump
+/// would need: the fuel, or why it cannot be made (in red).
+fn hover_lines(
+    plot: &Plot,
+    map: &EnhancedMap,
+    route: &[(u32, [i32; 3])],
+    ctx: &SceneContext<'_>,
+) -> Vec<(String, u8)> {
+    let name = (ctx.name_of)(plot.code).unwrap_or_default();
+    let distance = sector::distance(map.home, plot.position);
     let mut lines = vec![(
         format!("{name}  {}.{:02} ly", distance / 100, distance % 100),
         15,
     )];
     if let Some(tables) = ctx.systems {
-        let market = tables.market(selected.code);
-        let faction = match market.allegiance >> 6 {
-            1 => "Imperial",
-            2 => "Federal",
-            3 => "Alliance",
-            _ => "Independent",
+        let market = tables.market(plot.code);
+        let details = tables.details(plot.code);
+        let expand = |selector: u16, vars: &[i32; 5]| -> Option<String> {
+            let raw = (ctx.string_of)(u32::from(selector))?;
+            let text =
+                ffe_core::system_text::expand(&raw, vars, &|code| (ctx.string_of)(u32::from(code)));
+            Some(plain_text(&text))
         };
         if market.population == 0 {
-            lines.push(("Uninhabited".to_owned(), UNINHABITED));
+            lines.push(("Unpopulated".to_owned(), UNPOPULATED));
         } else {
-            lines.push((format!("{faction}, population {}", market.population), 15));
-            if let Some(threat) = system_threat(selected.code, tables) {
+            lines.push(("Populated".to_owned(), POPULATED));
+            // F843's people page (`0x84b5`): the government (`0x84cb +`), economy
+            // (`0x84bb +`, "Small Mining" and the like), allegiance (`0x84b7 +`) and
+            // population (`0x84db +`).
+            let word = details.allegiance as i32;
+            let vars = [
+                (word & 0x3f) + 0x84cb,
+                (word & 0x3f) + 0x84bb,
+                (word >> 6) + 0x84b7,
+                market.population as i32 + 0x84db,
+                0,
+            ];
+            if let Some(people) = expand(0x84b5, &vars) {
+                for line in people.split(['\r', '\n']) {
+                    let line = line.trim();
+                    if !line.is_empty() {
+                        lines.push((line.to_owned(), 15));
+                    }
+                }
+            }
+            if let Some(threat) = system_threat(plot.code, tables) {
                 lines.push((format!("Danger: {}", threat.label()), threat.colour()));
             }
         }
-        let code = tables.details(selected.code).words[0] as u16;
-        if let Some(raw) = (ctx.string_of)(u32::from(code)) {
-            let description: String =
-                ffe_core::system_text::expand(&raw, &[0; 5], &|c| (ctx.string_of)(u32::from(c)))
-                    .into_iter()
-                    .map(char::from)
-                    .collect();
-            if !description.is_empty() {
-                lines.push((description.replace('\r', " "), 15));
+        // F869's first dword: the system's description, as the original's console shows it.
+        if let Some(description) = expand(details.words[0] as u16, &[0; 5]) {
+            let description = description.replace('\r', " ");
+            if !description.trim().is_empty() {
+                lines.push((description, 15));
             }
         }
     }
+    lines.extend(jump_line(plot, map, route, ctx));
     lines
+}
+
+/// The original's text as plain characters: its column-tab code (`0xfd` and the column
+/// byte after it) becomes a space and the other control codes (except the line break
+/// `\r`) are dropped, so "Government Type:<tab>Feudal" reads as a sentence.
+pub fn plain_text(bytes: &[u8]) -> String {
+    let mut text = String::with_capacity(bytes.len());
+    let mut bytes = bytes.iter().copied();
+    while let Some(byte) = bytes.next() {
+        match byte {
+            0xfd => {
+                bytes.next();
+                text.push(' ');
+            }
+            b'\r' | b'\n' => text.push('\r'),
+            0x20..=0x7e => text.push(char::from(byte)),
+            _ => {}
+        }
+    }
+    text
+}
+
+/// What the jump to `plot` from where the route has got to would need, or why it cannot
+/// be made: out of range (a click plots a course), or too little fuel for the whole
+/// route with this star on the end of it. `None` for the player's own system and for
+/// a star already on the route (a click takes it off again).
+fn jump_line(
+    plot: &Plot,
+    map: &EnhancedMap,
+    route: &[(u32, [i32; 3])],
+    ctx: &SceneContext<'_>,
+) -> Option<(String, u8)> {
+    let leg = sector::distance(map.route_end().1, plot.position);
+    if leg == 0 || route.iter().any(|(code, _)| *code == plot.code) {
+        return None;
+    }
+    let report = (ctx.report_for)(leg)?;
+    if report.result < 0 && report.fuel_needed < 0 {
+        return Some(("Out of range: click to plot a course".to_owned(), PROBLEM));
+    }
+    if report.result < 0 {
+        return Some((fuel_line(&report), PROBLEM));
+    }
+    // The leg alone is fine; the earlier legs may have left too little for it.
+    let mut trial = route.to_vec();
+    trial.push((plot.code, plot.position));
+    if let Err(RouteProblem::Fuel { needed, .. }) = (ctx.check_route)(&trial) {
+        return Some((format!("Insufficient Fuel ({needed}t required)"), PROBLEM));
+    }
+    Some((fuel_line(&report), 15))
+}
+
+/// Why a star was not added to the route, when the hold cannot pay for the course to it.
+pub fn fuel_block_message(name: &str, total: i32, have: i32) -> String {
+    format!("{name} not added: the course needs {total} t of fuel and the hold has {have} t.")
 }
 
 #[cfg(test)]
@@ -1046,7 +1078,6 @@ mod tests {
         // Looking right moves the centre right: a star there slides toward the middle.
         let (x, _, _) = map.project([(10.0 / map.zoom) as i32, 0, 0]);
         assert!((x - 160).abs() <= 1, "{x}");
-        assert!(map.dirty);
         let before = map.centre;
         map.pan_pixels(0.0, 10.0);
         assert_eq!(map.centre[0], before[0]);
@@ -1054,16 +1085,84 @@ mod tests {
     }
 
     #[test]
-    fn a_picked_star_stays_selected_until_the_map_moves() {
+    fn the_grid_follows_the_sectors_and_never_crowds() {
+        for zoom in [MIN_ZOOM, 1.0 / 2048.0, DEFAULT_ZOOM, 1.0 / 128.0, MAX_ZOOM] {
+            let mut map = EnhancedMap::new([0, 0, 0], 0);
+            map.zoom = zoom;
+            let lines = map.grid_lines();
+            for vertical in [true, false] {
+                let mut strong: Vec<i32> = lines
+                    .iter()
+                    .filter(|line| line.vertical == vertical && line.major)
+                    .map(|line| line.at)
+                    .collect();
+                strong.sort_unstable();
+                assert!(strong.len() >= 2, "{zoom}: {strong:?}");
+                // A line on the sector edge at the view's centre (the world's origin).
+                let centre = if vertical { 160 } else { 79 };
+                assert!(strong.contains(&centre), "{zoom}: {strong:?}");
+                // The strong lines are 40 to 80 pixels apart, whatever the zoom.
+                for pair in strong.windows(2) {
+                    let gap = pair[1] - pair[0];
+                    assert!((39..=81).contains(&gap), "{zoom}: gap {gap}");
+                }
+                // The faint lines, when there are any, lie between them at a quarter step.
+                let faint = lines
+                    .iter()
+                    .filter(|line| line.vertical == vertical && !line.major)
+                    .count();
+                assert!(faint == 0 || faint >= strong.len(), "{zoom}: {faint}");
+            }
+        }
+        // The grid moves with the view: panning a sector shifts every line by its width.
         let mut map = EnhancedMap::new([0, 0, 0], 0);
-        map.pick(7, [0x1_0000, 0x2_0000, 0], 3);
-        assert!(!map.dirty);
-        assert_eq!(map.selected.as_ref().map(|s| s.code), Some(7));
-        map.pan_pixels(5.0, 0.0);
+        let before: Vec<i32> = map
+            .grid_lines()
+            .iter()
+            .filter(|line| line.vertical && line.major)
+            .map(|line| line.at)
+            .collect();
+        map.pan(0x1_0000, 0);
+        let after: Vec<i32> = map
+            .grid_lines()
+            .iter()
+            .filter(|line| line.vertical && line.major)
+            .map(|line| line.at)
+            .collect();
+        let shift = (0x1_0000 as f64 * map.zoom).round() as i32;
         assert!(
-            map.dirty,
-            "a pan looks for the star nearest the centre again"
+            after
+                .iter()
+                .all(|at| before.contains(&(at + shift)) || *at + shift > 320 || *at + shift < 0),
+            "{before:?} -> {after:?}"
         );
+    }
+
+    #[test]
+    fn the_originals_tab_code_reads_as_a_space() {
+        // F843's people text: "Government Type:", the column tab (0xfd, column 'A'), the
+        // government, a line break, then the next heading.
+        let raw = b"Government Type:\xfdAFeudal\rEconomy Type:\xfdASmall Mining\x18";
+        assert_eq!(
+            plain_text(raw),
+            "Government Type: Feudal\rEconomy Type: Small Mining"
+        );
+    }
+
+    #[test]
+    fn only_a_click_selects_a_star_and_panning_never_does() {
+        let mut map = EnhancedMap::new([0, 0, 0], 0);
+        assert!(map.selected.is_none(), "nothing is selected on opening");
+        map.pan_pixels(50.0, 20.0);
+        map.pan(0x1_0000, 0x1_0000);
+        map.recentre();
+        assert!(map.selected.is_none(), "keys and drags only move the view");
+        map.pick(7, [0x1_0000, 0x2_0000, 0], 3);
+        assert_eq!(map.selected.as_ref().map(|s| s.code), Some(7));
+        // The picked star stays selected while the view moves.
+        map.pan_pixels(5.0, 0.0);
+        map.pan(0x2_0000, 0);
+        assert_eq!(map.selected.as_ref().map(|s| s.code), Some(7));
     }
 
     #[test]
@@ -1233,39 +1332,41 @@ mod tests {
                 "{real}"
             );
         }
-        // Stretched to 8 s: it starts at 0, ends at the end of the tunnel, and moves at the
-        // tunnel's own speed (145 shares in `TUNNEL_SECONDS`) all the way, apart from the
-        // wrap where the swirl repeats.
+        // Stretched to 8 s: it starts at 0, ends at the end of the tunnel, and moves at about
+        // the tunnel's own speed (145 shares in `TUNNEL_SECONDS`) all the way. The swirl
+        // sweeps there and back with no jump anywhere, the hand-overs included.
         let (stretch, whole) = (4.0, 8.0);
         assert!(at(stretch, 0.0) < 1.0e-6);
         assert!(at(stretch, whole - 1.0e-6) > 144.9);
         let rate = 145.0 / crate::navigation::TUNNEL_SECONDS;
         let step = 0.01;
-        let mut wraps = 0;
+        let mut reversals = 0;
         let mut real = 0.0;
+        let mut was_rising = true;
         while real + step < whole {
             let delta = at(stretch, real + step) - at(stretch, real);
-            // The swirl hands over to the closing frames at one step, wherever its cycle is.
-            let outro_start = whole - 35.0 / 145.0 * crate::navigation::TUNNEL_SECONDS;
-            if real < outro_start && real + step >= outro_start {
-                real += step;
-                continue;
-            }
-            if delta < 0.0 {
-                wraps += 1;
-                assert!((70.0..110.0).contains(&at(stretch, real)), "wrap at {real}");
-            } else {
-                assert!(
-                    (delta - rate * step).abs() < 1.0e-6,
-                    "speed at {real}: {delta}"
-                );
+            // Never a jump: within a few per cent of the tunnel's own speed.
+            assert!(
+                delta.abs() <= rate * step * 1.06 + 1.0e-6,
+                "a jump of {delta} at {real}"
+            );
+            if delta.abs() > 1.0e-9 {
+                let rising = delta > 0.0;
+                if rising != was_rising {
+                    reversals += 1;
+                    assert!(
+                        (70.0..=110.0).contains(&at(stretch, real)),
+                        "turned at {real}"
+                    );
+                }
+                was_rising = rising;
             }
             real += step;
         }
-        // 8 s is 2 s of opening and closing plus 1.7 s... of swirl cycles: more than one.
-        assert!(wraps >= 2, "{wraps} repeats of the swirl");
+        // 8 s is 2 s of opening and closing plus almost 6 s of swirl: several sweeps.
+        assert!(reversals >= 4, "{reversals} turns of the swirl");
         // A route's legs add up to a long jump (here 12 s of game time at the transit rate):
-        // it must not play slowly, but at the same speed as a short one, repeating the swirl.
+        // it must not play slowly, but at the tunnel's own speed, sweeping the swirl.
         let long = |real: f64| {
             let total = 12.0 * HYPERSPACE_RATE;
             Transit {
@@ -1276,9 +1377,41 @@ mod tests {
             .share()
         };
         let speed = 145.0 / crate::navigation::TUNNEL_SECONDS;
-        assert!((long(0.5) - long(0.4) - 0.1 * speed).abs() < 1.0e-6);
+        assert!(
+            (long(0.5) - long(0.4) - 0.1 * speed).abs() < 1.0e-6,
+            "opening"
+        );
         assert!(long(11.999) > 144.0 && long(0.0) < 1.0e-6);
-        assert!((70.0..110.0).contains(&long(6.0)));
+        assert!((70.0..=110.0).contains(&long(6.0)));
+        // The swirl ends on 110, where the closing frames begin, for jumps of any length.
+        for seconds in [3.2, 3.9, 4.5, 6.0, 9.7, 12.0, 20.0] {
+            let total = seconds * HYPERSPACE_RATE;
+            let share = |real: f64| {
+                Transit {
+                    total,
+                    remaining: total - real * HYPERSPACE_RATE,
+                    stretch: 1.0,
+                }
+                .share()
+            };
+            let outro_start = seconds - 35.0 / 145.0 * crate::navigation::TUNNEL_SECONDS;
+            let before = share(outro_start - 1.0e-6);
+            let after = share(outro_start + 1.0e-6);
+            assert!(
+                (before - 110.0).abs() < 0.05 && (after - 110.0).abs() < 0.05,
+                "{seconds} s: swirl ends at {before}, closing starts at {after}"
+            );
+            // And the swirl never leaves its own shares.
+            let mut real = 70.0 / 145.0 * crate::navigation::TUNNEL_SECONDS;
+            while real < outro_start {
+                assert!(
+                    (70.0 - 1.0e-6..=110.0 + 1.0e-6).contains(&share(real)),
+                    "{seconds} s at {real}: {}",
+                    share(real)
+                );
+                real += 0.013;
+            }
+        }
         // The animation word is the share, as before.
         let total = natural * HYPERSPACE_RATE;
         let word = Transit {

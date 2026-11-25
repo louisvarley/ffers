@@ -1790,9 +1790,9 @@ impl Transit {
     /// A stretched transit (see [`enhanced_transit_seconds`]) plays the same tunnel at the
     /// same speed for longer rather than slowing it down: the opening (the stars, the streaks
     /// and the first of the swirl, shares 0 to 70) and the closing (110 to 145) run once at
-    /// the original's pace, and the swirl between them (70 to 110, whose frames differ
-    /// from one to the next anyway) repeats for as long as the extra time needs. With a
-    /// stretch of 1 this is the original's share exactly.
+    /// the original's pace, and the swirl between them (70 to 110, whose view drifts as it
+    /// plays) sweeps there and back, without a jump, for as long as the extra time needs.
+    /// With a stretch of 1 this is the original's share exactly.
     pub fn animation(&self) -> u16 {
         let share = self.share();
         ((share as u16) << 8) & 0xff00
@@ -1818,9 +1818,32 @@ impl Transit {
         } else if elapsed >= whole - outro {
             110.0 + (elapsed - (whole - outro)) / per_share
         } else {
-            70.0 + (elapsed - intro) % cycle / per_share
+            // The swirl (shares 70 to 110) drifts across the view as it plays, so repeating it
+            // from 110 back to 70 snaps the vortex from one side to the other. It sweeps there
+            // and back instead, an odd number of sweeps so the last one ends at 110 exactly
+            // where the closing frames pick up, and the sweeps are stretched or squeezed a
+            // little (to the nearest whole number of them) to make that fit.
+            let swirl = (whole - intro - outro).max(cycle);
+            let sweeps = Self::sweeps(swirl / cycle);
+            let at = (elapsed - intro) / (swirl / sweeps);
+            let whole_sweeps = at.floor();
+            let fraction = at - whole_sweeps;
+            let forward = (whole_sweeps as i64) % 2 == 0;
+            70.0 + 40.0 * if forward { fraction } else { 1.0 - fraction }
         };
         share.clamp(0.0, 145.0)
+    }
+
+    /// The odd number of sweeps nearest to `ratio` (the swirl's time over one sweep's), so
+    /// the swirl plays at close to its own speed and ends on a forward sweep.
+    fn sweeps(ratio: f64) -> f64 {
+        let below = ((ratio - 1.0) / 2.0).floor().max(0.0) * 2.0 + 1.0;
+        let above = below + 2.0;
+        if (above / ratio).ln().abs() < (below / ratio).ln().abs() {
+            above
+        } else {
+            below
+        }
     }
 }
 

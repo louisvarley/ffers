@@ -100,7 +100,8 @@ fn the_enhanced_map_draws_its_states() {
         map.range_radius()
     );
     draw(&world, &mut map, None, "em-open.ppm");
-    assert!(map.selected.is_some());
+    // Nothing is selected until a star is clicked: opening, centring or panning select none.
+    assert!(map.selected.is_none());
 
     // Click three stars into a route; hover the middle one.
     let plots = map.plots(&sectors);
@@ -157,28 +158,102 @@ fn the_enhanced_map_draws_its_states() {
         };
         let lines: Vec<&str> = screen_scene.hover.iter().map(|(t, _)| t.as_str()).collect();
         assert!(!lines.is_empty(), "hovering a plotted star says something");
-        // The fuel for the jump from the player's system is always the last line.
-        let fuel = lines.last().copied().unwrap_or_default();
+        // The panel opens with the name and the distance from the player's system.
+        assert!(lines[0].contains(" ly"), "{lines:?}");
+        let own_system = plot.position == map.route_end().1;
+        let on_route = map.route.iter().any(|w| w.code == plot.code);
+        // What the jump needs is always the last line, unless there is no jump to say.
+        let last = lines.last().copied().unwrap_or_default();
         assert!(
-            fuel.starts_with("Fuel Required")
-                || fuel.starts_with("Insufficient Fuel")
-                || fuel.starts_with("Out of range")
-                || plot.position == map.route_end().1,
+            last.starts_with("Fuel Required")
+                || last.starts_with("Insufficient Fuel")
+                || last.starts_with("Out of range")
+                || own_system
+                || on_route,
             "{lines:?}"
         );
-        let own_system = plot.position == map.route_end().1;
+        // Insufficient fuel is said once, in red.
+        let shortage: Vec<_> = screen_scene
+            .hover
+            .iter()
+            .filter(|(text, _)| text.contains("Insufficient Fuel"))
+            .collect();
+        assert!(shortage.len() <= 1, "{lines:?}");
+        assert!(
+            shortage
+                .iter()
+                .all(|(_, colour)| *colour == enhanced_map::UNPOPULATED),
+            "{lines:?}"
+        );
         if lines[1] == "Unpopulated" {
-            assert_eq!(lines.len(), 2 + usize::from(!own_system), "{lines:?}");
             assert_eq!(screen_scene.hover[1].1, enhanced_map::UNPOPULATED);
         } else {
             assert_eq!(lines[1], "Populated", "{lines:?}");
             assert_eq!(screen_scene.hover[1].1, enhanced_map::POPULATED);
-            assert!(lines[2].starts_with("Danger: "), "{lines:?}");
-            assert_eq!(lines.len(), 3 + usize::from(!own_system), "{lines:?}");
-            assert!(!lines[0].contains("pop"), "{lines:?}");
+            assert!(
+                lines.iter().any(|line| line.starts_with("Danger: ")),
+                "{lines:?}"
+            );
         }
     }
     draw(&world, &mut map, Some(hover), "em-hover.ppm");
+
+    // With no fuel in the hold, a star the drive could reach says "Insufficient Fuel" once, in
+    // red (there is no second, white copy of it).
+    let mut dry = self::world();
+    dry.nav.drive = Some(DriveState {
+        mass: 16,
+        class: 10,
+        fuel: 0,
+    });
+    let mut dry_map = open(&dry);
+    let target = dry_map
+        .plots(&sectors_again)
+        .into_iter()
+        .find(|plot| {
+            let distance = ffe_core::sector::distance(dry_map.home, plot.position);
+            distance != 0
+                && dry
+                    .nav
+                    .report_for(distance)
+                    .is_some_and(|r| r.fuel_needed > 0)
+        })
+        .expect("a star within the drive's range");
+    let screen = draw(
+        &dry,
+        &mut dry_map,
+        Some((target.x, target.y)),
+        "em-no-fuel.ppm",
+    );
+    drop(screen);
+    let systems =
+        ffe_core::galaxy::Tables::new(world.cache.asset("base:world/system-tables").unwrap())
+            .unwrap();
+    let scene = enhanced_map::scene(
+        &mut dry_map,
+        &SceneContext {
+            sectors: &sectors_again,
+            systems: Some(&systems),
+            name_of: &|code| {
+                dry.viewer
+                    .system_name(code)
+                    .map(|name| name.iter().map(|b| char::from(*b)).collect())
+            },
+            string_of: &|selector| dry.viewer.system_string(selector),
+            report_for: &|distance| dry.nav.report_for(distance),
+            check_route: &|route| dry.nav.check_route(route),
+            drive_fuel: 0,
+            date: String::new(),
+            mouse: Some((target.x, target.y)),
+        },
+    );
+    let shortage: Vec<_> = scene
+        .hover
+        .iter()
+        .filter(|(text, _)| text.contains("Insufficient Fuel"))
+        .collect();
+    assert_eq!(shortage.len(), 1, "{:?}", scene.hover);
+    assert_eq!(shortage[0].1, enhanced_map::UNPOPULATED, "in red");
 
     // Panned a long way: the line to the player's own system leaves the view.
     map.pan_pixels(420.0, 150.0);

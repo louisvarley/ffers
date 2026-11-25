@@ -3981,37 +3981,36 @@ fn run() -> Result<(), String> {
                     if pressed(Key::Home) || pressed(Key::C) {
                         map.recentre();
                     }
-                    // Refresh the selection after any pan, then X marks it.
-                    if let Some(tables) = sector_tables.as_ref() {
-                        map.select(tables);
-                    }
-                    // A click on a star selects it and adds it to the route (plotting a course
-                    // through other stars when it is beyond one jump); a click on a star already
-                    // on the route takes it off again. X does the same for the selected star.
+                    // Only the mouse selects: the keys and a drag just move the view. A click
+                    // on a star selects it and adds it to the route (plotting a course
+                    // through other stars when it is beyond one jump); a click on a star
+                    // already on the route takes it off again. X does the same for the star
+                    // under the pointer, or the one last clicked.
                     let mut clicked: Option<(u32, [i32; 3], u16)> = None;
+                    let mut under_pointer: Option<(u32, [i32; 3], u16)> = None;
                     if let (Some(tables), Some((x, y))) = (
                         sector_tables.as_ref(),
-                        point.filter(|_| {
-                            active
-                                && mouse_edge
-                                && console_click.is_none()
-                                && !inp.get_mouse_down(MouseButton::Right)
-                        }),
+                        point.filter(|_| active && console_click.is_none()),
                     ) {
                         if y < ffe_rs::enhanced_map::VIEW_H {
                             let plots = map.plots(tables);
-                            clicked = ffe_rs::enhanced_map::hit(&plots, x, y)
+                            under_pointer = ffe_rs::enhanced_map::hit(&plots, x, y)
                                 .map(|plot| (plot.code, plot.position, plot.kind));
                         }
                     }
+                    if mouse_edge && !inp.get_mouse_down(MouseButton::Right) {
+                        clicked = under_pointer;
+                    }
                     if pressed(Key::X) {
-                        match map.selected.clone() {
-                            Some(selected) => {
-                                clicked = Some((selected.code, selected.position, selected.kind));
-                            }
+                        match under_pointer.or_else(|| {
+                            map.selected
+                                .as_ref()
+                                .map(|selected| (selected.code, selected.position, selected.kind))
+                        }) {
+                            Some(star) => clicked = Some(star),
                             None => {
                                 message =
-                                    "No star is selected: centre the map on one first.".to_owned();
+                                    "No star is selected: point at one, or click it.".to_owned();
                             }
                         }
                     }
@@ -4035,14 +4034,38 @@ fn run() -> Result<(), String> {
                             map.route.len(),
                             &name_of,
                         );
-                        // A plotted course often runs off the view: bring all of it in.
-                        if matches!(result, ffe_rs::enhanced_map::Clicked::Plotted(_)) {
-                            map.fit_route();
+                        let route: Vec<(u32, [i32; 3])> =
+                            map.route.iter().map(|w| (w.code, w.position)).collect();
+                        // A star the hold cannot pay the fuel to reach is not added: it comes
+                        // straight off again, with the stops plotted to it, and is not selected.
+                        let added = matches!(
+                            result,
+                            ffe_rs::enhanced_map::Clicked::Added
+                                | ffe_rs::enhanced_map::Clicked::Plotted(_)
+                        );
+                        if added
+                            && matches!(
+                                nav.check_route(&route),
+                                Err(ffe_rs::navigation::RouteProblem::Fuel { .. })
+                            )
+                        {
+                            map.remove_star(code);
+                            map.selected = None;
+                            message = ffe_rs::enhanced_map::fuel_block_message(
+                                &name_of(code).unwrap_or_default(),
+                                nav.route_fuel_needed(&route).unwrap_or(0),
+                                nav.drive.map_or(0, |drive| drive.fuel),
+                            );
+                        } else {
+                            // A plotted course often runs off the view: bring all of it in.
+                            if matches!(result, ffe_rs::enhanced_map::Clicked::Plotted(_)) {
+                                map.fit_route();
+                            }
                         }
                         // Say at once when the route as it now stands cannot be flown, and why.
                         let route: Vec<(u32, [i32; 3])> =
                             map.route.iter().map(|w| (w.code, w.position)).collect();
-                        if !route.is_empty() {
+                        if !route.is_empty() && !added {
                             if let Err(problem) = nav.check_route(&route) {
                                 message.push(' ');
                                 message.push_str(&ffe_rs::enhanced_map::course_problem(
@@ -4090,10 +4113,7 @@ fn run() -> Result<(), String> {
                         Some(selected) => nav.set_destination(selected.code, selected.position),
                         None => nav.clear_destination(),
                     }
-                } else if let (Some(map), Some(tables)) =
-                    (enhanced_map.as_mut(), sector_tables.as_ref())
-                {
-                    map.select(tables);
+                } else if let Some(map) = enhanced_map.as_mut() {
                     match map.selected.as_ref() {
                         Some(selected) => nav.set_destination(selected.code, selected.position),
                         None => nav.clear_destination(),

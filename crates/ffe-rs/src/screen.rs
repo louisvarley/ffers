@@ -151,14 +151,14 @@ pub struct EnhancedGalaxy {
     /// Sol's projected point (possibly off-view) and its distance from home.
     pub sol: (i32, i32, i32),
     pub sector: String,
-    pub fuel: Option<String>,
+    /// The grid under the stars (see `EnhancedMap::grid_lines`).
+    pub grid: Vec<crate::enhanced_map::GridLine>,
     pub date: String,
-    /// The console panel's lines (text and colour), the star's name and facts.
-    pub info: Vec<(String, u8)>,
     /// The route's total distance and fuel, when a route is set.
     pub route_summary: Option<(String, u8)>,
-    /// What hovering a star says (text and colour): whether it is inhabited, how
-    /// dangerous it is, and whether it has a station or port.
+    /// What hovering a star says (text and colour), drawn as a panel at the side of
+    /// the view: its name and distance, whether it is inhabited, the original map's
+    /// facts about it, how dangerous it is, its description and what a jump there needs.
     pub hover: Vec<(String, u8)>,
     /// What the dot colours mean: (colour, name).
     pub legend: Vec<(u8, &'static str)>,
@@ -4316,8 +4316,26 @@ impl Screen {
     /// colour legend, the controls line and the console text, over the cabin.
     fn draw_enhanced_galaxy(&mut self, scene: &EnhancedGalaxy) {
         use crate::enhanced_map as em;
-        self.frame[..320 * VIEW_HEIGHT]
-            .copy_from_slice(&self.cabins[self.cabin_index][..320 * VIEW_HEIGHT]);
+        // A dark, slightly blue space (a little lighter toward the bottom) under a grid, in
+        // place of the cabin's art, as Elite Dangerous' galaxy map has.
+        for y in 0..VIEW_HEIGHT {
+            let rise = (y * 12 / VIEW_HEIGHT) as u32;
+            let colour = ((2 + rise / 3) << 16) | ((5 + rise / 2) << 8) | (11 + rise);
+            self.frame[y * 320..(y + 1) * 320].fill(colour);
+        }
+        for line in &scene.grid {
+            let colour = if line.major { 0x1a2a46 } else { 0x0d1626 };
+            if line.vertical {
+                if (0..320).contains(&line.at) {
+                    for y in 0..VIEW_HEIGHT {
+                        self.frame[y * 320 + line.at as usize] = colour;
+                    }
+                }
+            } else if (0..VIEW_HEIGHT as i32).contains(&line.at) {
+                let row = line.at as usize * 320;
+                self.frame[row..row + 320].fill(colour);
+            }
+        }
         let shadowed = |screen: &mut Self, x: usize, y: usize, value: &str, colour: u8| {
             screen.text(x + 1, y + 1, value, 0);
             screen.text(x, y, value, colour);
@@ -4325,10 +4343,7 @@ impl Screen {
         // Darken the strips the legend, the controls line and the notes sit on, so
         // they read over the busiest part of the starfield.
         self.dim_rect(0, 0, 320, 24, 45);
-        let notes = 1
-            + usize::from(scene.fuel.is_some())
-            + usize::from(scene.route_summary.is_some())
-            + scene.hover.len();
+        let notes = 1 + usize::from(scene.route_summary.is_some());
         let notes_top = 158 - 10 * notes - 2;
         self.dim_rect(0, notes_top, 200, 158, 45);
         // The drive's reach circle about the home system.
@@ -4462,47 +4477,59 @@ impl Screen {
             lx += self.font.width(name).unwrap_or(0) + 8;
         }
         shadowed(self, 6, 14, &scene.hint, 15);
-        // The left text block, from the bottom up: the sector, the fuel line, the
-        // route summary, then what hovering a star says (name first, so it is on top).
+        // The left text block, from the bottom up: the sector, then the route summary.
         let mut block: Vec<(&str, u8)> = vec![(scene.sector.as_str(), 15)];
-        if let Some(fuel) = &scene.fuel {
-            block.push((fuel, 15));
-        }
         if let Some((route, colour)) = &scene.route_summary {
             block.push((route, *colour));
-        }
-        for (line, colour) in scene.hover.iter().rev() {
-            block.push((line, *colour));
         }
         for (row, (line, colour)) in block.into_iter().enumerate() {
             shadowed(self, 6, 147 - 10 * row, line, colour);
         }
-        // The console text: the date, then the star's lines wrapped to 120 pixels.
-        self.text(195, 164, &scene.date, 17);
-        let mut y = 173;
-        for (paragraph, colour) in &scene.info {
-            let mut line = String::new();
-            for word in paragraph.split(' ') {
-                let trial = if line.is_empty() {
-                    word.to_owned()
-                } else {
-                    format!("{line} {word}")
-                };
-                if self.font.width(&trial).is_ok_and(|width| width > 120) && !line.is_empty() {
-                    if y < 194 {
-                        self.text(195, y, &line, *colour);
+        // What hovering a star says, in a panel at the right of the view (at the left
+        // when the star is over there, so the panel never covers it).
+        if !scene.hover.is_empty() {
+            const PANEL_W: usize = 118;
+            const PANEL_TOP: usize = 26;
+            const PANEL_BOTTOM: usize = 154;
+            let on_left = scene
+                .hovered
+                .is_some_and(|(x, _, _)| x >= 320 - PANEL_W as i32 - 8);
+            let left = if on_left { 4 } else { 320 - PANEL_W - 4 };
+            let mut rows: Vec<(String, u8)> = Vec::new();
+            for (paragraph, colour) in &scene.hover {
+                let mut line = String::new();
+                for word in paragraph.split(' ') {
+                    let trial = if line.is_empty() {
+                        word.to_owned()
+                    } else {
+                        format!("{line} {word}")
+                    };
+                    if self
+                        .font
+                        .width(&trial)
+                        .is_ok_and(|width| width > PANEL_W - 6)
+                        && !line.is_empty()
+                    {
+                        rows.push((std::mem::take(&mut line), *colour));
+                        line = word.to_owned();
+                    } else {
+                        line = trial;
                     }
-                    y += 8;
-                    line = word.to_owned();
-                } else {
-                    line = trial;
                 }
+                rows.push((line, *colour));
             }
-            if y < 194 {
-                self.text(195, y, &line, *colour);
+            let height = (rows.len() * 9 + 6).min(PANEL_BOTTOM - PANEL_TOP);
+            self.dim_rect(left, PANEL_TOP, left + PANEL_W, PANEL_TOP + height, 30);
+            for (row, (line, colour)) in rows.iter().enumerate() {
+                let y = PANEL_TOP + 3 + 9 * row;
+                if y + 8 > PANEL_BOTTOM {
+                    break;
+                }
+                shadowed(self, left + 3, y, line, *colour);
             }
-            y += 8;
         }
+        // The console's date, as the original's map shows it.
+        self.text(195, 164, &scene.date, 17);
     }
 
     /// A solid disc of `radius` pixels about (`x`, `y`), clipped to the view.

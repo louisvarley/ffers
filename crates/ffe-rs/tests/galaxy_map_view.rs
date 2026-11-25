@@ -407,8 +407,8 @@ fn the_enhanced_map_plots_stars_and_routes() {
         0xffff_cc00u32 as i32,
     ];
     let mut map = EnhancedMap::new(home, 1000);
-    map.select(&tables);
-    assert!(map.selected.is_some());
+    // Nothing is selected until a star is clicked: the view's centre selects nothing.
+    assert!(map.selected.is_none());
     let plots = map.plots(&tables);
     assert!(!plots.is_empty(), "the local sectors have stars");
     for plot in &plots {
@@ -418,7 +418,8 @@ fn the_enhanced_map_plots_stars_and_routes() {
         );
         assert!((1..=3).contains(&plot.size), "{plot:?}");
     }
-    // The selection is one of the plotted stars, and the Sol pointer is fixed.
+    // A clicked star is one of the plotted stars, and the Sol pointer is fixed.
+    map.pick(plots[0].code, plots[0].position, plots[0].kind);
     let selected = map.selected.as_ref().unwrap();
     assert!(plots.iter().any(|plot| plot.code == selected.code));
     assert_eq!(
