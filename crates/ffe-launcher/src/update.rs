@@ -407,12 +407,20 @@ fn package_folder(unpacked: &Path) -> Result<PathBuf, String> {
 #[cfg(windows)]
 fn unpack(zip: &Path, into: &Path) -> Result<(), String> {
     use std::os::windows::process::CommandExt;
+    // The paths go in through the environment: after `-Command` PowerShell joins the
+    // remaining arguments into the command text and leaves `$args` empty, so passing
+    // them as arguments made both paths null ("Cannot validate argument on parameter
+    // 'LiteralPath'"). The environment also needs no quoting for paths with spaces.
     let output = Command::new("powershell")
         .creation_flags(0x0800_0000)
         .args(["-NoProfile", "-NonInteractive", "-Command"])
-        .arg("Expand-Archive -LiteralPath $args[0] -DestinationPath $args[1] -Force")
-        .arg(zip)
-        .arg(into)
+        .arg(
+            "$ErrorActionPreference = 'Stop'; \
+             Expand-Archive -LiteralPath $env:FFE_UPDATE_ZIP \
+             -DestinationPath $env:FFE_UPDATE_INTO -Force",
+        )
+        .env("FFE_UPDATE_ZIP", zip)
+        .env("FFE_UPDATE_INTO", into)
         .output()
         .map_err(|e| format!("Could not run PowerShell: {e}"))?;
     if output.status.success() {
@@ -454,6 +462,40 @@ mod tests {
             std::fs::write(target, bytes).unwrap();
         }
         std::fs::write(dir.join("SHA256SUMS.txt"), sums(files)).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_package_unpacks_from_a_path_with_spaces() {
+        // The update failed with "LiteralPath ... null or empty" because the paths
+        // never reached PowerShell. Build a real zip with PowerShell and unpack it.
+        let work = tempfile::tempdir().unwrap();
+        let source = work.path().join("some package");
+        package(
+            &source,
+            &[("ffe-rs.exe", b"program"), ("docs/a.md", b"doc")],
+        );
+        let zip = work.path().join("update file.zip");
+        let made = Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command"])
+            .arg("Compress-Archive -LiteralPath $env:SRC -DestinationPath $env:ZIP -Force")
+            .env("SRC", &source)
+            .env("ZIP", &zip)
+            .output()
+            .unwrap();
+        assert!(
+            made.status.success(),
+            "{}",
+            String::from_utf8_lossy(&made.stderr)
+        );
+        let into = work.path().join("unpacked here");
+        unpack(&zip, &into).unwrap();
+        assert_eq!(
+            std::fs::read(into.join("some package").join("ffe-rs.exe")).unwrap(),
+            b"program"
+        );
+        // A missing zip is an error, not a silent success.
+        assert!(unpack(&work.path().join("missing.zip"), &into).is_err());
     }
 
     #[test]
