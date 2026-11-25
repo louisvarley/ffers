@@ -6252,7 +6252,6 @@ fn run() -> Result<(), String> {
                                             // next frame, and a refusal must not pass
                                             // unseen.
                                             pending_log.add(Source::Launch, error.clone());
-                                            sound.play(Cue::UiBeep);
                                             message = error;
                                         }
                                     }

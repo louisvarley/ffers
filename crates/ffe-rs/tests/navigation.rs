@@ -540,10 +540,37 @@ fn a_busy_starport_does_not_stop_the_pad_launch() {
         // Another ship (id 7) holds the port's clearance.
         assert!(nav.starport(index).request(7));
         assert!(!nav.starport(index).request(1), "the port is busy");
+        // F381's Launch Request says so in the original's words (`DATA_005846`, `DATA_005837`).
+        assert_eq!(
+            nav.request_launch().unwrap_err(),
+            "It is not possible to launch a ship with no drive fitted."
+        );
+        nav.drive = Some(ffe_rs::navigation::DriveState {
+            mass: 1,
+            class: 1,
+            fuel: 0,
+        });
+        assert_eq!(
+            nav.request_launch().unwrap_err(),
+            "CLEARANCE DENIED.
+Traffic Control busy. Please try later."
+        );
+        // The launch action itself takes the ship off the pad whatever traffic control says.
         nav.begin_launch()
             .unwrap_or_else(|error| panic!("start {start_type}: {error}"));
         assert_eq!(nav.takeoff_state(), Some(ffe_core::traffic::state::TAKEOFF));
     }
+    // With the port free the request is granted in the original's words (`DATA_005841`).
+    let mut nav = Navigator::new_game(&cache, 2).unwrap();
+    nav.drive = Some(ffe_rs::navigation::DriveState {
+        mass: 1,
+        class: 1,
+        fuel: 0,
+    });
+    assert_eq!(
+        nav.request_launch().unwrap(),
+        "Clearance granted. Seal airlocks and prepare for launching."
+    );
 }
 
 /// The DOS default start (F829 record 0) on Hope: the same `0x30` -> `0x24` ->

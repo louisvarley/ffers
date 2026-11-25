@@ -5194,8 +5194,12 @@ impl Navigator {
         on_starport && (self.on_pad() || self.landed.is_some()) && !self.launch_cleared
     }
 
-    /// F381: ask the open-air starport's traffic control (F654) for launch permission.
-    /// The ship stays on its pad; the launch action (engines on) starts the climb.
+    /// F381: ask the starport's traffic control (F654) for launch permission, with the
+    /// original's tests in its order and its messages (`DATA_005846`, `DATA_006139`,
+    /// `DATA_005837`, `DATA_005841`): no drive fitted, an outstanding fine in this
+    /// jurisdiction (`+0x50f8` non-zero), then F654's answer. (The crew-count test, message
+    /// `0x9938`, is not ported: the port has no crew.) The ship stays on its pad; the launch
+    /// action (engines on) starts the climb.
     pub fn request_launch(&mut self) -> Result<String, String> {
         let index = self
             .landed_body()
@@ -5205,15 +5209,18 @@ impl Navigator {
         if self.takeoff.is_some() {
             return Err("Already launching.".to_owned());
         }
+        if self.drive.is_none() {
+            return Err("It is not possible to launch a ship with no drive fitted.".to_owned());
+        }
+        if self.legal.owed(Some(self.jurisdiction)) != 0 {
+            return Err("Launch request denied. You have a large outstanding fine.".to_owned());
+        }
         if !self.starport(index).request(PLAYER) {
-            return Err(
-                "Launch refused: traffic control is busy with another ship. Try again shortly,                  or launch without clearance (L)."
-                    .to_owned(),
-            );
+            return Err(refusal(Reply::Busy).to_owned());
         }
         self.docked = Some(index);
         self.launch_cleared = true;
-        Ok("Launch permission granted. Click the engines to turn them on.".to_owned())
+        Ok("Clearance granted. Seal airlocks and prepare for launching.".to_owned())
     }
 
     /// Ask the station the player is docked at for permission to launch (F654) and
@@ -5249,7 +5256,7 @@ impl Navigator {
         // pad another ship's grant is holding must not strand the player (the grant outlasts
         // eight game hours).
         if !self.starport(index).request(PLAYER) && !open_air {
-            return Err("Launch refused: traffic control is busy.".to_owned());
+            return Err(refusal(Reply::Busy).to_owned());
         }
         self.docked = Some(index);
         // An open-air starport has no lift: F381 asks F654 and leaves the ship
