@@ -512,7 +512,7 @@ pub fn flight_controls(
                 0.0
             },
             if steering {
-                axis_with_mouse(held, Key::A, Key::Z, -mouse.dy)
+                axis_with_mouse(held, Key::A, Key::Z, mouse.dy)
             } else {
                 0.0
             },
@@ -562,7 +562,7 @@ pub fn original_keys(
             roll_right: down(held, Key::RightBracket),
             mouse: mouse.packed(),
             mouse_enabled: mouse_held,
-            mouse_flip: reverse,
+            mouse_flip: [!reverse[0], reverse[1]],
             scancodes,
         },
     };
@@ -935,7 +935,7 @@ mod tests {
         };
         let classic = flight_controls(Preset::Classic, View::Ship, &[], mouse, [false; 2]);
         assert!((classic.yaw - 0.5).abs() < 1e-9, "{classic:?}");
-        assert!((classic.pitch - 0.5).abs() < 1e-9, "{classic:?}");
+        assert!((classic.pitch + 0.5).abs() < 1e-9, "{classic:?}");
         let modern = flight_controls(Preset::Modern, View::Ship, &[], mouse, [false; 2]);
         assert_eq!(modern, FlightControls::default());
         // Released, the button does nothing in Classic either.
@@ -966,8 +966,9 @@ mod tests {
         };
         let normal = flight_controls(Preset::Classic, View::Ship, &[], mouse, [false; 2]);
         let reversed = flight_controls(Preset::Classic, View::Ship, &[], mouse, [true, true]);
-        assert_eq!((normal.yaw, normal.pitch), (1.0, -1.0));
-        assert_eq!((reversed.yaw, reversed.pitch), (-1.0, 1.0));
+        // Right turns right and down pitches up (a flight stick's pull back).
+        assert_eq!((normal.yaw, normal.pitch), (1.0, 1.0));
+        assert_eq!((reversed.yaw, reversed.pitch), (-1.0, -1.0));
         let keys = original_keys(
             Preset::Classic,
             View::Ship,
@@ -979,7 +980,68 @@ mod tests {
         // "Reverse left-right" swaps the yaw keys and "up-down" the pitch keys.
         assert!(keys.right && !keys.left);
         assert!(keys.pitch_up && !keys.pitch_down);
-        assert_eq!(keys.mouse_flip, [true, true]);
+        // The x flip is the original's byte `+0x3f54` being zero (F1038 negates then): on
+        // by default, off with the option; the y flip is the option itself.
+        assert_eq!(keys.mouse_flip, [false, true]);
+    }
+
+    /// Left and right turn the ship the way the mouse moves; down pitches up and up pitches
+    /// down, the same way as the A and Z keys' own directions.
+    #[test]
+    fn the_classic_mouse_turns_the_ship_the_way_it_moves() {
+        use ffe_core::player::{Controls, Player, SteerKeys};
+        let flip = original_keys(
+            Preset::Classic,
+            View::Ship,
+            &[],
+            MouseAccumulator::default(),
+            true,
+            [false, false],
+        )
+        .mouse_flip;
+        let player = || Player {
+            keys_enabled: true,
+            input_time: 1000,
+            mouse_flip: flip,
+            ..Player::default()
+        };
+        // (yaw rate, pitch rate) after moving the mouse by (dx, dy) counts.
+        let moved = |dx: i32, dy: i32| {
+            let mut accumulator = MouseAccumulator::default();
+            accumulator.update(MouseSteer { held: true, dx, dy });
+            let mut player = player();
+            player.steer(&Controls {
+                mouse: accumulator.packed(),
+                ..Controls::default()
+            });
+            (player.motion.rate[2], player.motion.rate[0])
+        };
+        // The same for a key held: `.` yaws right, `,` left, A pitches up and Z down.
+        let held = |steer: SteerKeys| {
+            let mut player = player();
+            player.steer(&Controls {
+                steer,
+                ..Controls::default()
+            });
+            (player.motion.rate[2], player.motion.rate[0])
+        };
+        let key = SteerKeys::default();
+        let right = held(SteerKeys { right: 5, ..key }).0;
+        let left = held(SteerKeys { left: 5, ..key }).0;
+        let up = held(SteerKeys { pitch_up: 5, ..key }).1;
+        let down = held(SteerKeys {
+            pitch_down: 5,
+            ..key
+        })
+        .1;
+        assert!(
+            right * left < 0 && up * down < 0,
+            "{right} {left} {up} {down}"
+        );
+        assert_eq!(moved(10, 0).0.signum(), right.signum(), "right turns right");
+        assert_eq!(moved(-10, 0).0.signum(), left.signum(), "left turns left");
+        assert_eq!(moved(0, 10).1.signum(), up.signum(), "down pitches up");
+        assert_eq!(moved(0, -10).1.signum(), down.signum(), "up pitches down");
     }
 
     #[test]

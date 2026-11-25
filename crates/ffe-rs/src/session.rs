@@ -88,6 +88,10 @@ pub struct Frame {
     /// Pressed with the OS key repeat (the model viewer's paging keys).
     pub repeated: Vec<Key>,
     pub mouse: Option<(f32, f32)>,
+    /// The mouse's own counts since the last frame (`x` right, `y` down), where the window
+    /// reports them (see [`GameWindow::take_raw_mouse`]); the steering uses them in place of the
+    /// pointer's movement.
+    pub raw_mouse: Option<(i32, i32)>,
     pub left: bool,
     pub right: bool,
     /// The scroll wheel since the last frame (`x`, `y`); `None` for a replay.
@@ -105,6 +109,7 @@ impl Frame {
             pressed: window.get_keys_pressed(KeyRepeat::No),
             repeated: window.get_keys_pressed(KeyRepeat::Yes),
             mouse: window.get_unscaled_mouse_pos(MouseMode::Pass),
+            raw_mouse: window.take_raw_mouse(),
             left: window.get_mouse_down(MouseButton::Left),
             right: window.get_mouse_down(MouseButton::Right),
             wheel: window.get_scroll_wheel(),
@@ -184,6 +189,11 @@ impl Frame {
         self.mouse
     }
 
+    /// The mouse's own counts since the last frame, when they were recorded or read.
+    pub fn raw_mouse_counts(&self) -> Option<(i32, i32)> {
+        self.raw_mouse
+    }
+
     pub fn get_size(&self) -> (usize, usize) {
         self.size
     }
@@ -211,8 +221,12 @@ impl Frame {
             if self.left { "L" } else { "" },
             if self.right { "R" } else { "" }
         );
+        // The counts are a ninth field, only when there are some.
+        let counts = self
+            .raw_mouse
+            .map_or_else(String::new, |(x, y)| format!("|{x},{y}"));
         format!(
-            "{:.6}|{},{}|{}|{}|{}|{}|{}|{}",
+            "{:.6}|{},{}|{}|{}|{}|{}|{}|{}{counts}",
             self.dt,
             self.size.0,
             self.size.1,
@@ -228,8 +242,8 @@ impl Frame {
     /// One recorded frame line (the format [`Session`] writes).
     pub fn parse(line: &str) -> Result<Self, String> {
         let parts: Vec<&str> = line.split('|').collect();
-        if parts.len() != 8 {
-            return Err(format!("expected 8 fields, found {}", parts.len()));
+        if parts.len() != 8 && parts.len() != 9 {
+            return Err(format!("expected 8 or 9 fields, found {}", parts.len()));
         }
         let keys = |text: &str| -> Result<Vec<Key>, String> {
             if text == "-" {
@@ -259,6 +273,13 @@ impl Frame {
             } else {
                 let (x, y) = pair(parts[6])?;
                 Some((x as f32, y as f32))
+            },
+            raw_mouse: match parts.get(8) {
+                Some(text) => {
+                    let (x, y) = pair(text)?;
+                    Some((x as i32, y as i32))
+                }
+                None => None,
             },
             left: parts[7].contains('L'),
             right: parts[7].contains('R'),
@@ -463,6 +484,7 @@ mod tests {
             pressed: vec![Key::W],
             repeated: vec![],
             mouse: Some((512.5, 300.0)),
+            raw_mouse: Some((-7, 3)),
             left: true,
             right: false,
             wheel: Some((0.0, 1.0)),
@@ -472,6 +494,10 @@ mod tests {
         assert_eq!(again.pressed, frame.pressed);
         assert_eq!(again.size, frame.size);
         assert_eq!(again.mouse, frame.mouse);
+        assert_eq!(again.raw_mouse, Some((-7, 3)));
+        // A line from before the counts were recorded still reads.
+        let old_line = frame.line().rsplit_once('|').unwrap().0.to_owned();
+        assert_eq!(Frame::parse(&old_line).unwrap().raw_mouse, None);
         assert!(again.left && !again.right && again.active);
         assert!((again.dt - frame.dt).abs() < 1e-6);
         let idle = Frame::default();

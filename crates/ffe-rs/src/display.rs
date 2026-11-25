@@ -486,10 +486,93 @@ pub fn window_request(settings: &DisplaySettings, fullscreen: bool) -> WindowReq
     }
 }
 
+/// The mouse's own counts, as the original reads them (`InputMouseReadMickeys` takes
+/// DirectInput's raw relative `lX`/`lY`). Windows pointer movement is not those counts: the
+/// pointer-acceleration setting changes it, it is whole pixels, and re-centring the cursor
+/// every frame adds noise, which made the ship's turn uneven. The window is subclassed so
+/// its `WM_INPUT` messages (registered below) add the device's counts to a counter that
+/// [`GameWindow::take_raw_mouse`] empties once a frame.
+#[cfg(windows)]
+mod raw_mouse {
+    use std::sync::atomic::{AtomicI32, Ordering};
+    use winapi::shared::basetsd::{DWORD_PTR, UINT_PTR};
+    use winapi::shared::minwindef::{LPARAM, LPVOID, LRESULT, UINT, WPARAM};
+    use winapi::shared::windef::HWND;
+    use winapi::um::commctrl::{DefSubclassProc, SetWindowSubclass};
+    use winapi::um::winuser::{
+        GetRawInputData, RegisterRawInputDevices, HRAWINPUT, MOUSE_MOVE_ABSOLUTE, RAWINPUT,
+        RAWINPUTDEVICE, RAWINPUTHEADER, RID_INPUT, RIM_TYPEMOUSE, WM_INPUT,
+    };
+
+    static X: AtomicI32 = AtomicI32::new(0);
+    static Y: AtomicI32 = AtomicI32::new(0);
+
+    unsafe extern "system" fn subclass(
+        hwnd: HWND,
+        message: UINT,
+        wparam: WPARAM,
+        lparam: LPARAM,
+        _id: UINT_PTR,
+        _data: DWORD_PTR,
+    ) -> LRESULT {
+        if message == WM_INPUT {
+            // SAFETY: `lparam` is the handle this message carries and the buffer is a
+            // local `RAWINPUT` whose size is passed along.
+            unsafe {
+                let mut raw: RAWINPUT = std::mem::zeroed();
+                let mut size = std::mem::size_of::<RAWINPUT>() as UINT;
+                let read = GetRawInputData(
+                    lparam as HRAWINPUT,
+                    RID_INPUT,
+                    &mut raw as *mut RAWINPUT as LPVOID,
+                    &mut size,
+                    std::mem::size_of::<RAWINPUTHEADER>() as UINT,
+                );
+                if read != UINT::MAX && raw.header.dwType == RIM_TYPEMOUSE {
+                    let mouse = raw.data.mouse();
+                    // A pen or remote desktop reports absolute positions: not counts.
+                    if mouse.usFlags & MOUSE_MOVE_ABSOLUTE == 0 {
+                        X.fetch_add(mouse.lLastX, Ordering::Relaxed);
+                        Y.fetch_add(mouse.lLastY, Ordering::Relaxed);
+                    }
+                }
+            }
+        }
+        // SAFETY: the arguments are the ones this procedure was called with.
+        unsafe { DefSubclassProc(hwnd, message, wparam, lparam) }
+    }
+
+    /// Ask for the mouse's raw input on `hwnd` and watch it. False where Windows refuses.
+    pub fn install(hwnd: HWND) -> bool {
+        let device = RAWINPUTDEVICE {
+            usUsagePage: 0x01,
+            usUsage: 0x02,
+            // RIDEV_INPUTSINK: counts arrive whether or not the window has the focus at that
+            // moment, so a click that focuses it cannot lose the first of them. They are only
+            // used while the right button is held in the active window.
+            dwFlags: 0x100,
+            hwndTarget: hwnd,
+        };
+        // SAFETY: `hwnd` is this thread's live window; `device` is a local that outlives
+        // the call and `subclass` has the signature `SetWindowSubclass` expects.
+        unsafe {
+            RegisterRawInputDevices(&device, 1, std::mem::size_of::<RAWINPUTDEVICE>() as UINT) != 0
+                && SetWindowSubclass(hwnd, Some(subclass), 1, 0) != 0
+        }
+    }
+
+    /// The counts since the last call.
+    pub fn take() -> (i32, i32) {
+        (X.swap(0, Ordering::Relaxed), Y.swap(0, Ordering::Relaxed))
+    }
+}
+
 /// The game window. A thin wrapper so the presenter and the input session share
 /// one type; it dereferences to the `minifb` window.
 pub struct GameWindow {
     window: Window,
+    /// Whether the mouse's raw counts are being collected (Windows).
+    raw_mouse: bool,
 }
 
 impl std::ops::Deref for GameWindow {
@@ -506,6 +589,17 @@ impl GameWindow {
 
     pub fn is_active(&mut self) -> bool {
         self.window.is_active()
+    }
+
+    /// The mouse's own counts since the last call (`x` right, `y` down): the original's
+    /// mickeys, free of pointer acceleration and of the cursor being re-centred. `None`
+    /// where they are not available (the caller measures the pointer instead).
+    pub fn take_raw_mouse(&mut self) -> Option<(i32, i32)> {
+        #[cfg(windows)]
+        if self.raw_mouse {
+            return Some(raw_mouse::take());
+        }
+        None
     }
 
     /// Hide or show the OS cursor. The Classic preset hides it while the right
@@ -586,7 +680,15 @@ pub fn open_window(title: &str, request: WindowRequest) -> Result<GameWindow, St
     if request.fullscreen {
         window.set_position(0, 0);
     }
-    Ok(GameWindow { window })
+    #[cfg(windows)]
+    let raw_mouse = {
+        use winapi::shared::windef::HWND;
+        let hwnd = window.get_window_handle() as HWND;
+        !hwnd.is_null() && raw_mouse::install(hwnd)
+    };
+    #[cfg(not(windows))]
+    let raw_mouse = false;
+    Ok(GameWindow { window, raw_mouse })
 }
 
 /// Give the window the icon embedded in `ffe-rs.exe` (resource 1, see

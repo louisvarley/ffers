@@ -59,8 +59,12 @@ An input is `Key:<minifb key name>`, `Pad:<name>` (`South`, `LeftBumper`, `LeftS
   the navigation computer and the F5 engines page leave them working.
 - **Steering:** F1038, ported as `Player::steer`. It reads the mouse accumulator
   `DATA_009188` (x in the low word, y in the high word), subtracts the previous
-  value, shifts each delta left six and negates it when the corresponding
-  Reverse option is on. The held keys are `0x2c`/`0x1e` pitch, `0x33`/`0x34`
+  value, shifts each delta left six and negates it unless its byte is set
+  (`+0x3f54` x, `+0x3f55` y; zero by default, so x is negated by default). The mouse
+  is counted as the original counts it, in the device's own relative counts (Windows raw
+  input), not in pointer pixels. Right turns right; down pitches up, a flight stick's pull
+  back (the original's default is the other way for y; the port keeps this on the owner's
+  request and the Reverse up-down option flips it back). The held keys are `0x2c`/`0x1e` pitch, `0x33`/`0x34`
   yaw and `0x1a`/`0x1b` roll (`docs/notes/player.md`).
 - **Original key names:** Z/A pitch, comma/period yaw, `[`/`]` roll, Enter/right Shift
   set speed (`docs/notes/player.md`, `docs/NAVIGATION.md`, README).

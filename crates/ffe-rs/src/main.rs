@@ -2258,8 +2258,11 @@ fn run() -> Result<(), String> {
         } else {
             None
         };
-        let (mouse_dx, mouse_dy) = match (raw_point, mouse_point) {
-            (Some(now), Some(before)) => (now.0 - before.0, now.1 - before.1),
+        // The mouse's own counts where the window gives them (Windows raw input, the
+        // original's mickeys); otherwise the pointer's movement.
+        let (mouse_dx, mouse_dy) = match (inp.raw_mouse_counts(), raw_point, mouse_point) {
+            (Some(counts), _, _) => counts,
+            (None, Some(now), Some(before)) => (now.0 - before.0, now.1 - before.1),
             _ => (0, 0),
         };
         // An inactive window restarts the delta so re-entering cannot snap the ship.
