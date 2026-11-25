@@ -182,13 +182,15 @@ pub fn parse_release_for(json: &str, platform: Option<Platform>) -> Result<Relea
 
 /// A `curl` command that shows no console window on Windows.
 fn curl() -> Command {
-    let mut command = Command::new(if cfg!(windows) { "curl.exe" } else { "curl" });
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        let mut command = Command::new("curl.exe");
         command.creation_flags(0x0800_0000);
+        command
     }
-    command
+    #[cfg(not(windows))]
+    Command::new("curl")
 }
 
 /// Ask GitHub for the latest release.
