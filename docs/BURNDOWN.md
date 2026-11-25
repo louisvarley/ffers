@@ -144,4 +144,4 @@ Optional, toggleable improvements — each a launcher toggle, save-safe and mid-
 - [x] `enhancement-10` Combat Targeting Computer (dashboard button, list of local ships, auto target)
 - [x] `enhancement-11` Edge target indicator (arrow/bar for out-of-view target)
 - [x] `enhancement-12` Enhanced galaxy map (flat 2D starfield, click-to-route, arrow/right-drag pan, wheel zoom, hover info (populated, danger), lines to Sol and home, one long route jump) - behind `enhancement.enhanced_galaxy_map` (EXP-048); off keeps the original 3D `GalaxyMap` unchanged.
-- [x] `enhancement-14` Mouse-wheel scrolling in station lists - behind `enhancement.list_scroll` (EXP-050); the down arrow is now the original's one-row scroll.
+- [x] `enhancement-14` Mouse-wheel scrolling in station lists - always on since 2026-11-25, no longer a toggle (EXP-050); the down arrow is now the original's one-row scroll.

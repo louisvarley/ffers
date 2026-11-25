@@ -73,14 +73,11 @@ pub struct Enhancements {
     /// `enhancement-13`: first-person lasers draw as a fixed bottom-to-reticle
     /// sight line (the Saker look) instead of the beam from the gun mount.
     pub laser_sight: bool,
-    /// `enhancement-14`: the mouse wheel scrolls the station's lists (the market,
-    /// the shipyard, the outfitters...) a row at a time.
-    pub list_scroll: bool,
 }
 
 impl Enhancements {
     /// The `enhancement.<name>` key suffixes, in item order.
-    pub const KEYS: [&'static str; 14] = [
+    pub const KEYS: [&'static str; 13] = [
         "turrets_paused",
         "missile_launch",
         "autopilot_waypoint",
@@ -94,7 +91,6 @@ impl Enhancements {
         "edge_indicator",
         "enhanced_galaxy_map",
         "laser_sight",
-        "list_scroll",
     ];
 
     /// The field at `index` in [`Self::KEYS`] order.
@@ -113,7 +109,6 @@ impl Enhancements {
             10 => &mut self.edge_indicator,
             11 => &mut self.enhanced_galaxy_map,
             12 => &mut self.laser_sight,
-            13 => &mut self.list_scroll,
             _ => return None,
         })
     }
@@ -141,7 +136,7 @@ impl Enhancements {
     }
 
     /// Every field in [`Self::KEYS`] order.
-    fn values(&self) -> [bool; 14] {
+    fn values(&self) -> [bool; 13] {
         [
             self.turrets_paused,
             self.missile_launch,
@@ -156,7 +151,6 @@ impl Enhancements {
             self.edge_indicator,
             self.enhanced_galaxy_map,
             self.laser_sight,
-            self.list_scroll,
         ]
     }
 }
@@ -748,7 +742,7 @@ mod tests {
             scale: 3,
             fit: FitMode::FillWindow,
             filter: Filter::Linear,
-            aspect: PixelAspect::Square,
+            aspect: PixelAspect::Wide,
             scanlines: false,
             scanline_intensity: 0.3,
         };

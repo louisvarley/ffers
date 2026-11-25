@@ -699,7 +699,7 @@ fn write_display_capture(dir: &Path, cache: &ffe_content::VerifiedCache) -> Resu
             600,
             DisplaySettings {
                 scale: 3,
-                aspect: ffe_rs::display::PixelAspect::Square,
+                aspect: ffe_rs::display::PixelAspect::Wide,
                 ..default
             },
         ),
@@ -1056,6 +1056,21 @@ fn confirm_new_game(
     Ok(false)
 }
 
+/// The key that leaves the intro (Enter, say) is "pressed" for as long as the window has not been
+/// updated since it went down. The game's first frame reads the window again, so it saw the same
+/// press and acted on it: Enter during the intro also pressed Launch on the station's screen
+/// when the game started docked. One more update marks the key as already seen.
+fn release_start_key(
+    window: &mut display::GameWindow,
+    presenter: &mut Presenter,
+    display: &DisplaySettings,
+    screen: &mut Screen,
+) -> Result<(), String> {
+    presenter
+        .present(window, screen.logical_pixels(), display)
+        .map(|_| ())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_intro(
     window: &mut display::GameWindow,
@@ -1067,6 +1082,7 @@ fn run_intro(
     save_dir: &Path,
     session: &mut Session,
     default_start: u8,
+    fullscreen: &mut bool,
 ) -> Result<IntroExit, String> {
     let intro = Intro::new();
     if let Some(viewer) = scene.as_deref_mut() {
@@ -1086,6 +1102,21 @@ fn run_intro(
         let real = last.elapsed().as_secs_f64().min(0.1);
         last = Instant::now();
         let inp = session.frame(window, real);
+        // Alt+Enter is the full-screen toggle here too, as in the game; Enter alone starts
+        // it. The window is reopened at once and the rest of this frame's keys are dropped.
+        if inp.is_key_pressed(Key::Enter, KeyRepeat::No)
+            && (display::alt_held()
+                || inp.is_key_down(Key::LeftAlt)
+                || inp.is_key_down(Key::RightAlt)
+                || inp.is_key_down(Key::Menu))
+        {
+            *fullscreen = !*fullscreen;
+            let fresh =
+                display::open_window(WINDOW_TITLE, display::window_request(display, *fullscreen))?;
+            *window = fresh;
+            presenter.reset();
+            continue;
+        }
         for key in inp.get_keys_pressed(KeyRepeat::No) {
             // The original's title has a Commander Load choice (F220/F222); the
             // port's front end is the intro, so L is its Load Commander key.
@@ -1137,6 +1168,7 @@ fn run_intro(
                         eprintln!("Intro start key {requested}: {notice}");
                     }
                     sound.leave_front_end();
+                    release_start_key(window, presenter, display, screen)?;
                     return Ok(IntroExit::Start(chosen));
                 }
                 IntroAction::Skip { chosen, notice } => {
@@ -1151,6 +1183,7 @@ fn run_intro(
                     } else {
                         chosen
                     };
+                    release_start_key(window, presenter, display, screen)?;
                     return Ok(IntroExit::Start(chosen));
                 }
             }
@@ -1644,11 +1677,14 @@ fn run() -> Result<(), String> {
             &save_dir,
             &mut session,
             chosen_start,
+            &mut prefs.fullscreen,
         )? {
             IntroExit::Quit => return Ok(()),
             IntroExit::Start(start_type) => boot = Boot::NewGame(start_type),
             IntroExit::Load(path) => load_path = Some(path),
         }
+        // The intro's Alt+Enter may have changed the window: it is already the one wanted.
+        request = display::window_request(&prefs.display, prefs.fullscreen);
     }
     let mut loaded = match &load_path {
         Some(path) => Some(
@@ -1913,6 +1949,7 @@ fn run() -> Result<(), String> {
         .as_ref()
         .and_then(|nav| Some((nav.current_system_code(), nav.docked?, nav.new_game?.bay)));
     held_controls.disarm(&window.get_keys());
+    let mut enter_was_down = false;
     while window.is_open() && !session.should_exit() {
         let real_now = Instant::now();
         let real_dt = real_now.duration_since(last).as_secs_f64().min(0.1);
@@ -2037,10 +2074,12 @@ fn run() -> Result<(), String> {
                         &save_dir,
                         &mut session,
                         chosen_start,
+                        &mut prefs.fullscreen,
                     )?
                 } else {
                     IntroExit::Start(chosen_start)
                 };
+                request = display::window_request(&prefs.display, prefs.fullscreen);
                 match exit {
                     IntroExit::Quit => return Ok(()),
                     IntroExit::Start(start_type) => {
@@ -2628,8 +2667,13 @@ fn run() -> Result<(), String> {
         // Port extension: Alt+Enter toggles the borderless full-screen window.
         // The reopen happens at the top of the next frame; this frame's input is
         // skipped so Enter does not also activate a page row, thrust or launch.
+        // Enter is also asked of Windows itself (its own edge), in case the window
+        // library misses an Enter that comes with Alt held.
+        let enter_now = display::enter_held();
+        let enter_edge = enter_now && !enter_was_down;
+        enter_was_down = enter_now;
         if active
-            && pressed(Key::Enter)
+            && (pressed(Key::Enter) || enter_edge)
             && (display::alt_held()
                 || inp.is_key_down(Key::LeftAlt)
                 || inp.is_key_down(Key::RightAlt)
@@ -5870,9 +5914,10 @@ fn run() -> Result<(), String> {
                             dock_visible.unwrap_or_else(|| station::layout(dock.screen).visible()),
                         );
                     }
-                    // enhancement-14: the mouse wheel scrolls the list a row a notch
-                    // (wheel up shows earlier entries, as the up arrow does).
-                    if enhancements.list_scroll && !reading {
+                    // The mouse wheel scrolls the list a row a notch (wheel up shows earlier
+                    // entries, as the up arrow does). Always on, for every control scheme
+                    // (it began as `enhancement-14`, a toggle, and was made permanent).
+                    if !reading {
                         if let Some((_, wheel)) = inp.get_scroll_wheel() {
                             let notches = wheel.round() as i32;
                             if notches != 0 {

@@ -110,22 +110,23 @@ impl Filter {
 pub enum PixelAspect {
     /// The original DOS 4:3 screen: 320x200 is shown as 320x240.
     Dos43,
-    /// Square pixels: 320x200 is shown as 320x200 (16:10).
-    Square,
+    /// Widescreen: square pixels, so 320x200 is shown as 320x200 (16:10). Older files
+    /// called it `square`, which is still read.
+    Wide,
 }
 
 impl PixelAspect {
     pub fn key(self) -> &'static str {
         match self {
             Self::Dos43 => "dos-4:3",
-            Self::Square => "square",
+            Self::Wide => "wide",
         }
     }
 
     pub fn from_key(key: &str) -> Option<Self> {
         match key {
             "dos-4:3" | "dos43" => Some(Self::Dos43),
-            "square" => Some(Self::Square),
+            "wide" | "square" => Some(Self::Wide),
             _ => None,
         }
     }
@@ -135,7 +136,7 @@ impl PixelAspect {
         match self {
             // 200 * 6 / 5 = 240.
             Self::Dos43 => LOGICAL_HEIGHT * 6 / 5,
-            Self::Square => LOGICAL_HEIGHT,
+            Self::Wide => LOGICAL_HEIGHT,
         }
     }
 }
@@ -680,6 +681,26 @@ pub fn alt_held() -> bool {
     false
 }
 
+/// Whether Enter is down, asked of Windows itself. Alt+Enter is a system key: the window
+/// library is told of it, but this gives the toggle its own edge to go by as well.
+#[cfg(windows)]
+pub fn enter_held() -> bool {
+    use std::ffi::c_int;
+    #[link(name = "user32")]
+    extern "system" {
+        fn GetAsyncKeyState(key: c_int) -> i16;
+    }
+    const VK_RETURN: c_int = 0x0d;
+    // SAFETY: `GetAsyncKeyState` takes a virtual-key code and has no pointer
+    // arguments; the high bit is the held state.
+    unsafe { (GetAsyncKeyState(VK_RETURN) as u16 & 0x8000) != 0 }
+}
+
+#[cfg(not(windows))]
+pub fn enter_held() -> bool {
+    false
+}
+
 /// Keeps the client-sized presentation buffer between frames.
 #[derive(Default)]
 pub struct Presenter {
@@ -728,6 +749,23 @@ impl Presenter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_two_pixel_shapes_are_4_3_dos_and_widescreen() {
+        // The widescreen option was called `square`; files that say so still load.
+        assert_eq!(PixelAspect::from_key("wide"), Some(PixelAspect::Wide));
+        assert_eq!(PixelAspect::from_key("square"), Some(PixelAspect::Wide));
+        assert_eq!(PixelAspect::from_key("dos-4:3"), Some(PixelAspect::Dos43));
+        assert_eq!(
+            PixelAspect::from_key(PixelAspect::Wide.key()),
+            Some(PixelAspect::Wide)
+        );
+        assert_eq!(PixelAspect::from_key("tall"), None);
+        // 320x200 shown as 4:3 (320x240) or as it is, 16:10.
+        assert_eq!(PixelAspect::Dos43.base_height(), 240);
+        assert_eq!(PixelAspect::Wide.base_height(), 200);
+        assert_eq!(crate::prefs::ASPECT_LABELS, ["4:3 DOS", "Widescreen"]);
+    }
 
     #[test]
     fn the_window_centre_is_not_the_old_fixed_steering_point() {
@@ -803,7 +841,7 @@ mod tests {
         );
         // Square pixels at 1920x1080 give a 5x 1600x1000 fit.
         let square = DisplaySettings {
-            aspect: PixelAspect::Square,
+            aspect: PixelAspect::Wide,
             ..settings
         };
         assert_eq!(
@@ -834,7 +872,7 @@ mod tests {
             }
         );
         let square = DisplaySettings {
-            aspect: PixelAspect::Square,
+            aspect: PixelAspect::Wide,
             ..settings
         };
         // 16:10 in a 16:9 window: full height, narrower bars.
@@ -933,7 +971,7 @@ mod tests {
         );
         // Square pixels change the vertical mapping.
         let square = DisplaySettings {
-            aspect: PixelAspect::Square,
+            aspect: PixelAspect::Wide,
             ..settings
         };
         assert_eq!(
@@ -960,7 +998,7 @@ mod tests {
                 scale: 3,
                 fit: FitMode::FillWindow,
                 filter,
-                aspect: PixelAspect::Square,
+                aspect: PixelAspect::Wide,
                 scanlines: true,
                 scanline_intensity: 0.7,
             };

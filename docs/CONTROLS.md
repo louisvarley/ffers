@@ -107,7 +107,7 @@ right button is the steering hold. The left button remains the console pointer
 | Save / load newest snapshot | **F5** / **Shift+F5** |
 | Change ship | **Page Up / Page Down** |
 | Docked rows / actions | **Up/Down**, **Enter**, **1**..**4**, **Backspace**, **B**/**N** trade |
-| Scroll a station list (market, shipyard, outfitting...): one row up / down | the **up / down arrows** on the list (original), or **Up / Down** keys; with the launcher's *Mouse-wheel scrolling in station lists* on, the **mouse wheel** too |
+| Scroll a station list (market, shipyard, outfitting...): one row up / down | the **up / down arrows** on the list (original), or **Up / Down** keys, or the **mouse wheel** (always on, in every control scheme) |
 | Journal / communications pages (docked) | **J** / **C** (port pages; the original journal is the ship library's viewer and the comms list is `F343`'s; see `docs/notes/missions.md`) |
 | Quit from the preference pages | click `Quit`, or select it and press Enter |
 
@@ -172,10 +172,12 @@ the yaw keys/axis and the pitch keys/axis, and flips the mouse x and y.
 
 ## Display (port extension)
 
-- **Alt+Enter** toggles a borderless full-screen window. The same toggle is the
+- **Alt+Enter** toggles a borderless full-screen window, in the game and on the
+  intro screen (where Enter alone starts the game). The same toggle is the
   `Fullscreen` row on `Escape` -> `Advanced Options` -> `Display Options`.
 - The display page also sets window scale 1x-6x, pixel-perfect or fill-window
-  fit, nearest or linear filtering and 4:3 or square pixels. Choices apply
+  fit, nearest or linear filtering and a 4:3 DOS or widescreen picture (the old
+  `square` setting is read as widescreen). Choices apply
   immediately (the window is reopened because minifb 0.28 cannot resize live)
   and are stored in `saves/display.cfg`. Full-screen is session-only.
 - These are presentation choices only: the 320x200 framebuffer, the simulation

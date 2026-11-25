@@ -99,7 +99,7 @@ pub const MAP_LABELS: [&str; 5] = ["Stalks", "Grid", "Trade routes", "Names text
 pub const WINDOW_SCALE_LABELS: [&str; 5] = ["1x", "2x", "3x", "4x", "5x"];
 pub const FIT_LABELS: [&str; 2] = ["Pixel-perfect", "Fill window"];
 pub const FILTER_LABELS: [&str; 4] = ["Nearest", "Linear", "xBRZ 2x", "Scale2x"];
-pub const ASPECT_LABELS: [&str; 2] = ["4:3 (DOS)", "Square"];
+pub const ASPECT_LABELS: [&str; 2] = ["4:3 DOS", "Widescreen"];
 
 /// The original's "Sound Effects" rows (`DATA_004965`).
 pub const SOUND_LABELS: [&str; 10] = [
@@ -662,7 +662,7 @@ impl Prefs {
                     let aspect = if index == 0 {
                         PixelAspect::Dos43
                     } else {
-                        PixelAspect::Square
+                        PixelAspect::Wide
                     };
                     rows.push(row(
                         176,
@@ -1201,7 +1201,7 @@ mod tests {
             96
         );
         assert_eq!(
-            rows.iter().find(|row| row.label == "Square").unwrap().y,
+            rows.iter().find(|row| row.label == "Widescreen").unwrap().y,
             126
         );
         let texts = prefs.texts();
@@ -1219,7 +1219,7 @@ mod tests {
         prefs.click(178, 80);
         assert_eq!(prefs.display.filter, Filter::Linear);
         prefs.click(178, 126);
-        assert_eq!(prefs.display.aspect, PixelAspect::Square);
+        assert_eq!(prefs.display.aspect, PixelAspect::Wide);
         // Fullscreen is a session-only toggle.
         prefs.click(34, 86);
         assert!(prefs.fullscreen);

@@ -174,7 +174,7 @@ its own options on exit).
 | `enhancement-11` | `enhancement.edge_indicator` | `edge_indicator` | off |
 | `enhancement-12` | `enhancement.enhanced_galaxy_map` | `enhanced_galaxy_map` | off |
 | `enhancement-13` | `enhancement.laser_sight` | `laser_sight` | off |
-| `enhancement-14` | `enhancement.list_scroll` | `list_scroll` | off |
+| `enhancement-14` | (was `enhancement.list_scroll`) | always on since 2026-11-25; the line is ignored | n/a |
 
 Values are `on|off` when written; `on|off|true|false|1|0` are accepted when
 read. A missing key keeps the default (off). An unknown `enhancement.*` name is
@@ -205,7 +205,7 @@ entry (`EXP-xxx`, `enhancement`) and a regression test.
 | `enhancement-11` `edge_indicator` | `targeter::edge_indicator`, `screen::Screen::edge_indicator` | no arrow pixels; F1100's text forms unchanged |
 | `enhancement-12` `enhanced_galaxy_map` | `enhanced_map` module, `screen::{EnhancedGalaxy, draw_enhanced_galaxy}`, `main.rs` map open/input/draw/route | the original 3D `GalaxyMap` path is unchanged; the flat map, route and Sol pointer are only built when the toggle is on |
 | `enhancement-13` `laser_sight` | `screen::{Screen::fixed_laser, first_person_view}`, `main.rs` | off keeps F1776's beam from the gun mount; on draws a fixed foot-to-reticle sight line in the front, rear and turret views only |
-| `enhancement-14` `list_scroll` | `station::DockState::{scroll_by, arrow, wheel}`, `main.rs` docked-screen input | no wheel handling; the arrows are the original's one-row F355(±1) either way |
+| `enhancement-14` (always on since 2026-11-25) | `station::DockState::{scroll_by, arrow, wheel}`, `main.rs` docked-screen input | the wheel always scrolls station lists (it is no longer a toggle); the arrows are the original's one-row F355(±1) either way |
 
 `enhancement-10` also closes its list and drops the ship selected through it
 (`nav.ship_lock`/`nav.missile_lock`) when the player leaves flight, opens a page,

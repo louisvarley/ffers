@@ -254,6 +254,78 @@ impl App {
         };
     }
 
+    /// A popup when a newer version has been found: download it (install it where the launcher
+    /// can, else open its page) or skip it. A skipped version is remembered, so the popup comes
+    /// back only for a newer one; the footer's update button stays for later.
+    fn update_popup(&mut self, ctx: &egui::Context) {
+        let UpdateState::Available(release) = &self.update else {
+            return;
+        };
+        if self.launcher.skipped_update == release.tag {
+            return;
+        }
+        let release = release.clone();
+        let installs = update::can_install(&self.install_dir) && release.asset_url.is_some();
+        let (mut download, mut skip) = (false, false);
+        egui::Modal::new(egui::Id::new("update_popup")).show(ctx, |ui| {
+            ui.set_width(520.0);
+            ui.label(
+                RichText::new("A new version is available")
+                    .font(draw::font(26.0, draw::BOLD))
+                    .color(CREAM),
+            );
+            ui.add_space(6.0);
+            ui.label(
+                RichText::new(format!(
+                    "{} is ready to download. You have v{}.",
+                    release.tag,
+                    env!("CARGO_PKG_VERSION")
+                ))
+                .font(draw::font(19.0, draw::REGULAR))
+                .color(CREAM),
+            );
+            let notes: String = release
+                .notes
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .take(8)
+                .collect::<Vec<_>>()
+                .join(
+                    "
+",
+                );
+            if !notes.is_empty() {
+                ui.add_space(8.0);
+                egui::ScrollArea::vertical()
+                    .max_height(150.0)
+                    .show(ui, |ui| {
+                        ui.label(RichText::new(notes).color(DIM));
+                    });
+            }
+            ui.add_space(14.0);
+            ui.horizontal(|ui| {
+                let label = if installs {
+                    "Download and install"
+                } else {
+                    "Open the download page"
+                };
+                if ui.add(pill(label, true)).clicked() {
+                    download = true;
+                }
+                if ui.add(pill("Skip", false)).clicked() {
+                    skip = true;
+                }
+            });
+        });
+        if download {
+            self.update_action(release);
+        } else if skip {
+            self.launcher.skipped_update = release.tag;
+            self.save_launcher();
+        }
+    }
+
     /// What the update button does for `release`: install it when this is a packaged Windows
     /// release with a package to download, else open its page.
     fn update_action(&mut self, release: update::Release) {
@@ -494,6 +566,7 @@ impl eframe::App for App {
                 }
                 self.footer(ui, &at);
             });
+        self.update_popup(ctx);
     }
 }
 
@@ -769,9 +842,6 @@ impl App {
                 toggle(ui, &mut self.config.fullscreen);
             },
         );
-        section(ui, "Video filter");
-        filter_list(ui, &mut display.filter);
-        section(ui, "Scaling");
         option_row(
             ui,
             "Fit",
@@ -790,18 +860,20 @@ impl App {
         option_row(
             ui,
             "Pixel aspect",
-            "The original's 4:3 monitor, or square pixels.",
+            "The original's 4:3 DOS monitor, or a widescreen (16:10) picture with square pixels.",
             |ui| {
                 choice(
                     ui,
                     &mut display.aspect,
                     &[
                         (PixelAspect::Dos43, prefs::ASPECT_LABELS[0]),
-                        (PixelAspect::Square, prefs::ASPECT_LABELS[1]),
+                        (PixelAspect::Wide, prefs::ASPECT_LABELS[1]),
                     ],
                 );
             },
         );
+        section(ui, "Video filter");
+        filter_list(ui, &mut display.filter);
         section(ui, "CRT effect");
         option_row(
             ui,
@@ -927,7 +999,7 @@ struct EnhancementGroup {
     items: &'static [Enhancement],
 }
 
-const ENHANCEMENT_GROUPS: [EnhancementGroup; 6] = [
+const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
     EnhancementGroup {
         heading: "Combat & missiles",
         items: &[
@@ -1029,15 +1101,6 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 6] = [
                     route and fly it as one long jump, arrow-key or right-drag pan, wheel zoom, \
                     lines pointing home and to Sol, and hover info (populated or not, \
                     safe or dangerous).",
-        }],
-    },
-    EnhancementGroup {
-        heading: "Station screens",
-        items: &[Enhancement {
-            slot: 13,
-            title: "Mouse-wheel scrolling in station lists",
-            about: "The mouse wheel scrolls the market, shipyard, outfitting and the other \
-                    station lists a row at a time.",
         }],
     },
 ];

@@ -212,7 +212,7 @@ fn display_page_sets_the_port_only_presentation_options() {
     assert!(labels.contains(&"Nearest"));
     assert!(labels.contains(&"xBRZ 2x"));
     assert!(!labels.contains(&"xBRZ 3x"));
-    assert!(labels.contains(&"4:3 (DOS)"));
+    assert!(labels.contains(&"4:3 DOS"));
     assert!(labels.contains(&"Fullscreen"));
     let rows = prefs.rows();
     assert_eq!(
@@ -224,7 +224,7 @@ fn display_page_sets_the_port_only_presentation_options() {
         96
     );
     assert_eq!(
-        rows.iter().find(|row| row.label == "Square").unwrap().y,
+        rows.iter().find(|row| row.label == "Widescreen").unwrap().y,
         126
     );
     prefs.page = MAIN;
@@ -263,7 +263,7 @@ fn display_page_sets_the_port_only_presentation_options() {
             scale: 3,
             fit: FitMode::FillWindow,
             filter: Filter::Linear,
-            aspect: PixelAspect::Square,
+            aspect: PixelAspect::Wide,
             scanlines: false,
             scanline_intensity: 0.3,
         }

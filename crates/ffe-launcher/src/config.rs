@@ -44,6 +44,9 @@ pub struct Launcher {
     pub videos: Option<PathBuf>,
     /// Look for a newer release on GitHub when the launcher starts.
     pub check_updates: bool,
+    /// The release tag whose update popup was skipped (the popup does not come back for it,
+    /// only for a newer release); empty when none was.
+    pub skipped_update: String,
 }
 
 /// Where the videos are and how many clips (AVI files) are there.
@@ -86,6 +89,7 @@ impl Launcher {
             record: false,
             videos: None,
             check_updates: true,
+            skipped_update: String::new(),
         }
     }
 
@@ -96,6 +100,9 @@ impl Launcher {
         out.push_str(&format!("skip_intro={}\n", on_off(self.skip_intro)));
         out.push_str(&format!("record={}\n", on_off(self.record)));
         out.push_str(&format!("check_updates={}\n", on_off(self.check_updates)));
+        if !self.skipped_update.is_empty() {
+            out.push_str(&format!("skipped_update={}\n", self.skipped_update));
+        }
         if let Some(videos) = &self.videos {
             out.push_str(&format!("videos={}\n", videos.display()));
         }
@@ -125,6 +132,7 @@ impl Launcher {
                 "skip_intro" => self.skip_intro = value == "on",
                 "record" => self.record = value == "on",
                 "check_updates" => self.check_updates = value != "off",
+                "skipped_update" => self.skipped_update = value.to_owned(),
                 "videos" => {
                     self.videos = (!value.is_empty()).then(|| PathBuf::from(value));
                 }
@@ -280,9 +288,13 @@ mod tests {
         launcher.record = false;
         launcher.check_updates = false;
         launcher.videos = Some(PathBuf::from("/discs/elite3/DATA"));
+        launcher.skipped_update = "v0.9.20".to_owned();
         let mut read = Launcher::defaults(root);
         read.read(&launcher.to_text());
         assert_eq!(read, launcher);
+        // No skipped update writes nothing and reads back empty.
+        let fresh = Launcher::defaults(root);
+        assert!(!fresh.to_text().contains("skipped_update"));
     }
 
     #[test]
