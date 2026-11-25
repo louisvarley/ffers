@@ -2777,7 +2777,8 @@ impl Screen {
                 systems.mounts = systems.mounts.max(3);
             }
             self.console.apply_flight(view, &views.console, &systems);
-            if self.galaxy.is_some() || self.system_map.is_some() {
+            if self.galaxy.is_some() || self.enhanced_galaxy.is_some() || self.system_map.is_some()
+            {
                 // F834/F840: the map's page replaces the view row while the
                 // screen buttons, meter, scanner and lamps stay visible.
                 self.console.apply_map(&self.map_console);

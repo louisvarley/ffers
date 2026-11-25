@@ -1313,7 +1313,7 @@ mod tests {
     }
 
     #[test]
-    fn a_stretched_tunnel_plays_longer_at_the_original_pace() {
+    fn a_long_tunnel_only_ever_plays_forward() {
         use crate::navigation::{Transit, HYPERSPACE_RATE};
         let natural = 2.0;
         let at = |stretch: f64, real: f64| {
@@ -1332,59 +1332,37 @@ mod tests {
                 "{real}"
             );
         }
-        // Stretched to 8 s: it starts at 0, ends at the end of the tunnel, and moves at about
-        // the tunnel's own speed (145 shares in `TUNNEL_SECONDS`) all the way. The swirl
-        // sweeps there and back with no jump anywhere, the hand-overs included.
-        let (stretch, whole) = (4.0, 8.0);
-        assert!(at(stretch, 0.0) < 1.0e-6);
-        assert!(at(stretch, whole - 1.0e-6) > 144.9);
         let rate = 145.0 / crate::navigation::TUNNEL_SECONDS;
-        let step = 0.01;
-        let mut reversals = 0;
-        let mut real = 0.0;
-        let mut was_rising = true;
-        while real + step < whole {
-            let delta = at(stretch, real + step) - at(stretch, real);
-            // Never a jump: within a few per cent of the tunnel's own speed.
-            assert!(
-                delta.abs() <= rate * step * 1.06 + 1.0e-6,
-                "a jump of {delta} at {real}"
-            );
-            if delta.abs() > 1.0e-9 {
-                let rising = delta > 0.0;
-                if rising != was_rising {
-                    reversals += 1;
-                    assert!(
-                        (70.0..=110.0).contains(&at(stretch, real)),
-                        "turned at {real}"
-                    );
+        // Stretched to 8 s, and a long route's 12, 20 and 40 s: it starts at 0, ends at the
+        // end of the tunnel, never moves backwards or jumps, runs at the tunnel's own pace in
+        // the opening and closing and keeps the swirl inside its own shares.
+        for whole in [8.0, 12.0, 20.0, 40.0] {
+            let stretch = whole / natural;
+            assert!(at(stretch, 0.0) < 1.0e-6);
+            assert!(at(stretch, whole - 1.0e-6) > 144.9, "{whole}");
+            let step = 0.01;
+            let mut real = 0.0;
+            while real + step < whole {
+                let delta = at(stretch, real + step) - at(stretch, real);
+                assert!(
+                    delta >= -1.0e-9,
+                    "{whole} s runs backwards at {real}: {delta}"
+                );
+                assert!(
+                    delta <= rate * step * 1.0001 + 1.0e-6,
+                    "{whole} s jumps by {delta} at {real}"
+                );
+                if (70.0..110.0).contains(&at(stretch, real)) {
+                    assert!(delta < rate * step, "the swirl is slowed at {real}");
                 }
-                was_rising = rising;
+                real += step;
             }
-            real += step;
+            // The opening and closing run at the tunnel's own pace.
+            assert!((at(stretch, 0.5) - 0.5 * rate).abs() < 1.0e-6);
+            assert!((at(stretch, whole - 0.5) - (145.0 - 0.5 * rate)).abs() < 1.0e-6);
         }
-        // 8 s is 2 s of opening and closing plus almost 6 s of swirl: several sweeps.
-        assert!(reversals >= 4, "{reversals} turns of the swirl");
-        // A route's legs add up to a long jump (here 12 s of game time at the transit rate):
-        // it must not play slowly, but at the tunnel's own speed, sweeping the swirl.
-        let long = |real: f64| {
-            let total = 12.0 * HYPERSPACE_RATE;
-            Transit {
-                total,
-                remaining: total - real * HYPERSPACE_RATE,
-                stretch: 1.0,
-            }
-            .share()
-        };
-        let speed = 145.0 / crate::navigation::TUNNEL_SECONDS;
-        assert!(
-            (long(0.5) - long(0.4) - 0.1 * speed).abs() < 1.0e-6,
-            "opening"
-        );
-        assert!(long(11.999) > 144.0 && long(0.0) < 1.0e-6);
-        assert!((70.0..=110.0).contains(&long(6.0)));
-        // The swirl ends on 110, where the closing frames begin, for jumps of any length.
-        for seconds in [3.2, 3.9, 4.5, 6.0, 9.7, 12.0, 20.0] {
+        // A jump of any length moves forward only, through the same shares.
+        for seconds in [3.2, 3.9, 6.0, 12.0, 20.0] {
             let total = seconds * HYPERSPACE_RATE;
             let share = |real: f64| {
                 Transit {
@@ -1394,23 +1372,15 @@ mod tests {
                 }
                 .share()
             };
-            let outro_start = seconds - 35.0 / 145.0 * crate::navigation::TUNNEL_SECONDS;
-            let before = share(outro_start - 1.0e-6);
-            let after = share(outro_start + 1.0e-6);
-            assert!(
-                (before - 110.0).abs() < 0.05 && (after - 110.0).abs() < 0.05,
-                "{seconds} s: swirl ends at {before}, closing starts at {after}"
-            );
-            // And the swirl never leaves its own shares.
-            let mut real = 70.0 / 145.0 * crate::navigation::TUNNEL_SECONDS;
-            while real < outro_start {
-                assert!(
-                    (70.0 - 1.0e-6..=110.0 + 1.0e-6).contains(&share(real)),
-                    "{seconds} s at {real}: {}",
-                    share(real)
-                );
-                real += 0.013;
+            let mut last = share(0.0);
+            let mut real = 0.0;
+            while real < seconds {
+                let now = share(real);
+                assert!(now >= last - 1.0e-9, "{seconds} s runs backwards at {real}");
+                last = now;
+                real += 0.007;
             }
+            assert!(share(seconds - 1.0e-6) > 144.9);
         }
         // The animation word is the share, as before.
         let total = natural * HYPERSPACE_RATE;
@@ -1421,5 +1391,20 @@ mod tests {
         }
         .animation();
         assert_eq!(word, ((72.0f64 as u16) << 8) & 0xff00);
+        // A long transit's word keeps the share's fraction, so the slowed swirl is smooth.
+        let long_total = 8.0 * HYPERSPACE_RATE;
+        let long_word = |remaining: f64| {
+            Transit {
+                total: long_total,
+                remaining,
+                stretch: 1.0,
+            }
+            .animation()
+        };
+        let (early, later) = (
+            long_word(long_total * 0.5),
+            long_word(long_total * 0.5 - 1.0e4),
+        );
+        assert!(later >= early && later - early < 256, "{early} {later}");
     }
 }

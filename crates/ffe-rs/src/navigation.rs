@@ -1787,15 +1787,24 @@ impl Transit {
 
     /// F1066's animation word for model 0xa5: the elapsed share times 145, << 8.
     ///
-    /// A stretched transit (see [`enhanced_transit_seconds`]) plays the same tunnel at the
-    /// same speed for longer rather than slowing it down: the opening (the stars, the streaks
-    /// and the first of the swirl, shares 0 to 70) and the closing (110 to 145) run once at
-    /// the original's pace, and the swirl between them (70 to 110, whose view drifts as it
-    /// plays) sweeps there and back, without a jump, for as long as the extra time needs.
-    /// With a stretch of 1 this is the original's share exactly.
+    /// A long transit (see [`enhanced_transit_seconds`], or a route's legs added up) plays
+    /// the tunnel forward once, never back: the opening (the stars, the streaks and the first
+    /// of the swirl, shares 0 to 70) and the closing (110 to 145) run at the original's pace
+    /// and the swirl between them (70 to 110) plays slowly across the rest of the time. The
+    /// slowed swirl keeps the share's fraction in the word's low byte so it moves smoothly;
+    /// a transit that is not stretched is the original's whole shares exactly.
     pub fn animation(&self) -> u16 {
         let share = self.share();
-        ((share as u16) << 8) & 0xff00
+        if self.is_long() {
+            ((share * 256.0) as u16).min(145 * 256)
+        } else {
+            ((share as u16) << 8) & 0xff00
+        }
+    }
+
+    /// Whether the transit lasts longer than one pass through the tunnel at its own pace.
+    fn is_long(&self) -> bool {
+        self.total / HYPERSPACE_RATE * self.stretch.max(1.0) > TUNNEL_SECONDS
     }
 
     /// The tunnel's share, 0 to 145 (see [`Self::animation`]).
@@ -1806,49 +1815,30 @@ impl Transit {
         }
         let elapsed_game = (self.total - self.remaining).clamp(0.0, self.total);
         let stretch = self.stretch.max(1.0);
-        // Real seconds so far and in all. The tunnel's own pace is fixed: a whole tunnel of
-        // 145 shares takes at most `TUNNEL_SECONDS`, however long the jump (a route's legs
-        // add up to a long one), and a jump shorter than that plays it as the original does.
+        // Real seconds so far and in all. The opening and closing keep the tunnel's own pace:
+        // a whole tunnel of 145 shares takes at most `TUNNEL_SECONDS`, however long the jump,
+        // and a jump shorter than that plays it as the original does.
         let elapsed = elapsed_game / HYPERSPACE_RATE * stretch;
         let whole = natural * stretch;
         let per_share = whole.min(TUNNEL_SECONDS) / 145.0;
-        let (intro, cycle, outro) = (70.0 * per_share, 40.0 * per_share, 35.0 * per_share);
+        let (intro, outro) = (70.0 * per_share, 35.0 * per_share);
         let share = if elapsed < intro {
             elapsed / per_share
         } else if elapsed >= whole - outro {
             110.0 + (elapsed - (whole - outro)) / per_share
         } else {
-            // The swirl (shares 70 to 110) drifts across the view as it plays, so repeating it
-            // from 110 back to 70 snaps the vortex from one side to the other. It sweeps there
-            // and back instead, an odd number of sweeps so the last one ends at 110 exactly
-            // where the closing frames pick up, and the sweeps are stretched or squeezed a
-            // little (to the nearest whole number of them) to make that fit.
-            let swirl = (whole - intro - outro).max(cycle);
-            let sweeps = Self::sweeps(swirl / cycle);
-            let at = (elapsed - intro) / (swirl / sweeps);
-            let whole_sweeps = at.floor();
-            let fraction = at - whole_sweeps;
-            let forward = (whole_sweeps as i64) % 2 == 0;
-            70.0 + 40.0 * if forward { fraction } else { 1.0 - fraction }
+            // The swirl (shares 70 to 110) fills whatever time is left, once and forward. It
+            // drifts across the view as it plays, so repeating it snapped the vortex from one
+            // side to the other and playing it back and forth made the tunnel run backwards.
+            let swirl = (whole - intro - outro).max(40.0 * per_share);
+            70.0 + 40.0 * ((elapsed - intro) / swirl).clamp(0.0, 1.0)
         };
         share.clamp(0.0, 145.0)
-    }
-
-    /// The odd number of sweeps nearest to `ratio` (the swirl's time over one sweep's), so
-    /// the swirl plays at close to its own speed and ends on a forward sweep.
-    fn sweeps(ratio: f64) -> f64 {
-        let below = ((ratio - 1.0) / 2.0).floor().max(0.0) * 2.0 + 1.0;
-        let above = below + 2.0;
-        if (above / ratio).ln().abs() < (below / ratio).ln().abs() {
-            above
-        } else {
-            below
-        }
     }
 }
 
 /// The longest the tunnel's 145 shares take to play once through at their own pace; a transit
-/// that runs longer repeats the swirl (see [`Transit::animation`]) instead of slowing down.
+/// that runs longer plays the swirl more slowly (see [`Transit::animation`]).
 pub const TUNNEL_SECONDS: f64 = 3.0;
 
 /// The clock rate in transit: F908's `0xf880000` against 1x's `0x3e2`.
