@@ -571,7 +571,8 @@ mod raw_mouse {
 /// one type; it dereferences to the `minifb` window.
 pub struct GameWindow {
     window: Window,
-    /// Whether the mouse's raw counts are being collected (Windows).
+    /// Whether the mouse's raw counts are being collected (Windows only).
+    #[cfg(windows)]
     raw_mouse: bool,
 }
 
@@ -686,9 +687,11 @@ pub fn open_window(title: &str, request: WindowRequest) -> Result<GameWindow, St
         let hwnd = window.get_window_handle() as HWND;
         !hwnd.is_null() && raw_mouse::install(hwnd)
     };
-    #[cfg(not(windows))]
-    let raw_mouse = false;
-    Ok(GameWindow { window, raw_mouse })
+    Ok(GameWindow {
+        window,
+        #[cfg(windows)]
+        raw_mouse,
+    })
 }
 
 /// Give the window the icon embedded in `ffe-rs.exe` (resource 1, see
