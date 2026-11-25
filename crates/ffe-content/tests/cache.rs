@@ -169,7 +169,11 @@ fn rewrite(bytes: &[u8], change: impl FnOnce(&mut Vec<(String, Vec<u8>)>)) -> Ve
     let mut writer = ZipWriter::new(Cursor::new(Vec::new()));
     for (path, payload) in files {
         writer
-            .start_file(path, SimpleFileOptions::default())
+            // Stored, as the cache writer does, whichever zip features other crates enable.
+            .start_file(
+                path,
+                SimpleFileOptions::default().compression_method(zip::CompressionMethod::Stored),
+            )
             .unwrap();
         writer.write_all(&payload).unwrap();
     }
