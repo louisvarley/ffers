@@ -210,8 +210,7 @@ fn a_market_is_generated_good_by_good_and_drifts_a_quarter_a_day() {
     }
     assert_eq!(r, check);
     let mut again = rng();
-    for good in 0..GOODS {
-        let entry = market.entries[good];
+    for (good, entry) in market.entries.iter().copied().enumerate().take(GOODS) {
         assert_eq!(
             entry.price,
             tables.price(good, 2, 1, 0, &mut again).unwrap()
