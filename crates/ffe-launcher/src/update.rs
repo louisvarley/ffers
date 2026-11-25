@@ -2,20 +2,27 @@
 //!
 //! The launcher asks GitHub for the latest release of the project, compares its tag with the
 //! running version and, when the player clicks the update button, downloads the release's
-//! Windows zip, checks every file in it against the `SHA256SUMS.txt` it carries and swaps the
-//! program files in place. Nothing is sent to GitHub but the request itself: no identifiers,
-//! no game information.
+//! package for this platform and replaces the program in place. Nothing is sent to GitHub but
+//! the request itself: no identifiers, no game information.
 //!
-//! Only program files are ever replaced (the executables, the licence texts and the
-//! documents). `game`, `saves`, `recordings`, `FMVs`, the music pack and the player's
-//! settings are never touched; a zip that lists one is refused. A running program cannot be
-//! deleted on Windows but can be renamed, so each existing executable is renamed to
-//! `<name>.old` (removed the next time the launcher starts) before the new one is written, and
-//! put back if anything fails half way.
+//! * **Windows**: the `ffers-<tag>-Windows-x64.zip` is unpacked, every file in it is checked
+//!   against the `SHA256SUMS.txt` it carries and the program files are swapped in place. Only
+//!   program files are ever replaced (the executables, the licence texts and the documents).
+//!   `game`, `saves`, `recordings`, `FMVs`, the music pack and the player's settings are never
+//!   touched; a zip that lists one is refused. A running program cannot be deleted on Windows
+//!   but can be renamed, so each existing executable is renamed to `<name>.old` (removed the
+//!   next time the launcher starts) before the new one is written, and put back if anything
+//!   fails half way.
+//! * **Linux**: the `ffers-<tag>-x86_64.AppImage` replaces the running AppImage file
+//!   (`$APPIMAGE`). It is downloaded beside it, checked against the release's `SHA256SUMS.txt`
+//!   and renamed over it; the running copy keeps working until the launcher restarts.
+//! * **macOS**: the `ffers-<tag>-macOS.zip` is checked against the release's `SHA256SUMS.txt`,
+//!   unpacked beside `ffers.app` and swapped for it (the old bundle is kept as `ffers.app.old`
+//!   until the next start, and put back if the swap fails).
 //!
-//! Network access uses the `curl` that ships with Windows 10 and later (and is common
-//! elsewhere), and unpacking uses PowerShell's `Expand-Archive`, so the launcher needs no
-//! HTTP, TLS or zip crates of its own.
+//! Network access uses `curl` (it ships with Windows 10 and later and macOS, and is common on
+//! Linux) and unpacking uses the `zip` crate, so the launcher needs no HTTP or TLS crate of its
+//! own.
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -25,11 +32,44 @@ use std::process::Command;
 /// The GitHub repository releases are read from.
 pub const REPO: &str = "louisvarley/ffers";
 
-/// The release asset to install: the Windows x64 package `tools/package.ps1` writes,
-/// `ffers-<tag>-Windows-x64.zip`. The release also carries the same package under another
-/// publisher's name (`MyRecomp-<tag>-Windows-x64.zip`); the project's own is preferred.
-const ASSET_SUFFIX: &str = "-windows-x64.zip";
+/// The release asset prefix of the project's own packages. The release also carries the same
+/// packages under another publisher's name (`MyRecomp-<tag>-...`); the project's own is preferred.
 const ASSET_PREFIX: &str = "ffers-";
+
+/// A platform the project publishes a package for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Platform {
+    /// `ffers-<tag>-Windows-x64.zip`, written by `tools/package.ps1`.
+    Windows,
+    /// `ffers-<tag>-x86_64.AppImage`, written by `tools/package-appimage.sh`.
+    Linux,
+    /// `ffers-<tag>-macOS.zip`, written by `tools/package-macos.sh`.
+    MacOs,
+}
+
+impl Platform {
+    /// The platform this launcher was built for, when the project publishes one for it.
+    pub fn current() -> Option<Self> {
+        if cfg!(windows) {
+            Some(Self::Windows)
+        } else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+            Some(Self::Linux)
+        } else if cfg!(target_os = "macos") {
+            Some(Self::MacOs)
+        } else {
+            None
+        }
+    }
+
+    /// The end of the package's file name, lower case.
+    fn asset_suffix(self) -> &'static str {
+        match self {
+            Self::Windows => "-windows-x64.zip",
+            Self::Linux => "-x86_64.appimage",
+            Self::MacOs => "-macos.zip",
+        }
+    }
+}
 
 /// Top-level names an update never writes, even if a zip lists them.
 const PROTECTED: [&str; 4] = ["game", "saves", "recordings", "fmvs"];
@@ -50,8 +90,10 @@ pub struct Release {
     pub version: [u64; 3],
     /// The release's web page (notes and downloads).
     pub page: String,
-    /// The Windows package's download address, when the release has one.
+    /// This platform's package download address, when the release has one.
     pub asset_url: Option<String>,
+    /// The release's `SHA256SUMS.txt` (the checksum of every download), when it has one.
+    pub sums_url: Option<String>,
     pub notes: String,
 }
 
@@ -79,6 +121,11 @@ pub fn current_version() -> [u64; 3] {
 
 /// Read a release from the GitHub API's `releases/latest` answer.
 pub fn parse_release(json: &str) -> Result<Release, String> {
+    parse_release_for(json, Platform::current())
+}
+
+/// [`parse_release`] for an explicit platform (`None`: no package is wanted).
+pub fn parse_release_for(json: &str, platform: Option<Platform>) -> Result<Release, String> {
     let value: Value = serde_json::from_str(json).map_err(|e| format!("Bad release data: {e}"))?;
     let tag = value["tag_name"]
         .as_str()
@@ -87,7 +134,7 @@ pub fn parse_release(json: &str) -> Result<Release, String> {
     let version =
         parse_version(&tag).ok_or_else(|| format!("Unrecognised release tag {tag:?}."))?;
     let prefix = format!("https://github.com/{REPO}/releases/download/");
-    let packages: Vec<(String, String)> = value["assets"]
+    let assets: Vec<(String, String)> = value["assets"]
         .as_array()
         .map(|assets| {
             assets
@@ -95,12 +142,23 @@ pub fn parse_release(json: &str) -> Result<Release, String> {
                 .filter_map(|asset| {
                     let name = asset["name"].as_str()?.to_ascii_lowercase();
                     let url = asset["browser_download_url"].as_str()?;
-                    (name.ends_with(ASSET_SUFFIX) && url.starts_with(&prefix))
-                        .then(|| (name, url.to_owned()))
+                    url.starts_with(&prefix).then(|| (name, url.to_owned()))
                 })
                 .collect()
         })
         .unwrap_or_default();
+    let packages: Vec<&(String, String)> = platform
+        .map(|platform| {
+            assets
+                .iter()
+                .filter(|(name, _)| name.ends_with(platform.asset_suffix()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let sums_url = assets
+        .iter()
+        .find(|(name, _)| name == "sha256sums.txt")
+        .map(|(_, url)| url.clone());
     let asset_url = packages
         .iter()
         .find(|(name, _)| name.starts_with(ASSET_PREFIX))
@@ -118,6 +176,7 @@ pub fn parse_release(json: &str) -> Result<Release, String> {
         tag,
         version,
         asset_url,
+        sums_url,
     })
 }
 
@@ -318,13 +377,24 @@ fn is_program(path: &Path) -> bool {
 }
 
 fn old_name(path: &Path) -> PathBuf {
+    old_name_with(path, ".old")
+}
+
+fn old_name_with(path: &Path, suffix: &str) -> PathBuf {
     let mut name = path.as_os_str().to_owned();
-    name.push(".old");
+    name.push(suffix);
     PathBuf::from(name)
 }
 
-/// Remove the `.old` executables a previous update left beside the launcher.
+/// Remove what a previous update left behind: the `.old` executables beside the launcher
+/// (Windows), the `ffers.app.old` bundle (macOS) and a half-downloaded `.update` AppImage (Linux).
 pub fn remove_leftovers(install: &Path) {
+    if let Some(bundle) = running_bundle() {
+        let _ = std::fs::remove_dir_all(old_name(&bundle));
+    }
+    if let Some(appimage) = appimage_path() {
+        let _ = std::fs::remove_file(old_name_with(&appimage, ".update"));
+    }
     if let Ok(read) = std::fs::read_dir(install) {
         for entry in read.flatten() {
             let path = entry.path();
@@ -336,52 +406,135 @@ pub fn remove_leftovers(install: &Path) {
     }
 }
 
-/// Whether this launcher is a packaged release that can replace itself: not a checkout
-/// built with cargo (whose folder holds the workspace `Cargo.toml`).
-pub fn can_install(install: &Path) -> bool {
-    cfg!(windows)
-        && !install
-            .ancestors()
-            .take(5)
-            .any(|dir| dir.join("Cargo.toml").is_file())
+/// The running AppImage file (`$APPIMAGE`), when this launcher was started from one.
+fn appimage_path() -> Option<PathBuf> {
+    let path = PathBuf::from(std::env::var_os("APPIMAGE")?);
+    path.is_file().then_some(path)
 }
 
-/// Download `release`'s Windows package, check it and install it into `install`.
+/// The `.app` bundle that holds `exe` (`<name>.app/Contents/MacOS/<exe>`), if there is one.
+fn bundle_of(exe: &Path) -> Option<PathBuf> {
+    let macos = exe.parent()?;
+    let contents = macos.parent()?;
+    let bundle = contents.parent()?;
+    let is_bundle = macos.file_name()? == "MacOS"
+        && contents.file_name()? == "Contents"
+        && bundle
+            .extension()
+            .is_some_and(|extension| extension == "app");
+    is_bundle.then(|| bundle.to_path_buf())
+}
+
+fn running_bundle() -> Option<PathBuf> {
+    bundle_of(&std::env::current_exe().ok()?)
+}
+
+/// Whether this launcher is a packaged release that can replace itself: not a checkout
+/// built with cargo (whose folder holds the workspace `Cargo.toml`), and on Linux and macOS
+/// running from the AppImage or the `.app` the release ships.
+pub fn can_install(install: &Path) -> bool {
+    match Platform::current() {
+        Some(Platform::Windows) => !install
+            .ancestors()
+            .take(5)
+            .any(|dir| dir.join("Cargo.toml").is_file()),
+        Some(Platform::Linux) => appimage_path().is_some(),
+        Some(Platform::MacOs) => running_bundle().is_some(),
+        None => false,
+    }
+}
+
+/// The program to start again after an update. On Linux the running executable lives inside
+/// the AppImage's temporary mount, so the AppImage file itself is started.
+pub fn relaunch_path(install: &Path) -> Option<PathBuf> {
+    if Platform::current() == Some(Platform::Linux) {
+        if let Some(appimage) = appimage_path() {
+            return Some(appimage);
+        }
+    }
+    let exe = std::env::current_exe().ok()?;
+    Some(install.join(exe.file_name()?))
+}
+
+/// Download `release`'s package for this platform, check it and install it.
 /// Returns the number of files written.
 pub fn download_and_install(release: &Release, install: &Path) -> Result<usize, String> {
     let url = release
         .asset_url
         .as_deref()
-        .ok_or("This release has no Windows package to install.")?;
+        .ok_or("This release has no package for this system.")?;
+    match Platform::current() {
+        Some(Platform::Windows) => install_windows(url, install),
+        Some(Platform::Linux) => {
+            let target = appimage_path().ok_or("This launcher is not running from an AppImage.")?;
+            install_appimage(release, url, &target).map(|()| 1)
+        }
+        Some(Platform::MacOs) => {
+            let bundle = running_bundle().ok_or("This launcher is not running from ffers.app.")?;
+            install_bundle(release, url, &bundle).map(|()| 1)
+        }
+        None => Err("Updates are not available on this system.".to_owned()),
+    }
+}
+
+/// Download `url` into the file `to` (HTTPS only).
+fn download(url: &str, to: &Path) -> Result<(), String> {
+    let status = curl()
+        .args([
+            "--silent",
+            "--show-error",
+            "--location",
+            "--fail",
+            "--proto",
+            "=https",
+            "--max-time",
+            "900",
+            "--header",
+            "User-Agent: ffe-rs-launcher",
+            "--output",
+        ])
+        .arg(to)
+        .arg(url)
+        .output()
+        .map_err(|e| format!("Could not run curl: {e}"))?;
+    if status.status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "The download failed: {}",
+            String::from_utf8_lossy(&status.stderr).trim()
+        ))
+    }
+}
+
+/// The checksum the release lists for the package at `url`, read from its `SHA256SUMS.txt`.
+fn listed_hash(release: &Release, url: &str, work: &Path) -> Result<String, String> {
+    let sums_url = release
+        .sums_url
+        .as_deref()
+        .ok_or("The release has no SHA256SUMS.txt, so the download cannot be checked.")?;
+    let file = work.join("SHA256SUMS.txt");
+    download(sums_url, &file)?;
+    let text = std::fs::read_to_string(&file).map_err(|e| e.to_string())?;
+    hash_for(&text, url.rsplit('/').next().unwrap_or_default())
+}
+
+/// The hash `SHA256SUMS.txt` lists for the file called `name`.
+fn hash_for(sums_text: &str, name: &str) -> Result<String, String> {
+    parse_sums(sums_text)?
+        .into_iter()
+        .find(|(_, path)| path == name)
+        .map(|(hash, _)| hash)
+        .ok_or_else(|| format!("SHA256SUMS.txt does not list {name}."))
+}
+
+fn install_windows(url: &str, install: &Path) -> Result<usize, String> {
     let work = std::env::temp_dir().join(format!("ffe-rs-update-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
     let outcome = (|| -> Result<usize, String> {
         let zip = work.join("update.zip");
-        let status = curl()
-            .args([
-                "--silent",
-                "--show-error",
-                "--location",
-                "--fail",
-                "--proto",
-                "=https",
-                "--max-time",
-                "900",
-                "--header",
-                "User-Agent: ffe-rs-launcher",
-                "--output",
-            ])
-            .arg(&zip)
-            .arg(url)
-            .output()
-            .map_err(|e| format!("Could not run curl: {e}"))?;
-        if !status.status.success() {
-            return Err(format!(
-                "The download failed: {}",
-                String::from_utf8_lossy(&status.stderr).trim()
-            ));
-        }
+        download(url, &zip)?;
         let unpacked = work.join("unpacked");
         unpack(&zip, &unpacked)?;
         let package = package_folder(&unpacked)?;
@@ -389,6 +542,114 @@ pub fn download_and_install(release: &Release, install: &Path) -> Result<usize, 
     })();
     let _ = std::fs::remove_dir_all(&work);
     outcome
+}
+
+/// Replace the running AppImage `target` with the release's.
+fn install_appimage(release: &Release, url: &str, target: &Path) -> Result<(), String> {
+    // Beside the target, so the final rename never crosses a file system.
+    let staged = old_name_with(target, ".update");
+    let work = std::env::temp_dir().join(format!("ffe-rs-update-{}", std::process::id()));
+    let _ = std::fs::remove_file(&staged);
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).map_err(|e| e.to_string())?;
+    let outcome = (|| -> Result<(), String> {
+        let hash = listed_hash(release, url, &work)?;
+        download(url, &staged)?;
+        replace_program(&staged, target, &hash)
+    })();
+    let _ = std::fs::remove_file(&staged);
+    let _ = std::fs::remove_dir_all(&work);
+    outcome
+}
+
+/// Check `new` against `hash`, make it executable and move it over `target`. On any error the
+/// target is untouched. A running program can be replaced this way on Linux and macOS: the
+/// running copy keeps its old file.
+fn replace_program(new: &Path, target: &Path, hash: &str) -> Result<(), String> {
+    if sha256_of(new)? != hash.to_ascii_lowercase() {
+        return Err("The download does not match its checksum; it is damaged.".to_owned());
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(new, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("Could not make the update executable: {e}"))?;
+    }
+    std::fs::rename(new, target).map_err(|e| {
+        format!(
+            "Could not replace {} (is the folder writable?): {e}",
+            target.display()
+        )
+    })
+}
+
+/// Replace the app bundle `bundle` with the one in the release's zip.
+fn install_bundle(release: &Release, url: &str, bundle: &Path) -> Result<(), String> {
+    let parent = bundle.parent().ok_or("The app has no folder.")?;
+    // Beside the bundle, so the swap is a rename on one file system.
+    let work = parent.join(format!(".ffers-update-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work).map_err(|e| {
+        format!(
+            "Could not write to {} (move ffers.app somewhere you can write to): {e}",
+            parent.display()
+        )
+    })?;
+    let outcome = (|| -> Result<(), String> {
+        let hash = listed_hash(release, url, &work)?;
+        let zip = work.join("update.zip");
+        download(url, &zip)?;
+        if sha256_of(&zip)? != hash.to_ascii_lowercase() {
+            return Err("The download does not match its checksum; it is damaged.".to_owned());
+        }
+        let unpacked = work.join("unpacked");
+        unpack(&zip, &unpacked)?;
+        let new_bundle = find_bundle(&unpacked)?;
+        swap_bundle(&new_bundle, bundle)
+    })();
+    let _ = std::fs::remove_dir_all(&work);
+    outcome
+}
+
+/// The `.app` folder inside an unpacked macOS package (at its top or one folder down).
+fn find_bundle(unpacked: &Path) -> Result<PathBuf, String> {
+    let is_app = |path: &Path| path.is_dir() && path.extension().is_some_and(|e| e == "app");
+    let children = |dir: &Path| -> Vec<PathBuf> {
+        std::fs::read_dir(dir)
+            .map(|read| read.flatten().map(|entry| entry.path()).collect())
+            .unwrap_or_default()
+    };
+    let top = children(unpacked);
+    top.iter()
+        .find(|path| is_app(path))
+        .cloned()
+        .or_else(|| {
+            top.iter()
+                .filter(|path| path.is_dir())
+                .flat_map(|dir| children(dir))
+                .find(|path| is_app(path))
+        })
+        .ok_or_else(|| "The package holds no app.".to_owned())
+}
+
+/// Put `new` where `current` is. The old bundle is kept as `<name>.app.old` (removed at the next
+/// start) and put back if the new one cannot be moved in.
+fn swap_bundle(new: &Path, current: &Path) -> Result<(), String> {
+    let old = old_name(current);
+    let _ = std::fs::remove_dir_all(&old);
+    std::fs::rename(current, &old).map_err(|e| {
+        format!(
+            "Could not replace {} (is the folder writable?): {e}",
+            current.display()
+        )
+    })?;
+    if let Err(error) = std::fs::rename(new, current) {
+        let _ = std::fs::rename(&old, current);
+        return Err(format!(
+            "The update could not be installed and was undone: {error}"
+        ));
+    }
+    Ok(())
 }
 
 /// The folder inside `unpacked` that holds `SHA256SUMS.txt` (the zip's one top folder).
@@ -404,21 +665,16 @@ fn package_folder(unpacked: &Path) -> Result<PathBuf, String> {
         .ok_or_else(|| "The package has no SHA256SUMS.txt.".to_owned())
 }
 
-#[cfg(windows)]
+/// Unpack `zip` into `into`. In-process: PowerShell's `Expand-Archive` is not reliable across
+/// Windows PowerShell builds (it failed on a CI runner with a missing `ExtractToDirectory`
+/// overload), and the zip crate refuses entries that escape the folder and keeps the Unix
+/// permissions a macOS package stores.
 fn unpack(zip: &Path, into: &Path) -> Result<(), String> {
-    // Unpacked in-process: PowerShell's `Expand-Archive` is not reliable across Windows
-    // PowerShell builds (it failed on a CI runner with a missing `ExtractToDirectory`
-    // overload), and the zip crate refuses entries that escape the folder.
     let fail = |e: &dyn std::fmt::Display| format!("The package could not be unpacked: {e}");
     let file = std::fs::File::open(zip).map_err(|e| fail(&e))?;
     let mut archive = zip::ZipArchive::new(file).map_err(|e| fail(&e))?;
     std::fs::create_dir_all(into).map_err(|e| fail(&e))?;
     archive.extract(into).map_err(|e| fail(&e))
-}
-
-#[cfg(not(windows))]
-fn unpack(_zip: &Path, _into: &Path) -> Result<(), String> {
-    Err("Installing updates is only supported on Windows.".to_owned())
 }
 
 #[cfg(test)]
@@ -476,6 +732,26 @@ mod tests {
         assert_eq!(
             std::fs::read(into.join("some package").join("docs").join("a.md")).unwrap(),
             b"doc"
+        );
+        // The rest of the updater's path: find the package folder, verify and install.
+        let staged = package_folder(&into).unwrap();
+        let install = work.path().join("install");
+        std::fs::create_dir_all(install.join("saves")).unwrap();
+        std::fs::write(install.join("ffe-rs.exe"), b"old").unwrap();
+        std::fs::write(install.join("saves").join("config.cfg"), b"mine").unwrap();
+        let files = install_staged(&staged, &install).unwrap();
+        assert_eq!(files.len(), 2);
+        assert_eq!(
+            std::fs::read(install.join("ffe-rs.exe")).unwrap(),
+            b"program"
+        );
+        assert_eq!(
+            std::fs::read(install.join("docs").join("a.md")).unwrap(),
+            b"doc"
+        );
+        assert_eq!(
+            std::fs::read(install.join("saves").join("config.cfg")).unwrap(),
+            b"mine"
         );
     }
 
@@ -535,7 +811,7 @@ mod tests {
               {{"name":"ffers-v0.9.1-Windows-x64.zip","browser_download_url":"https://github.com/{REPO}/releases/download/v0.9.1/ffers-v0.9.1-Windows-x64.zip"}},
               {{"name":"other.txt","browser_download_url":"https://github.com/{REPO}/releases/download/v0.9.1/other.txt"}}]}}"#
         );
-        let release = parse_release(&json).unwrap();
+        let release = parse_release_for(&json, Some(Platform::Windows)).unwrap();
         assert_eq!(release.version, [0, 9, 1]);
         assert_eq!(release.notes, "Notes");
         // The project's own package wins over the other publisher's, and the AppImage is no
@@ -547,7 +823,7 @@ mod tests {
         // A download address that is not the project's is ignored, as is a bad tag.
         let foreign = r#"{"tag_name":"v1.0.0","html_url":"https://evil.example/x","assets":[
           {"name":"x-win-x64.zip","browser_download_url":"https://evil.example/x-win-x64.zip"}]}"#;
-        let release = parse_release(foreign).unwrap();
+        let release = parse_release_for(foreign, Some(Platform::Windows)).unwrap();
         assert!(release.asset_url.is_none());
         assert_eq!(release.page, format!("https://github.com/{REPO}/releases"));
         assert!(parse_release(r#"{"tag_name":"nightly"}"#).is_err());
@@ -668,5 +944,135 @@ mod tests {
         assert!(error.contains("undone"), "{error}");
         assert_eq!(std::fs::read(install.join("ffe-rs.exe")).unwrap(), b"old");
         assert!(!install.join("ffe-rs.exe.old").exists());
+    }
+
+    #[test]
+    fn each_platform_picks_its_own_package_and_the_checksum_list() {
+        let base = format!("https://github.com/{REPO}/releases/download/v0.9.1");
+        let json = format!(
+            r#"{{"tag_name":"v0.9.1","assets":[
+              {{"name":"MyRecomp-v0.9.1-x86_64.AppImage","browser_download_url":"{base}/MyRecomp-v0.9.1-x86_64.AppImage"}},
+              {{"name":"ffers-v0.9.1-x86_64.AppImage","browser_download_url":"{base}/ffers-v0.9.1-x86_64.AppImage"}},
+              {{"name":"ffers-v0.9.1-macOS.zip","browser_download_url":"{base}/ffers-v0.9.1-macOS.zip"}},
+              {{"name":"ffers-v0.9.1-Windows-x64.zip","browser_download_url":"{base}/ffers-v0.9.1-Windows-x64.zip"}},
+              {{"name":"SHA256SUMS.txt","browser_download_url":"{base}/SHA256SUMS.txt"}}]}}"#
+        );
+        let pick = |platform| {
+            parse_release_for(&json, platform)
+                .unwrap()
+                .asset_url
+                .unwrap_or_default()
+        };
+        assert!(pick(Some(Platform::Windows)).ends_with("/ffers-v0.9.1-Windows-x64.zip"));
+        assert!(pick(Some(Platform::Linux)).ends_with("/ffers-v0.9.1-x86_64.AppImage"));
+        assert!(pick(Some(Platform::MacOs)).ends_with("/ffers-v0.9.1-macOS.zip"));
+        assert_eq!(pick(None), "");
+        let release = parse_release_for(&json, None).unwrap();
+        assert_eq!(release.sums_url.unwrap(), format!("{base}/SHA256SUMS.txt"));
+
+        let hash = "a".repeat(64);
+        let other = "b".repeat(64);
+        let sums =
+            format!("{hash}  ffers-v0.9.1-macOS.zip\n{other}  ffers-v0.9.1-x86_64.AppImage\n");
+        assert_eq!(hash_for(&sums, "ffers-v0.9.1-macOS.zip").unwrap(), hash);
+        assert!(hash_for(&sums, "ffers-v0.9.1-Windows-x64.zip").is_err());
+    }
+
+    #[test]
+    fn the_app_bundle_is_found_from_the_running_program() {
+        let exe = Path::new("/Applications/ffers.app/Contents/MacOS/ffe-launcher");
+        assert_eq!(
+            bundle_of(exe).unwrap(),
+            Path::new("/Applications/ffers.app")
+        );
+        assert!(bundle_of(Path::new("/home/me/ffers/ffe-launcher")).is_none());
+        assert!(bundle_of(Path::new("/x/ffers.app/Contents/Other/ffe-launcher")).is_none());
+        assert!(bundle_of(Path::new("/x/folder/Contents/MacOS/ffe-launcher")).is_none());
+    }
+
+    #[test]
+    fn an_appimage_is_replaced_only_by_a_download_that_matches() {
+        let work = tempfile::tempdir().unwrap();
+        let target = work.path().join("ffers.AppImage");
+        let new = work.path().join("ffers.AppImage.update");
+        std::fs::write(&target, b"old").unwrap();
+        std::fs::write(&new, b"new image").unwrap();
+        let good: String = Sha256::digest(b"new image")
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        // A damaged download leaves the running AppImage alone.
+        assert!(replace_program(&new, &target, &"0".repeat(64)).is_err());
+        assert_eq!(std::fs::read(&target).unwrap(), b"old");
+        replace_program(&new, &target, &good.to_ascii_uppercase()).unwrap();
+        assert_eq!(std::fs::read(&target).unwrap(), b"new image");
+        assert!(!new.exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&target).unwrap().permissions().mode();
+            assert_eq!(mode & 0o111, 0o111, "the AppImage must be executable");
+        }
+    }
+
+    #[test]
+    fn a_bundle_swap_keeps_the_old_one_and_undoes_a_failure() {
+        let work = tempfile::tempdir().unwrap();
+        let current = work.path().join("ffers.app");
+        let new = work.path().join("unpacked").join("pkg").join("ffers.app");
+        for (dir, text) in [(&current, "old"), (&new, "new")] {
+            std::fs::create_dir_all(dir.join("Contents").join("MacOS")).unwrap();
+            std::fs::write(
+                dir.join("Contents").join("MacOS").join("ffe-launcher"),
+                text,
+            )
+            .unwrap();
+        }
+        assert_eq!(find_bundle(&work.path().join("unpacked")).unwrap(), new);
+        // A new bundle that cannot be moved in puts the old one back.
+        assert!(swap_bundle(&work.path().join("missing.app"), &current).is_err());
+        assert_eq!(
+            std::fs::read(current.join("Contents/MacOS/ffe-launcher")).unwrap(),
+            b"old"
+        );
+        swap_bundle(&new, &current).unwrap();
+        assert_eq!(
+            std::fs::read(current.join("Contents/MacOS/ffe-launcher")).unwrap(),
+            b"new"
+        );
+        assert_eq!(
+            std::fs::read(old_name(&current).join("Contents/MacOS/ffe-launcher")).unwrap(),
+            b"old"
+        );
+    }
+
+    /// A macOS zip stores the program's executable bit; unpacking must keep it.
+    #[cfg(unix)]
+    #[test]
+    fn an_unpacked_app_keeps_its_executable_bit() {
+        use std::io::Write;
+        use std::os::unix::fs::PermissionsExt;
+        let work = tempfile::tempdir().unwrap();
+        let zip = work.path().join("mac.zip");
+        {
+            let mut writer = zip::ZipWriter::new(std::fs::File::create(&zip).unwrap());
+            let options = zip::write::SimpleFileOptions::default()
+                .compression_method(zip::CompressionMethod::Deflated)
+                .unix_permissions(0o755);
+            writer
+                .start_file("pkg/ffers.app/Contents/MacOS/ffe-launcher", options)
+                .unwrap();
+            writer.write_all(b"program").unwrap();
+            writer.finish().unwrap();
+        }
+        let into = work.path().join("unpacked");
+        unpack(&zip, &into).unwrap();
+        let exe = find_bundle(&into)
+            .unwrap()
+            .join("Contents/MacOS/ffe-launcher");
+        assert_eq!(
+            std::fs::metadata(exe).unwrap().permissions().mode() & 0o111,
+            0o111
+        );
     }
 }

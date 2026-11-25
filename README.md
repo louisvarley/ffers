@@ -59,12 +59,18 @@ More detail: [docs/notes/launcher.md](docs/notes/launcher.md).
 
 ### Updates
 
-On Windows the launcher checks GitHub for a newer release when it opens (switch this off in
-About). When one exists, an **Update to vX.Y.Z - click to install** button appears. It downloads the
-release, verifies every file against its checksum list, replaces the programs and restarts. Your
-game folder, saves, recordings and music pack are never touched, and a failed update is undone. On
-Linux and macOS the button opens the release page instead. The check sends nothing but the request
-itself: no identifiers and no game information.
+The launcher checks GitHub for a newer release when it opens (switch this off in About). When one
+exists, an **Update to vX.Y.Z - click to install** button appears. It downloads the package for your
+system, verifies it against its checksums, replaces the program and restarts. Your game folder,
+saves, recordings and music pack are never touched, and a failed update is undone.
+
+- **Windows:** the zip's programs and documents are replaced in place.
+- **Linux:** the AppImage file you started is replaced (its folder must be writable).
+- **macOS:** `ffers.app` is replaced (its folder must be writable; the old copy is removed at the
+  next start). The launcher you started from a build folder with cargo, or from a package a host
+  launcher such as RecompLauncher manages, offers the release page instead.
+
+The check sends nothing but the request itself: no identifiers and no game information.
 
 ## Controls
 

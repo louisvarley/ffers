@@ -233,10 +233,7 @@ impl App {
             UpdateState::Installing(receive, release) => match receive.try_recv() {
                 Ok(Ok(_)) => {
                     // The new launcher is in place: start it and leave.
-                    if let Some(exe) = std::env::current_exe()
-                        .ok()
-                        .map(|exe| self.install_dir.join(exe.file_name().unwrap_or_default()))
-                    {
+                    if let Some(exe) = update::relaunch_path(&self.install_dir) {
                         if Command::new(exe).spawn().is_ok() {
                             std::process::exit(0);
                         }
