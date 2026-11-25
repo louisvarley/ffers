@@ -3018,11 +3018,14 @@ fn run() -> Result<(), String> {
             if map_open && other_screen {
                 if let Some(nav) = nav.as_mut() {
                     nav.view = NavView::Closed;
-                    if let (Some(map), Some(home)) = (galaxy.take(), nav.current_position()) {
-                        parked_galaxy = Some((home, map));
+                    // Parked under the system each was made for (its own `home`), not the
+                    // ship's position now: after a jump they differ, and a map parked under
+                    // the new position would come back with the old "You" and route.
+                    if let Some(map) = galaxy.take() {
+                        parked_galaxy = Some((map.home, map));
                     }
-                    if let (Some(map), Some(home)) = (enhanced_map.take(), nav.current_position()) {
-                        parked_enhanced = Some((home, map));
+                    if let Some(map) = enhanced_map.take() {
+                        parked_enhanced = Some((map.home, map));
                     }
                 }
             }
@@ -3415,7 +3418,7 @@ fn run() -> Result<(), String> {
                                 // The enhanced (flat) map reopens where it was left.
                                 if enhanced_map.is_none() {
                                     enhanced_map = match parked_enhanced.take() {
-                                        Some((at, map)) if at == home => Some(map),
+                                        Some((at, map)) if reusable_at(at, home) => Some(map),
                                         _ => Some(ffe_rs::enhanced_map::EnhancedMap::new(
                                             home,
                                             nav.reach().unwrap_or(0),
@@ -3429,7 +3432,7 @@ fn run() -> Result<(), String> {
                                 // found a persisted turn disorienting ("the map rotates
                                 // around when I come back").
                                 galaxy = match parked_galaxy.take() {
-                                    Some((at, mut map)) if at == home => {
+                                    Some((at, mut map)) if reusable_at(at, home) => {
                                         map.spin = [0, 0];
                                         Some(map)
                                     }
@@ -3442,16 +3445,17 @@ fn run() -> Result<(), String> {
                         }
                     }
                 } else {
+                    // A closed map is parked under the system it was made for (its own `home`),
+                    // not the ship's position now: a jump closes it, and one parked under the
+                    // new position came back showing the old system as "You" with the old
+                    // route. Parked under the old one, it is not reused after the jump and
+                    // the map reopens fresh at the new system.
                     if let Some(map) = galaxy.take() {
                         map_page = None;
-                        if let Some(home) = nav.current_position() {
-                            parked_galaxy = Some((home, map));
-                        }
+                        parked_galaxy = Some((map.home, map));
                     }
                     if let Some(map) = enhanced_map.take() {
-                        if let Some(home) = nav.current_position() {
-                            parked_enhanced = Some((home, map));
-                        }
+                        parked_enhanced = Some((map.home, map));
                     }
                 }
                 if (galaxy.is_none() && enhanced_map.is_none()) || nav.view != NavView::Galaxy {
@@ -11963,6 +11967,12 @@ fn station_repairs(state: &Flight, scene: Option<&ModelViewer>) -> Vec<station::
 
 /// The route marked on the enhanced map (`enhancement-12`), whether the map is open or was
 /// closed on it (it is parked for the system the player is still in): the stops, in order.
+/// Whether a map parked under `parked_home` may be reopened with the ship at `home`: only
+/// when the ship is still in the system the map was made for.
+fn reusable_at(parked_home: [i32; 3], home: [i32; 3]) -> bool {
+    parked_home == home
+}
+
 fn marked_route(
     open: &Option<ffe_rs::enhanced_map::EnhancedMap>,
     parked: &Option<([i32; 3], ffe_rs::enhanced_map::EnhancedMap)>,
@@ -12003,6 +12013,24 @@ fn main() {
 #[cfg(test)]
 mod lifecycle_input_tests {
     use super::*;
+
+    #[test]
+    fn a_route_does_not_survive_a_jump() {
+        // The map was made at `old`; a jump moved the ship to `new`. A map parked under its
+        // own home is not marked as a route from the new system, and is not reused there.
+        let (old, new) = ([1, 2, 3], [4, 5, 6]);
+        let mut map = ffe_rs::enhanced_map::EnhancedMap::new(old, 0);
+        map.add_waypoint(7, new);
+        let parked = Some((map.home, map));
+        assert!(marked_route(&None, &parked, Some(new)).is_none());
+        assert!(!reusable_at(parked.as_ref().unwrap().0, new));
+        // Still in the same system, the route is there to edit.
+        assert_eq!(
+            marked_route(&None, &parked, Some(old)).map(|r| r.len()),
+            Some(1)
+        );
+        assert!(reusable_at(parked.as_ref().unwrap().0, old));
+    }
 
     #[test]
     fn lifecycle_transition_clears_input_and_blocks_keys_until_release() {
