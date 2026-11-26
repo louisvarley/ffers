@@ -1075,7 +1075,7 @@ dependencies = [
 
 [[package]]
 name = "ffe-launcher"
-version = "0.9.24"
+version = "0.9.25"
 dependencies = [
  "eframe",
  "ffe-audio",
@@ -1092,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "ffe-rs"
-version = "0.9.24"
+version = "0.9.25"
 dependencies = [
  "ffe-audio",
  "ffe-content",
