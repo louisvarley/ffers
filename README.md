@@ -85,7 +85,8 @@ The full key tables are in [docs/CONTROLS.md](docs/CONTROLS.md).
 ## Enhancements
 
 Every enhancement is off by default, so the game plays like the original until you turn one on
-under **Settings > Enhancements**. They never change your saves.
+under **Settings > Enhancements**. They never change your own saves (the autosave writes only
+its own slot).
 
 | Group | Enhancement | What it does |
 |---|---|---|
@@ -97,12 +98,16 @@ under **Settings > Enhancements**. They never change your saves.
 | | NPC relative speed | The selected ship's readout also shows its speed relative to you. |
 | | Combat Targeting Computer | A dashboard button listing every ship within 50 km; click one to target it. |
 | | Edge target indicator | An arrow at the screen edge points to an off-screen target. |
+| Flight | Velocity markers | The velocity marker shows in every first-person view, with an amber ring and cross opposite it to aim at when braking. |
 | Autopilot | Autopilot offsets its waypoint | Adds a waypoint when the direct path would hit a nearby body. |
 | | Autopilot braking uses retro thrust and gravity | Approaches no longer crash. |
 | | Autopilot avoids every nearby body | Collisions are tested against every body in range. |
 | Missions | Mission fixes | Assassination kill credit, hitch-hiker completion, early medals, the hidden Alioth deadline, blocked docking bays, and dialogues under accelerated time. |
+| | Mission tracker | Your most urgent contract stays at the top of the flight view (destination, jumps, time left), and every contract's destination is marked on the enhanced galaxy map. |
 | Galaxy map | Enhanced galaxy map | Replaces the legacy galaxy map with a modern drop-in, clearer and easier to navigate, with multi-jump route planning, system information, and markers for the distance to Sol and your current location. **Recommended to use alongside Elite Dangerous Hyperspace.** |
 | Hyperspace | Elite Dangerous Hyperspace | A modern hyperspace using streaking stars and new sounds, inspired by Elite Dangerous. |
+| Stations | Market price guide | Each market price gets a green down arrow when it is cheap against the galactic average, an orange up arrow when it is dear, and a dash within 10%. |
+| | Autosave on docking | Saves automatically to its own Autosave slot each time you dock or land at a starport. |
 
 The full definitions are in [docs/notes/enhancements.md](docs/notes/enhancements.md). Every
 starting location now comes with a navigation computer and an automatic pilot (the original

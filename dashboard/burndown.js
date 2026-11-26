@@ -365,7 +365,11 @@ window.FFE_BURNDOWN = {
         { id: "enhancement-11", title: "Edge target indicator (arrow/bar for out-of-view target)", status: "done" },
         { id: "enhancement-12", title: "Enhanced galaxy map (flat 2D map, click-to-route, arrow/right-drag pan, wheel zoom, hover info (populated, danger), lines to Sol and home, one long route jump)", status: "done" },
         { id: "enhancement-14", title: "Mouse-wheel scrolling in station lists (and the down arrow moves one row)", status: "done" },
-        { id: "enhancement-15", title: "Elite Dangerous Hyperspace (streaking stars from the current view, black hole, 5 s charge, red arrival countdown, distance-based length, embedded owner sounds)", status: "done" }
+        { id: "enhancement-15", title: "Elite Dangerous Hyperspace (streaking stars from the current view, black hole, 5 s charge, red arrival countdown, distance-based length, embedded owner sounds)", status: "done" },
+        { id: "enhancement-16", title: "Velocity markers (F1112's marker in every first-person view, retrograde marker)", status: "done" },
+        { id: "enhancement-17", title: "Mission tracker (most urgent contract on the flight view, destinations on the enhanced map)", status: "done" },
+        { id: "enhancement-18", title: "Autosave on docking and starport landing (own slot)", status: "done" },
+        { id: "enhancement-19", title: "Market price guide (arrows against the galactic average)", status: "done" }
       ]
     }
   ],
@@ -1791,6 +1795,11 @@ window.FFE_BURNDOWN = {
       date: "2026-11-26",
       remaining: 0,
       note: "Owner requests: added enhancement-15, Elite Dangerous Hyperspace (EXP-055), done on arrival: the jump streaks away from the current view over a black hole, counts down a 5 s charge and the arrival in red, plays for a distance-based time and reverses into the new system, with the owner's embedded ramp-up, drone and ramp-down clips. Also: click a save to load it, the enhanced map's fuel-aware courses, F1 off a map no longer cycles the view, and every start has a navigation computer and autopilot (EXP-056). Total 245; done 245, remaining 0."
+    },
+    {
+      date: "2026-11-26",
+      remaining: 0,
+      note: "Owner requests: added enhancements 16-19, done on arrival: velocity markers in every first-person view with a retrograde marker (EXP-057), the mission tracker (EXP-058), autosave on docking (EXP-059) and the market price guide (EXP-060). Owner report of too few pirate attacks: F597's accelerated placement is now ported for hunting ships and their escorts, so pirates reach a player travelling at accelerated time (parity-11 narrowed to the player's own autopilot branch). Total 249; done 249, remaining 0."
     },
   ]
 };

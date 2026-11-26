@@ -1005,7 +1005,7 @@ struct EnhancementGroup {
     items: &'static [Enhancement],
 }
 
-const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
+const ENHANCEMENT_GROUPS: [EnhancementGroup; 7] = [
     EnhancementGroup {
         heading: "Combat enhancements",
         items: &[
@@ -1068,6 +1068,17 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
         ],
     },
     EnhancementGroup {
+        heading: "Flight",
+        items: &[Enhancement {
+            slot: 14,
+            title: "Velocity markers",
+            about: "The velocity marker shows which way you are moving in every first-person \
+                    view, not just the front, and an amber ring and cross marks the opposite \
+                    direction: point the nose at it to brake.",
+            note: None,
+        }],
+    },
+    EnhancementGroup {
         heading: "Autopilot",
         items: &[
             Enhancement {
@@ -1095,15 +1106,25 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
         ],
     },
     EnhancementGroup {
-        heading: "Mission fixes",
-        items: &[Enhancement {
-            slot: 6,
-            title: "Mission fixes",
-            about: "Mission corrections from the known-issues list: assassination kill credit, \
-                    hitch-hiker completion, early medals, the hidden Alioth deadline, blocked \
-                    docking bays, and mission dialogues under accelerated time.",
-            note: None,
-        }],
+        heading: "Missions",
+        items: &[
+            Enhancement {
+                slot: 6,
+                title: "Mission fixes",
+                about: "Mission corrections from the known-issues list: assassination kill \
+                        credit, hitch-hiker completion, early medals, the hidden Alioth deadline, \
+                        blocked docking bays, and mission dialogues under accelerated time.",
+                note: None,
+            },
+            Enhancement {
+                slot: 15,
+                title: "Mission tracker",
+                about: "Your most urgent contract stays at the top of the flight view: where to \
+                        go, how many jumps and how long is left. Every contract's destination is \
+                        marked on the enhanced galaxy map; click it to plot a course.",
+                note: Some("The map markers need the Enhanced galaxy map."),
+            },
+        ],
     },
     EnhancementGroup {
         heading: "Galaxy map",
@@ -1125,6 +1146,28 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
                     Elite Dangerous.",
             note: None,
         }],
+    },
+    EnhancementGroup {
+        heading: "Stations",
+        items: &[
+            Enhancement {
+                slot: 17,
+                title: "Market price guide",
+                about: "The market marks each price against the galactic average: a green down \
+                        arrow when it is cheap here, an orange up arrow when it is dear, a dash \
+                        when it is within 10%. The selected commodity's average and difference \
+                        show at the lower left.",
+                note: None,
+            },
+            Enhancement {
+                slot: 16,
+                title: "Autosave on docking",
+                about: "Saves the game automatically to its own Autosave slot every time you \
+                        dock at a station or land at a starport. Your own saves are never \
+                        touched.",
+                note: None,
+            },
+        ],
     },
 ];
 

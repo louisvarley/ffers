@@ -381,6 +381,8 @@ mod tests {
             pass_hits: 0,
             combat_velocity: [0; 3],
             waypoint: [0; 3],
+            pursuit: ffe_core::npc::Pursuit::default(),
+            placed: false,
             turned: false,
             missile_target: None,
             ecm_attempted: false,

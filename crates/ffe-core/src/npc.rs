@@ -897,6 +897,21 @@ pub fn jump_seconds(jump_time: u32) -> f64 {
 pub const SMOKE_TIMEOUT: u8 = 0x0a;
 /// F732 resets `+0x14d` to `0x13` after F606's frame-of-reference update.
 pub const FOR_TIMEOUT: u8 = 0x13;
+
+/// `DATA_009013` by the console's time-acceleration step (F208: 1x, 10x, 100x, 1000x, 10000x).
+pub const TIME_SHIFTS: [i32; 5] = [0, 3, 7, 10, 12];
+
+/// What a hunting ship reads from the player each frame.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Pursuit {
+    /// `DATA_009013`, the time-acceleration shift ([`TIME_SHIFTS`]); 0 at 1x.
+    pub time_shift: i32,
+    /// The player's velocity in object units: F597's accelerated branch gives a placed ship
+    /// its target's velocity (F594).
+    pub velocity: [i32; 3],
+    /// `DATA_008839`, the combat velocity F726 relaxes a fighting ship towards.
+    pub combat_velocity: [i32; 3],
+}
 /// F610's `+0x150` reset: `(time-acceleration exponent + 1) << 4`. The port's
 /// NPC flight is 1x, so the counter runs 16 navigation frames.
 pub const AVOID_TIMEOUT: u8 = 16;
@@ -1284,6 +1299,13 @@ pub struct NpcShip {
     /// F749's waypoint words (`+0x102..+0x106`, each shifted left 10 into the aim point).
     #[serde(default)]
     pub waypoint: [i16; 3],
+    /// What the ship reads from the player this frame (set by the caller before each tick).
+    #[serde(skip)]
+    pub pursuit: Pursuit,
+    /// F597's accelerated branch placed the ship at its aim point this tick; the caller moves
+    /// its escorts with it ([`Self::take_placed`]).
+    #[serde(skip)]
+    pub placed: bool,
     /// Tics since the scrambled ship's last AI step. F748 only looks at the door on the ship's
     /// own step (once per [`THINK_TICS`] from its creation), so the executed original attacks
     /// at the first step after the door opens: 143 frames after the launch on a 126-frame door.
@@ -1521,6 +1543,8 @@ impl NpcShip {
             pass_hits: 0,
             combat_velocity: [0; 3],
             waypoint: [0; 3],
+            pursuit: Pursuit::default(),
+            placed: false,
             turned: false,
             missile_target: None,
             ecm_attempted: false,
@@ -2738,6 +2762,26 @@ impl NpcShip {
         self.attack_phase = 0;
     }
 
+    /// F597's accelerated placement: the ship moves to `position` with `velocity` (object
+    /// units), its thrust words and turn rates cleared. Also used for an escort that moves with
+    /// its placed leader.
+    pub fn place_at(&mut self, position: [i64; 3], velocity: [i32; 3]) {
+        self.position = position;
+        self.motion.position = position;
+        self.motion.velocity = velocity;
+        self.motion.thrust = [0; 3];
+        self.motion.rate = [0; 3];
+        self.motion.autopilot = [0; 3];
+        self.velocity = velocity.map(|v| f64::from(v) * MM_PER_VELOCITY_UNIT);
+        self.speed = length(self.velocity);
+        self.placed = true;
+    }
+
+    /// Whether F597's accelerated branch placed the ship this tick (cleared by the call).
+    pub fn take_placed(&mut self) -> bool {
+        std::mem::take(&mut self.placed)
+    }
+
     /// F756 (state 3): turn away (F588) and fly forward at full thrust with the sideways thrust
     /// that cancels the velocity relative to the target (the player's own velocity is zero here),
     /// back to state 1 once the ship is beyond class 6.
@@ -2837,6 +2881,32 @@ impl NpcShip {
                 1,
                 0,
             );
+            // F597's accelerated branch: with time accelerated, an interceptor (state 4, a
+            // waypoint set) near enough for the step is placed at its aim point with the
+            // target's velocity instead of flying the distance. Without it the frame-sized
+            // steps at 1000x and 10000x carry a pirate past a moving player and it never
+            // closes. F694's leader starts in state 5, whose F749 sets the first waypoint; the
+            // port's leader starts in state 4 without one, so F749 runs here first.
+            if hunting && self.attack_phase == 0 {
+                if let Some(reach) = crate::autopilot::accelerated_reach(
+                    detail.guidance.distance_shift,
+                    detail.velocity_shift,
+                    self.pursuit.time_shift,
+                ) {
+                    // `+0x14d = 0`: F606 picks the ship's frame on its next pass.
+                    self.for_timeout = 0;
+                    if reach < 6 {
+                        if self.waypoint == [0; 3] {
+                            self.reposition();
+                        }
+                        let aim: [i64; 3] = std::array::from_fn(|k| {
+                            target[k] + (i64::from(self.waypoint[k]) << 10)
+                        });
+                        self.place_at(aim, self.pursuit.velocity);
+                        return;
+                    }
+                }
+            }
             let guidance = detail.guidance;
             self.motion.thrust = guidance.thrust;
             self.motion.cap = guidance.cap;
@@ -3576,6 +3646,8 @@ pub fn restore(records: &[Persisted], player: [i64; 3], first_id: u32) -> Vec<Np
                 pass_hits: 0,
                 combat_velocity: [0; 3],
                 waypoint: [0; 3],
+                pursuit: Pursuit::default(),
+                placed: false,
                 turned: false,
                 missile_target: None,
                 ecm_attempted: false,
@@ -5392,6 +5464,47 @@ mod tests {
         ship.forward = normalise(sub(at, from));
         ship.up = upright(ship.forward);
         ship
+    }
+
+    /// F597's accelerated branch: at 10000x a pirate 40,000 km out is placed at its waypoint
+    /// beside the player with the player's velocity; at 1x the same ship flies.
+    #[test]
+    fn at_accelerated_time_a_hunting_pirate_is_placed_beside_the_player() {
+        let player = [0, 0, 0];
+        let far = [0, 0, 40_000_000_000];
+        let limits = crate::thrust::Limits {
+            axes: [[3270, -3270], [3270, -3270], [8720, -3270]],
+        };
+        let mut ship = aimed_ship(Role::Pirate, far, player);
+        assert!(ship.hostile && ship.state == State::Attack);
+        ship.limits = Some(limits);
+        ship.pursuit = Pursuit {
+            time_shift: TIME_SHIFTS[4],
+            velocity: [100, 0, -50],
+            combat_velocity: [0; 3],
+        };
+        ship.tick(0.02, 994, player, None);
+        assert!(ship.take_placed());
+        assert_ne!(ship.waypoint, [0; 3], "F749 picks the waypoint first");
+        let distance = length(ship.position.map(|v| v as f64));
+        assert!(distance < 2.0e6, "placed {distance} mm away");
+        assert_eq!(ship.motion.velocity, [100, 0, -50]);
+        assert_eq!(ship.motion.thrust, [0; 3]);
+
+        let mut slow = aimed_ship(Role::Pirate, far, player);
+        slow.limits = Some(limits);
+        slow.tick(0.02, 994, player, None);
+        assert!(!slow.take_placed());
+        assert!(length(slow.position.map(|v| v as f64)) > 3.9e10);
+        // Too far for the step at 10x: the ordinary guidance.
+        assert_eq!(
+            crate::autopilot::accelerated_reach(22, -14, TIME_SHIFTS[1]),
+            None
+        );
+        assert_eq!(
+            crate::autopilot::accelerated_reach(22, -14, TIME_SHIFTS[4]),
+            Some(5)
+        );
     }
 
     /// F931 sets the gun's fired flag whether or not the ray hits, and F1776 draws the beam

@@ -40,6 +40,8 @@ pub const LEGACY_FORMAT: &str = "ffe-rs-experimental";
 pub const MAX_SAVE_BYTES: usize = 1024 * 1024;
 /// The quick-save file inside the `saves` directory.
 pub const QUICK_SAVE: &str = "quick.json";
+/// The automatic save on docking (`enhancement-18`).
+pub const AUTO_SAVE: &str = "autosave.json";
 /// The stem of the numbered save files.
 pub const NUMBERED_PREFIX: &str = "commander-";
 /// The original's commander name (`DATA_004963`) used when none is supplied.
@@ -414,6 +416,20 @@ pub fn save_quick(directory: &Path, save: &SaveGame) -> Result<PathBuf, String> 
     Ok(path)
 }
 
+/// The automatic save's path inside `directory` (`enhancement-18`).
+pub fn auto_path(directory: &Path) -> PathBuf {
+    directory.join(AUTO_SAVE)
+}
+
+/// Write the automatic save (`enhancement-18`, on docking), replacing the
+/// previous one atomically. It is its own slot: the quick save and the named
+/// saves are never touched.
+pub fn save_auto(directory: &Path, save: &SaveGame) -> Result<PathBuf, String> {
+    let path = auto_path(directory);
+    save_atomic(&path, save)?;
+    Ok(path)
+}
+
 /// Load the quick save.
 pub fn load_quick(directory: &Path) -> Result<(PathBuf, SaveGame), String> {
     let path = quick_path(directory);
@@ -505,7 +521,7 @@ pub fn default_save_name(directory: &Path) -> String {
 
 /// Why `name` (typed without `.json`) cannot be a save name, or `None` when it
 /// can. A name is 1 to [`MAX_SAVE_NAME`] letters, digits, spaces, `-` or `_`,
-/// with no space at either end, and is not the quick save's or a Windows
+/// with no space at either end, and is not the quick or automatic save's or a Windows
 /// device name, so it can only ever name a plain file in the save directory.
 pub fn save_name_error(name: &str) -> Option<&'static str> {
     if name.is_empty() {
@@ -528,7 +544,7 @@ pub fn save_name_error(name: &str) -> Option<&'static str> {
         || ((upper.starts_with("COM") || upper.starts_with("LPT"))
             && upper.len() == 4
             && upper.as_bytes()[3].is_ascii_digit());
-    if device || upper == "QUICK" {
+    if device || upper == "QUICK" || upper == "AUTOSAVE" {
         return Some("That name is reserved.");
     }
     None
@@ -576,6 +592,12 @@ pub fn all_saves(directory: &Path) -> Result<Vec<PathBuf>, String> {
     }
     found.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
     let mut paths: Vec<PathBuf> = found.into_iter().map(|(_, path)| path).collect();
+    // The automatic save after the quick save (its name is reserved, so the loop
+    // above skipped it).
+    let auto = auto_path(directory);
+    if auto.is_file() {
+        paths.insert(0, auto);
+    }
     let quick = quick_path(directory);
     if quick.is_file() {
         paths.insert(0, quick);
@@ -1470,6 +1492,8 @@ mod tests {
             "Lpt9",
             "quick",
             "Quick",
+            "autosave",
+            "AutoSave",
             "caf\u{e9}",
             too_long.as_str(),
         ] {
@@ -1509,6 +1533,26 @@ mod tests {
         assert!(delete_save(directory.path(), &directory.path().join("config.cfg")).is_err());
         delete_save(directory.path(), &named).unwrap();
         assert!(!named.exists());
+    }
+
+    /// enhancement-18: the automatic save replaces itself, is listed after the quick
+    /// save, loads and can be deleted.
+    #[test]
+    fn the_automatic_save_has_its_own_slot_after_the_quick_save() {
+        let directory = tempfile::tempdir().unwrap();
+        let save = sample();
+        let auto = save_auto(directory.path(), &save).unwrap();
+        assert_eq!(auto, auto_path(directory.path()));
+        save_auto(directory.path(), &save).unwrap();
+        let named = save_named(directory.path(), "Jameson", &save).unwrap();
+        let quick = save_quick(directory.path(), &save).unwrap();
+        assert_eq!(
+            all_saves(directory.path()).unwrap(),
+            [quick, auto.clone(), named]
+        );
+        load_game(&auto).unwrap();
+        delete_save(directory.path(), &auto).unwrap();
+        assert!(!auto.exists());
     }
 
     #[test]

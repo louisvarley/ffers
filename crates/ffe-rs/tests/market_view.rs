@@ -223,6 +223,7 @@ fn the_market_screen_draws() {
                     price: r.price,
                     stock: r.stock,
                     held: r.held,
+                    average: None,
                 })
                 .collect(),
             scroll: selected.saturating_sub(12),
@@ -264,6 +265,7 @@ fn the_market_screen_draws() {
                 price: r.price,
                 stock: r.stock,
                 held: r.held,
+                average: None,
             })
             .collect(),
         scroll: 0,

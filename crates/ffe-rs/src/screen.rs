@@ -167,6 +167,8 @@ pub struct EnhancedGalaxy {
     /// F7-F10's page (the system description, the sky, ...): drawn over the cabin in
     /// place of the map, as the original map's pages are.
     pub page: Option<crate::map_pages::Page>,
+    /// `enhancement-17`: the active contracts' destinations.
+    pub missions: Vec<crate::enhanced_map::MissionMark>,
 }
 
 /// One commodity line of the station's market screen.
@@ -176,6 +178,8 @@ pub struct MarketRow {
     pub price: i32,
     pub stock: i32,
     pub held: u16,
+    /// `enhancement-19`: the commodity's galactic average price, when shown.
+    pub average: Option<i32>,
 }
 
 /// The station's market as the docked screen shows it.
@@ -651,6 +655,12 @@ pub struct Screen {
     /// `enhancement-13`: draw the first-person laser as a fixed bottom-to-reticle
     /// sight line instead of the beam from the gun mount.
     pub fixed_laser: bool,
+    /// `enhancement-16`: F1112's velocity marker in every first-person view, and a
+    /// retrograde marker opposite it.
+    pub velocity_markers: bool,
+    /// `enhancement-17`: the most urgent contract's two tracker lines, and whether it is
+    /// overdue (drawn red), for this frame.
+    pub mission_tracker: Option<([String; 2], bool)>,
     /// The energy pool (`+0x11e`) and heat (`+0xea`) F270's first two bars show.
     pub energy: u32,
     pub heat: u16,
@@ -1168,6 +1178,8 @@ impl Screen {
             lasers: [0; 4],
             beam: None,
             fixed_laser: false,
+            velocity_markers: false,
+            mission_tracker: None,
             energy: 0,
             heat: 0,
             drive: 0,
@@ -1465,6 +1477,85 @@ impl Screen {
             .get(crate::combat::VELOCITY_MARKER_BITMAP as usize)
         {
             icon.blit_colours(&mut self.frame, &self.palette, x - 19, y - 18);
+        }
+    }
+
+    /// `enhancement-17`: the tracker's lines centred between the shields/hull text
+    /// (left) and the target's readouts (from x 235), green or red when overdue; a
+    /// line too wide for the gap loses its end.
+    fn draw_mission_tracker(&mut self, lines: &[String; 2], overdue: bool) {
+        const LEFT: i32 = 74;
+        const RIGHT: i32 = 232;
+        let colour = if overdue { 16 } else { 17 };
+        for (row, line) in lines.iter().enumerate() {
+            let mut text = line.clone();
+            while text.len() > 1
+                && self
+                    .font
+                    .width(&text)
+                    .is_ok_and(|width| width as i32 > RIGHT - LEFT)
+            {
+                text.pop();
+                while text.ends_with(' ') || text.ends_with(',') {
+                    text.pop();
+                }
+            }
+            let width = self.font.width(&text).unwrap_or(0) as i32;
+            let x = (LEFT + RIGHT - width) / 2;
+            self.shadow_text(x, 1 + 10 * row as i32, &text, colour);
+        }
+    }
+
+    /// `enhancement-16`: the retrograde marker, the direction to point the nose to
+    /// brake: a ring with a cross in it, opposite F1112's marker. None when the ship
+    /// is still or the point is off the view.
+    fn draw_retrograde_marker(&mut self, state: &Flight, camera: &Camera) {
+        let back = state.velocity.map(|component| -component);
+        if back.iter().map(|v| v.abs()).sum::<f64>() < 1e-9 {
+            return;
+        }
+        let Some((x, y)) = crate::combat::velocity_marker(camera, back) else {
+            return;
+        };
+        let (radius, arm) = (RETROGRADE_RADIUS, RETROGRADE_ARM);
+        // A dark ring under the ink so it reads on a bright planet.
+        for (ink, grow) in [(0x10_10_10, 1), (RETROGRADE_INK, 0)] {
+            self.ring_value(x, y, radius, ink);
+            if grow > 0 {
+                self.ring_value(x, y, radius + grow, ink);
+                self.ring_value(x, y, radius - grow, ink);
+            }
+        }
+        self.line_value((x - arm, y - arm), (x + arm, y + arm), RETROGRADE_INK);
+        self.line_value((x - arm, y + arm), (x + arm, y - arm), RETROGRADE_INK);
+    }
+
+    /// A one-pixel circle of `radius` in the flight view, in an RGB value.
+    fn ring_value(&mut self, x: i32, y: i32, radius: i32, value: u32) {
+        let (mut dx, mut dy, mut error) = (radius, 0, 1 - radius);
+        while dx >= dy {
+            for (px, py) in [
+                (dx, dy),
+                (dy, dx),
+                (-dy, dx),
+                (-dx, dy),
+                (-dx, -dy),
+                (-dy, -dx),
+                (dy, -dx),
+                (dx, -dy),
+            ] {
+                let (px, py) = (x + px, y + py);
+                if (0..320).contains(&px) && (0..VIEW_HEIGHT as i32).contains(&py) {
+                    self.frame[py as usize * 320 + px as usize] = value;
+                }
+            }
+            dy += 1;
+            if error < 0 {
+                error += 2 * dy + 1;
+            } else {
+                dx -= 1;
+                error += 2 * (dy - dx) + 1;
+            }
         }
     }
 
@@ -3047,8 +3138,14 @@ impl Screen {
                 // F1112's velocity marker (bitmap 98, front view only).
                 self.draw_target_tunnels();
                 self.draw_gunsight(view);
-                if view == ViewMode::Front {
+                // enhancement-16: the marker in every first-person view, and the
+                // retrograde marker opposite it.
+                let markers = self.velocity_markers && first_person_view(view);
+                if view == ViewMode::Front || markers {
                     self.draw_velocity_marker(state, &camera);
+                }
+                if markers {
+                    self.draw_retrograde_marker(state, &camera);
                 }
                 // enhancement-11: the off-view target arrow.
                 self.draw_edge_indicator();
@@ -3064,6 +3161,15 @@ impl Screen {
             }
             if self.npc_button {
                 self.draw_npc_button();
+            }
+            // enhancement-17: the most urgent contract, at the top of the view between
+            // the player's and the target's readouts.
+            if let Some((lines, overdue)) = self
+                .mission_tracker
+                .take()
+                .filter(|_| !dying && view != ViewMode::Missile)
+            {
+                self.draw_mission_tracker(&lines, overdue);
             }
             // enhancement-15: the drive charging after H.
             if let Some(left) = self.hyperspace_charge.take().filter(|_| !dying) {
@@ -3790,7 +3896,59 @@ impl Screen {
             total: view.rows.len(),
         };
         self.draw_dock(&dock);
+        self.draw_market_averages(&view, first);
         self.market = Some(view);
+    }
+
+    /// `enhancement-19`: an arrow after each price (down: below the galactic average, up:
+    /// above it, a dash within [`crate::trade::TREND_BAND`]), and the selected
+    /// commodity's average and how far this market is from it above the cargo block.
+    fn draw_market_averages(&mut self, view: &MarketView, first: usize) {
+        let pitch = station::layout(StationScreen::Market).pitch;
+        let mut y = station::LIST_TOP;
+        for row in view.rows.iter().skip(first) {
+            if y + pitch >= station::LIST_BOTTOM {
+                break;
+            }
+            if let Some(average) = row.average {
+                let price = format!("${}", crate::trade::credits(row.price));
+                let x = station::MARKET_PRICE_X + self.font.width(&price).unwrap_or(0) as i32 + 2;
+                if x + 5 < station::MARKET_STOCK_X {
+                    self.draw_trend(x, y + 1, crate::trade::trend(row.price, average));
+                }
+            }
+            y += pitch;
+        }
+        if let Some((row, average)) = view
+            .rows
+            .get(view.selected)
+            .and_then(|row| Some((row, row.average?)))
+        {
+            self.text(station::STATUS_LABEL_X as usize, 118, "Galactic avg", 0x43);
+            let line = format!(
+                "${}  {}",
+                crate::trade::credits(average),
+                crate::trade::percent_text(row.price, average)
+            );
+            self.text(station::STATUS_LABEL_X as usize, 128, &line, 0x0f);
+        }
+    }
+
+    /// One trend mark, five pixels wide, in a text row whose top is `top`.
+    fn draw_trend(&mut self, x: i32, top: i32, trend: crate::trade::Trend) {
+        match trend {
+            crate::trade::Trend::Low => self.fill_value(
+                &[(x, top + 2), (x + 4, top + 2), (x + 2, top + 6)],
+                TREND_LOW,
+            ),
+            crate::trade::Trend::High => self.fill_value(
+                &[(x + 2, top + 1), (x + 4, top + 5), (x, top + 5)],
+                TREND_HIGH,
+            ),
+            crate::trade::Trend::Average => {
+                self.line_value((x, top + 4), (x + 4, top + 4), TREND_AVERAGE)
+            }
+        }
     }
 
     /// The docked services, shipyard and BBS screens (F327/F329/F330/F558).
@@ -4613,6 +4771,29 @@ impl Screen {
             }
             shadowed(self, lx as usize, ly as usize, &label, 18);
         }
+        // enhancement-17: each active contract's destination, a diamond round the star on
+        // view, an arrowhead at the edge towards it off view, labelled in amber.
+        for mark in &scene.missions {
+            let (x, y) = mark.point;
+            let colour = em::MISSION_COLOUR;
+            if mark.on_view {
+                let r = 8;
+                for (a, b) in [
+                    ((x, y - r), (x + r, y)),
+                    ((x + r, y), (x, y + r)),
+                    ((x, y + r), (x - r, y)),
+                    ((x - r, y), (x, y - r)),
+                ] {
+                    self.line(a, b, colour);
+                }
+            } else {
+                self.arrow_head((cx, cy), (x, y), 7, colour);
+            }
+            let width = self.font.width(&mark.label).unwrap_or(0) as i32;
+            let lx = (x - width / 2).clamp(2, 318 - width);
+            let ly = (y + if y < cy { 10 } else { -18 }).clamp(strip as i32, 148);
+            shadowed(self, lx as usize, ly as usize, &mark.label, colour);
+        }
         // The colour legend (each name in its colour) and the controls line.
         let mut lx = 6usize;
         for (colour, name) in &scene.legend {
@@ -5179,6 +5360,17 @@ fn ray_colour(shapes: &[Shape]) -> Option<u32> {
 
 /// The views `enhancement-13`'s fixed laser sight replaces: the first-person
 /// cockpit views (front, rear and the two turrets), not the external view.
+/// `enhancement-16`'s retrograde marker: a ring of this radius with a cross of
+/// this half-width, in amber.
+const RETROGRADE_RADIUS: i32 = 5;
+const RETROGRADE_ARM: i32 = 3;
+const RETROGRADE_INK: u32 = 0x00f0_a030;
+
+/// `enhancement-19`'s market marks: cheap (green), dear (orange), about average (grey).
+const TREND_LOW: u32 = 0x0040_d060;
+const TREND_HIGH: u32 = 0x00f0_7030;
+const TREND_AVERAGE: u32 = 0x00a0_a0a0;
+
 fn first_person_view(view: ViewMode) -> bool {
     matches!(
         view,

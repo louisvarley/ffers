@@ -76,11 +76,21 @@ pub struct Enhancements {
     /// `enhancement-15`: hyperspace shows the stars and dust streaking past
     /// instead of F1066's tunnel.
     pub hyperspace_streaks: bool,
+    /// `enhancement-16`: the velocity marker in every first-person view, with a
+    /// retrograde marker opposite it.
+    pub velocity_markers: bool,
+    /// `enhancement-17`: the active mission's destination, jumps and time left on
+    /// the HUD, and its destination marked on the enhanced galaxy map.
+    pub mission_tracker: bool,
+    /// `enhancement-18`: an automatic save to its own slot on every docking.
+    pub autosave: bool,
+    /// `enhancement-19`: the market shows each price against the galactic average.
+    pub market_average: bool,
 }
 
 impl Enhancements {
     /// The `enhancement.<name>` key suffixes, in item order.
-    pub const KEYS: [&'static str; 14] = [
+    pub const KEYS: [&'static str; 18] = [
         "turrets_paused",
         "missile_launch",
         "autopilot_waypoint",
@@ -95,6 +105,10 @@ impl Enhancements {
         "enhanced_galaxy_map",
         "laser_sight",
         "hyperspace_streaks",
+        "velocity_markers",
+        "mission_tracker",
+        "autosave",
+        "market_average",
     ];
 
     /// The field at `index` in [`Self::KEYS`] order.
@@ -114,6 +128,10 @@ impl Enhancements {
             11 => &mut self.enhanced_galaxy_map,
             12 => &mut self.laser_sight,
             13 => &mut self.hyperspace_streaks,
+            14 => &mut self.velocity_markers,
+            15 => &mut self.mission_tracker,
+            16 => &mut self.autosave,
+            17 => &mut self.market_average,
             _ => return None,
         })
     }
@@ -141,7 +159,7 @@ impl Enhancements {
     }
 
     /// Every field in [`Self::KEYS`] order.
-    fn values(&self) -> [bool; 14] {
+    fn values(&self) -> [bool; 18] {
         [
             self.turrets_paused,
             self.missile_launch,
@@ -157,6 +175,10 @@ impl Enhancements {
             self.enhanced_galaxy_map,
             self.laser_sight,
             self.hyperspace_streaks,
+            self.velocity_markers,
+            self.mission_tracker,
+            self.autosave,
+            self.market_average,
         ]
     }
 }

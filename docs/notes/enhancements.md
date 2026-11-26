@@ -18,9 +18,11 @@ in the commander save. The step-by-step recipe for adding a new one is
 ## The items
 
 The launcher groups these under headers: **Combat enhancements** (the items in
-the Combat & missiles and Combat display sections below), **Autopilot**,
-**Mission fixes**, **Galaxy map** and **Hyperspace**. The `enhancement-n`
-numbers are the original request numbers and are not the display order.
+the Combat & missiles and Combat display sections below), **Flight**,
+**Autopilot**, **Missions** (the mission fixes and the tracker), **Galaxy map**,
+**Hyperspace** and **Stations** (the price guide and the autosave). The
+`enhancement-n` numbers are the original request numbers and are not the
+display order.
 
 ### Combat & missiles
 
@@ -177,6 +179,39 @@ EXP-046.
   fail to decode, the original sample repeats as before. Off, the original tunnel, sound
   and timing are kept.
 
+### Ideas from modern games (2026-11-26)
+
+- `enhancement-16` — **Velocity markers** (launcher group Flight). F1112's velocity
+  marker (bitmap 98, the direction the ship is moving) is drawn in every
+  first-person view (front, rear and both turrets), not only the front, and a
+  retrograde marker (an amber ring and cross) sits opposite it: point the nose
+  there to brake. Both stay inside F1112's own bounds and are not drawn when off
+  the view; the retrograde one is not drawn when the ship is still.
+- `enhancement-17` — **Mission tracker** (group Missions). The most urgent active
+  contract (earliest deadline) is shown at the top of the flight view, centred
+  between the shields/hull text and the target's readouts: "Mission: <place>,
+  <system>" and then the jumps (a straight-line count at the drive's range, or "In
+  system") and the time left to the end of the deadline day ("3d 04h left",
+  "Overdue" in red). A military photograph or bombing that has been carried out is
+  tracked back to the system it was accepted in. On the enhanced galaxy map every
+  active contract's destination has an amber diamond and a "Mission: <system>"
+  label, or an amber arrowhead at the edge pointing to it when off view; clicking
+  the star plots a course there as any star does.
+- `enhancement-18` — **Autosave on docking** (group Stations). Each docking with an
+  orbital station and each landing at a starport writes `saves/autosave.json`, the
+  same save the save key writes, replacing the last autosave. "autosave" is a
+  reserved save name, and the load and delete lists put it straight after the
+  quick save. A dead commander is never saved. The log says "Game saved
+  automatically." (or why it failed).
+- `enhancement-19` — **Market price guide** (group Stations). After each price the
+  market draws a green down arrow when the price is more than 10% below the
+  commodity's galactic average, an orange up arrow when it is more than 10% above,
+  and a grey dash in between; the selected commodity's average and the difference
+  ("$12.3  +15%") show at the lower left above the cargo block. The average is the
+  commodity's base price (`DATA_006169`): F619's price with no supply variance in a
+  danger-0 system, whose 0.5 multiplier cancels F619's doubling. Dangerous systems,
+  local supply and the black market's doubling move a market off it.
+
 ## Implementation convention
 
 ### Keys
@@ -207,6 +242,10 @@ its own options on exit).
 | `enhancement-13` | `enhancement.laser_sight` | `laser_sight` | off |
 | `enhancement-14` | (was `enhancement.list_scroll`) | always on since 2026-11-25; the line is ignored | n/a |
 | `enhancement-15` | `enhancement.hyperspace_streaks` | `hyperspace_streaks` | off |
+| `enhancement-16` | `enhancement.velocity_markers` | `velocity_markers` | off |
+| `enhancement-17` | `enhancement.mission_tracker` | `mission_tracker` | off |
+| `enhancement-18` | `enhancement.autosave` | `autosave` | off |
+| `enhancement-19` | `enhancement.market_average` | `market_average` | off |
 
 Values are `on|off` when written; `on|off|true|false|1|0` are accepted when
 read. A missing key keeps the default (off). An unknown `enhancement.*` name is
@@ -238,6 +277,10 @@ entry (`EXP-xxx`, `enhancement`) and a regression test.
 | `enhancement-12` `enhanced_galaxy_map` | `enhanced_map` module, `screen::{EnhancedGalaxy, draw_enhanced_galaxy}`, `main.rs` map open/input/draw/route | the original 3D `GalaxyMap` path is unchanged; the flat map, route and Sol pointer are only built when the toggle is on |
 | `enhancement-13` `laser_sight` | `screen::{Screen::fixed_laser, first_person_view}`, `main.rs` | off keeps F1776's beam from the gun mount; on draws a fixed foot-to-reticle sight line in the front, rear and turret views only |
 | `enhancement-15` `hyperspace_streaks` | `hyperspace_streaks` module, `navigation::{Transit::real_seconds, Navigator::stretch_transit_to}`, `screen::Screen::hyperspace_streaks`, `main.rs` jump/sound/draw | F1066's tunnel (model 0xa5) and the original transit length; nothing of the streak field is drawn |
+| `enhancement-16` `velocity_markers` | `screen::{Screen::velocity_markers, draw_retrograde_marker}`, `combat::velocity_marker` | F1112's marker in the front view only, no retrograde marker |
+| `enhancement-17` `mission_tracker` | `mission_tracker` module, `enhanced_map::mission_marks`, `screen::{Screen::mission_tracker, draw_mission_tracker}`, `main.rs` flight HUD and map scene | no tracker lines and no map marks; the contracts are only read |
+| `enhancement-18` `autosave` | `saves::{save_auto, auto_path, AUTO_SAVE}`, `main.rs` docking (`Traffic::Docked`) and starport landing | no file is written; `autosave` stays a reserved name |
+| `enhancement-19` `market_average` | `trade::{galactic_average, trend, percent_text}`, `screen::{MarketRow::average, draw_market_averages}` | the market rows are drawn as before |
 | `enhancement-14` (always on since 2026-11-25) | `station::DockState::{scroll_by, arrow, wheel}`, `main.rs` docked-screen input | the wheel always scrolls station lists (it is no longer a toggle); the arrows are the original's one-row F355(±1) either way |
 
 `enhancement-10` also closes its list and drops the ship selected through it

@@ -34,6 +34,7 @@ pub mod map_pages;
 pub mod messages;
 pub mod missile;
 pub mod mission_fixes;
+pub mod mission_tracker;
 pub mod model_lab;
 pub mod model_viewer;
 pub mod navigation;

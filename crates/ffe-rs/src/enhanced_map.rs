@@ -582,6 +582,35 @@ pub enum Toggled {
     Ignored,
 }
 
+/// `enhancement-17`: an active contract's destination on the map, ringed in amber where it
+/// is on view and pointed at from the edge where it is not.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MissionMark {
+    /// The star, or where the line to it leaves the view.
+    pub point: (i32, i32),
+    pub on_view: bool,
+    pub label: String,
+}
+
+/// The mission marks' colour (the amber of the map's warnings).
+pub const MISSION_COLOUR: u8 = 0x5f;
+
+/// The marks for `missions` (each destination's 16.16 position and its label).
+pub fn mission_marks(map: &EnhancedMap, missions: &[([i32; 3], String)]) -> Vec<MissionMark> {
+    missions
+        .iter()
+        .map(|(position, label)| {
+            let (x, y, _) = map.project(*position);
+            let on_view = (0..VIEW_W).contains(&x) && (0..VIEW_H).contains(&y);
+            MissionMark {
+                point: if on_view { (x, y) } else { edge_point((x, y)) },
+                on_view,
+                label: label.clone(),
+            }
+        })
+        .collect()
+}
+
 /// A pointer from the middle of the view toward a point, ending on the view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Pointer {
@@ -923,6 +952,7 @@ pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::En
         legend,
         hint: HINT.to_vec(),
         page: None,
+        missions: Vec::new(),
     }
 }
 

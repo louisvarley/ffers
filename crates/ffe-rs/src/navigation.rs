@@ -38,6 +38,8 @@ use std::collections::HashMap;
 /// One leader's frame for F695/F751's escorts: its id, system position, axes
 /// and AI state.
 type LeaderFrame = (u32, [i64; 3], [[f64; 3]; 3], npc::State);
+/// A ship F597's accelerated branch placed: its id, position, axes and object velocity.
+type PlacedShip = (u32, [i64; 3], [[f64; 3]; 3], [i32; 3]);
 
 /// The reverse thrust's deceleration (metres per second squared, world time).
 const BRAKING: f64 = 90.0;
@@ -1515,6 +1517,10 @@ pub struct Navigator {
     persisted: Vec<npc::Persisted>,
     /// The player's position at the last traffic tick, for F675's offsets.
     pub player_at: [i64; 3],
+    /// What the hunting ships read from the player each frame (the caller sets it before
+    /// [`Self::tick_ships`]): `DATA_009013`'s time-acceleration shift for F597's accelerated
+    /// placement, the player's velocity and `DATA_008839`'s combat velocity.
+    pub pursuit: npc::Pursuit,
     /// The system's short-lived visuals in their source object slots: F939 hit
     /// particles, F942 destruction objects and F926 debris (see
     /// `ffe_core::effects`). They outlive the ship that spawned them and are
@@ -3208,6 +3214,7 @@ impl Navigator {
             jurisdiction,
             persisted: Vec::new(),
             player_at: [0; 3],
+            pursuit: npc::Pursuit::default(),
             effects: effects::Effects::new(),
             script_events: Vec::new(),
             script_sites: Vec::new(),
@@ -3999,8 +4006,13 @@ impl Navigator {
     /// changes at midnight, as `DATA_008807` does when the day fraction wraps:
     /// a new game starts at noon, so day 1 begins twelve hours in (PAR-17).
     pub fn day(&self) -> u32 {
+        self.days() as u32
+    }
+
+    /// [`Self::day`] with the fraction of the day gone.
+    pub fn days(&self) -> f64 {
         let phase = self.start_clock.max(0.0).rem_euclid(86_400.0);
-        ((phase + self.elapsed().max(0.0)) / 86_400.0) as u32
+        (phase + self.elapsed().max(0.0)) / 86_400.0
     }
 
     /// The console's date and time for this navigator's clock: the calendar counts
@@ -6290,6 +6302,8 @@ impl Navigator {
         // 10000x, `--npc-trace`), so the port's stand-in orbit holds still too. The police,
         // launched from the starport itself, are not held (see `exposed`).
         let pirates_idle = self.landed_view() || self.docked.is_some();
+        // Ships F597's accelerated branch placed this frame: their escorts move with them.
+        let mut placed: Vec<PlacedShip> = Vec::new();
         // F776's tables for a ship that turns to flee: F857's neighbours, the
         // population filter and F901's range/time. They are built once a frame,
         // not a cache read per ship.
@@ -6327,7 +6341,13 @@ impl Navigator {
             // F754/F757's F1530 rolls draw from the shared pair in object
             // order (PAR-17): lend it to the ship for its tick.
             ship.missile_rng = self.random.state();
+            ship.pursuit = self.pursuit;
+            // `DATA_008839` is one global: every fighting ship relaxes towards it (F726).
+            ship.combat_velocity = self.pursuit.combat_velocity;
             ship.tick_with_station(seconds, tics, aim, escort, station.as_ref(), &mut requests);
+            if ship.take_placed() {
+                placed.push((ship.id, ship.position, ship.axes(), ship.motion.velocity));
+            }
             // F725/F727/F729: the smoke particle is a movement-step call, so its
             // two F1530 words come from the same shared pair the tick used. This
             // is a deliberate RNG-ledger change (the source draws per frame).
@@ -6421,6 +6441,27 @@ impl Navigator {
                 events.push(ShipEvent::UnderAttack {
                     name: ship.name.clone(),
                 });
+            }
+        }
+        // F695's escorts fly F597 at their leader's formation point, so at accelerated time the
+        // same branch places them there in the leader's frame. The port moves them with the
+        // leader in the frame it was placed, rather than a frame later after time is back at 1x.
+        for (leader, position, axes, velocity) in placed {
+            for ship in self
+                .ships
+                .iter_mut()
+                .filter(|ship| ship.alive() && ship.leader == Some(leader))
+                .filter(|ship| ship.state == npc::State::Escort)
+            {
+                let [right, up, forward] = ship.formation;
+                let at = std::array::from_fn(|axis| {
+                    position[axis]
+                        + (axes[0][axis] * right as f64
+                            + axes[1][axis] * up as f64
+                            + axes[2][axis] * forward as f64) as i64
+                });
+                ship.place_at(at, velocity);
+                ship.placed = false;
             }
         }
         for request in requests {

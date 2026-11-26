@@ -165,6 +165,7 @@ fn docked_screens_draw_at_the_original_layout() {
                 price: row.price,
                 stock: row.stock,
                 held: row.held,
+                average: None,
             })
             .collect(),
         scroll: 0,

@@ -179,6 +179,20 @@ pub struct Detail {
     pub guidance: Guidance,
     pub direction: [i32; 3],
     pub local: [i32; 3],
+    /// F612's shift of the relative velocity (F597's `+0x1c`).
+    pub velocity_shift: i32,
+}
+
+/// F597's accelerated-branch test: `distance - max(2, velocity) - (t + t / 4)`, where `t` is
+/// `DATA_009013` (0 at 1x, 3, 7, 10 and 12 up to 10000x). `None` at 1x or when the result is
+/// over 8 (the ordinary guidance); otherwise the result: at 8 or less F597 clears the ship's
+/// frame timer, and below 6 (with a waypoint set) it places the ship at its aim point.
+pub fn accelerated_reach(distance_shift: i32, velocity_shift: i32, time_shift: i32) -> Option<i32> {
+    if time_shift == 0 {
+        return None;
+    }
+    let reach = distance_shift - velocity_shift.max(2) - (time_shift + (time_shift >> 2));
+    (reach <= 8).then_some(reach)
 }
 
 /// F588: the turn away from the direction words, the mirror of [`face_target`]. A target in front
@@ -237,6 +251,7 @@ pub fn guide_detail(
         },
         direction,
         local: request,
+        velocity_shift,
     }
 }
 

@@ -851,7 +851,7 @@ F754 sets state 2 when the nose is within 60 degrees of the direction words and 
 frame loop): a beam fires every frame and its heat rises 64 a frame. `in_fudge` is `DATA_009046` bit 1: F726 relaxes the velocity
 towards `combat_velocity` on every axis farther than 100 units, by `(v - w) * (tics << 13)` of one, after F601 and before F1512;
 F725 runs F585's turn before F601's thrust. The object's own orientation rows are kept between frames (rebuilding them from the
-float axes lost the low bits). Not ported: the accelerated near-offset placement in F597 (the object/frame adapter, tracked by
+float axes lost the low bits). Not ported then: the accelerated near-offset placement in F597 (ported 2026-11-26, see the end of this note; tracked by
 `parity-11`), F941's missile selection beyond `attempt_launch`, and F937's blast. A ship that hits the ground is removed as state
 0x1c (`keep_ships_out_of_worlds` destroys an attacker that reaches a world).
 
@@ -893,3 +893,27 @@ Accepted gaps for these items are in `docs/ACCEPTED_PARITY.md`: F702's system-wi
 F597's accelerated placement, F589/F671's orientation/pad settle, EXP-023's beam hit box,
 F770's approximate approach motion and F941's missile selection.
 
+
+## F597's accelerated placement (2026-11-26)
+
+With time accelerated (`DATA_009013` = 3, 7, 10, 12 at 10x..10000x), F597
+(`ffe.asm:39946-40145`) does not fly an interceptor the whole way: when
+`distance shift - max(2, velocity shift) - (t + t/4)` is 8 or less it clears
+`+0x14d` (F606 picks the ship's frame next), and below 6, with a waypoint set
+(`+0x102..+0x106`), it moves the ship to the target plus the waypoint, gives it
+the target's velocity (F594) and clears its thrust words and turn rates. That is
+how a system's pirates, spawned on F702's far orbit, reach a player who travels
+at 1000x or 10000x; without it their frame-sized steps overshot a moving player
+and they rarely attacked (owner report).
+
+The port: `autopilot::accelerated_reach` is the test (`Detail::velocity_shift`
+carries F612's shift), `NpcShip::fly` applies it on the AI step of a hunting
+ship in state 4, and `NpcShip::place_at` makes the move. The caller sets
+`Navigator::pursuit` (an `npc::Pursuit`) before `tick_ships`: the time shift
+(`npc::TIME_SHIFTS`), the player's velocity, and `DATA_008839`, which every
+ship's F726 relaxation now uses instead of zero. Port choices: F694's leader
+starts in state 5 (F749 picks its first waypoint); the port's leader starts in
+state 4 with none, so F749 runs at the placement. Escorts in formation fly F597
+at their leader's point; `tick_ships` moves them with a placed leader in the
+same frame. The player's own autopilot branch (the `v^2 < 4as` check) is still
+`parity-11`.

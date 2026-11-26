@@ -17,6 +17,56 @@ pub struct Listing {
     pub held: u16,
 }
 
+/// `enhancement-19`: commodity `good`'s galactic average price, the price F619
+/// gives with no supply variance in a system of danger 0 (whose multiplier,
+/// one half, cancels F619's doubling): the commodity's base price. Local supply,
+/// legality and danger move a market's price off it.
+pub fn galactic_average(tables: &ffe_core::market::Tables<'_>, good: usize) -> i32 {
+    tables.good(good).base_price
+}
+
+/// `enhancement-19`: how a price compares with the galactic average.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Trend {
+    /// More than [`TREND_BAND`] below it: cheap here.
+    Low,
+    /// Within the band.
+    Average,
+    /// More than the band above it: dear here.
+    High,
+}
+
+/// The share either side of the average that still counts as average.
+pub const TREND_BAND: f64 = 0.10;
+
+/// Where `price` lies against `average` (both in tenths of a credit).
+pub fn trend(price: i32, average: i32) -> Trend {
+    if average <= 0 {
+        return Trend::Average;
+    }
+    let ratio = f64::from(price) / f64::from(average);
+    if ratio < 1.0 - TREND_BAND {
+        Trend::Low
+    } else if ratio > 1.0 + TREND_BAND {
+        Trend::High
+    } else {
+        Trend::Average
+    }
+}
+
+/// `price` against `average` as a signed whole percentage ("+12%", "-30%", "0%").
+pub fn percent_text(price: i32, average: i32) -> String {
+    if average <= 0 {
+        return String::new();
+    }
+    let percent = ((f64::from(price) / f64::from(average) - 1.0) * 100.0).round() as i64;
+    if percent > 0 {
+        format!("+{percent}%")
+    } else {
+        format!("{percent}%")
+    }
+}
+
 /// A price or cash as the screen shows it: tenths of a credit.
 pub fn credits(value: i32) -> String {
     let sign = if value < 0 { "-" } else { "" };
@@ -184,4 +234,21 @@ pub fn trade(
         (_, None) if buying => format!("Buying {name}."),
         (_, None) => format!("Selling {name}."),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_price_is_low_average_or_high_against_the_galactic_average() {
+        assert_eq!(trend(890, 1000), Trend::Low);
+        assert_eq!(trend(900, 1000), Trend::Average);
+        assert_eq!(trend(1100, 1000), Trend::Average);
+        assert_eq!(trend(1101, 1000), Trend::High);
+        assert_eq!(trend(5, 0), Trend::Average);
+        assert_eq!(percent_text(1120, 1000), "+12%");
+        assert_eq!(percent_text(700, 1000), "-30%");
+        assert_eq!(percent_text(1000, 1000), "0%");
+    }
 }

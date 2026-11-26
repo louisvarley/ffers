@@ -1586,6 +1586,9 @@ fn run() -> Result<(), String> {
     let mut mouse_accumulator = input::MouseAccumulator::default();
     // The console's time acceleration step (0 = 1x .. 4 = 10000x).
     let mut acceleration = 0usize;
+    // enhancement-18: the ship docked or landed at a starport this frame; the
+    // automatic save is written once the frame's simulation is done.
+    let mut autosave_due = false;
     // The jump under way (F908's mode 4), for F1094's arrival.
     let mut in_transit: Option<ffe_rs::navigation::Jumped> = None;
     // The multi-step route (`enhancement-12`) `H` is about to fly as one jump, and
@@ -8236,6 +8239,7 @@ fn run() -> Result<(), String> {
                                     let landed = nav.land_at_starport(index);
                                     if landed {
                                         sound.landed(true);
+                                        autosave_due = true;
                                     }
                                     landed
                                 } else {
@@ -8427,6 +8431,7 @@ fn run() -> Result<(), String> {
                             sound.play(Cue::Station);
                             sound.stop_song();
                             message = station::SERVICES_HINT.to_owned();
+                            autosave_due = true;
                         }
                         Traffic::LaunchOut(index) => {
                             // F1088 sets the station's door opening; the ship is
@@ -8502,6 +8507,17 @@ fn run() -> Result<(), String> {
                         .sum::<f64>()
                         .sqrt(),
                 );
+                // What the hunting ships read from the player: F597's accelerated placement
+                // (`DATA_009013`), the velocity a placed ship takes, and `DATA_008839`.
+                nav.pursuit = ffe_core::npc::Pursuit {
+                    time_shift: ffe_core::npc::TIME_SHIFTS[acceleration.min(4)],
+                    velocity: original
+                        .as_ref()
+                        .map_or([0; 3], |model| model.player().motion.velocity),
+                    combat_velocity: original
+                        .as_ref()
+                        .map_or([0; 3], |model| model.combat_velocity()),
+                };
                 let events = nav.tick_ships(frame.seconds(), frame.tics, player, radius);
                 // F239: the police F238 asked for this frame.
                 nav.spawn_police(&cache, ffe_rs::camera::ship_axes(&state));
@@ -9589,6 +9605,7 @@ fn run() -> Result<(), String> {
         screen.heat = state.combat.heat;
         screen.drive = state.combat.drive;
         screen.fixed_laser = enhancements.laser_sight;
+        screen.velocity_markers = enhancements.velocity_markers;
         // The scripted traffic capture fires on frame 10 (shield hit) and frame
         // 20 (kill) through the same F953/F942 words a player shot uses.
         if options.capture_traffic.is_some() && (frames == 10 || frames == 20) {
@@ -10069,6 +10086,22 @@ fn run() -> Result<(), String> {
             };
             let mut scene_page = ffe_rs::enhanced_map::scene(map, &context);
             scene_page.page = map_page.clone();
+            // enhancement-17: every active contract's destination on the map.
+            if enhancements.mission_tracker {
+                let mut seen = std::collections::HashSet::new();
+                let marks: Vec<([i32; 3], String)> =
+                    ffe_rs::mission_tracker::targets(&state.missions)
+                        .iter()
+                        .filter(|target| seen.insert(target.system))
+                        .filter_map(|target| {
+                            let position =
+                                ffe_rs::mission_tracker::system_position(tables, target.system)?;
+                            let name = (context.name_of)(target.system).unwrap_or_default();
+                            Some((position, format!("Mission: {name}")))
+                        })
+                        .collect();
+                scene_page.missions = ffe_rs::enhanced_map::mission_marks(map, &marks);
+            }
             screen.enhanced_galaxy = Some(scene_page);
         }
         screen.dock = None;
@@ -10183,6 +10216,13 @@ fn run() -> Result<(), String> {
                                 rows: rows
                                     .into_iter()
                                     .map(|row| ffe_rs::screen::MarketRow {
+                                        // enhancement-19: the galactic average beside it.
+                                        average: nav
+                                            .market_tables()
+                                            .filter(|_| enhancements.market_average)
+                                            .map(|tables| {
+                                                ffe_rs::trade::galactic_average(&tables, row.good)
+                                            }),
                                         name: row.name,
                                         price: row.price,
                                         stock: row.stock,
@@ -10764,6 +10804,39 @@ fn run() -> Result<(), String> {
                 }
             }
         }
+        // enhancement-18: the automatic save after a docking or a starport landing,
+        // to its own slot, as the save key writes one (the ship reconciled with
+        // the clock first). It only writes a file; nothing in the game changes.
+        if std::mem::take(&mut autosave_due)
+            && enhancements.autosave
+            && gameover.is_none()
+            && state.death.is_none()
+        {
+            if let (Some(model), Some(nav)) = (original.as_mut(), nav.as_mut()) {
+                nav.refresh(&cache);
+                if let Some(moved) = nav.follow(model.absolute_position()) {
+                    if !model.on_pad() {
+                        model.shift(moved);
+                    }
+                }
+                state.position = model
+                    .absolute_position()
+                    .map(|p| p as f64 / ffe_rs::original_flight::UNITS_PER_FLIGHT_UNIT);
+            }
+            let save = build_save(
+                &commander,
+                &state,
+                nav.as_ref(),
+                original.is_some(),
+                acceleration,
+            );
+            match saves::save_auto(&save_dir, &save) {
+                Ok(_) => pending_log.add(Source::Docking, "Game saved automatically."),
+                Err(error) => {
+                    pending_log.add(Source::Docking, format!("Automatic save failed: {error}"))
+                }
+            }
+        }
         // The autopilot's target, else the locked body, else a locked NPC ship:
         // a line of text and brackets in the view.
         let engaged = nav.as_ref().and_then(|nav| nav.target);
@@ -10936,6 +11009,38 @@ fn run() -> Result<(), String> {
         screen.target_speed = None;
         screen.edge_indicator = None;
         screen.tunnels = None;
+        // enhancement-17: the most urgent contract's destination, jumps and time left.
+        screen.mission_tracker = None;
+        if enhancements.mission_tracker && state.mode == ffe_rs::flight::Mode::Flight {
+            if let (Some(nav), Some(target)) = (
+                nav.as_ref(),
+                ffe_rs::mission_tracker::targets(&state.missions)
+                    .into_iter()
+                    .next(),
+            ) {
+                let name = scene
+                    .as_ref()
+                    .and_then(|viewer| viewer.system_name(target.system))
+                    .map(|name| name.iter().map(|b| char::from(*b)).collect::<String>())
+                    .unwrap_or_default();
+                let here = nav.current_system_code();
+                let jumps = if target.system == here {
+                    Some(0)
+                } else {
+                    sector_tables.as_ref().and_then(|tables| {
+                        let from = ffe_rs::mission_tracker::system_position(tables, here)?;
+                        let to = ffe_rs::mission_tracker::system_position(tables, target.system)?;
+                        Some(ffe_rs::course::jumps_needed(from, to, nav.reach()?))
+                    })
+                };
+                let seconds =
+                    ffe_rs::mission_tracker::seconds_left(target.deadline_day, nav.days());
+                screen.mission_tracker = Some((
+                    ffe_rs::mission_tracker::hud_lines(&target.place, &name, jumps, seconds),
+                    seconds <= 0.0,
+                ));
+            }
+        }
         if state.mode == ffe_rs::flight::Mode::Flight {
             let missile_view = views.mode == ViewMode::Missile;
             // F1099's missile view reads the combat target only (the navigation
