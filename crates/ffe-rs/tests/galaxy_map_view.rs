@@ -422,9 +422,11 @@ fn the_enhanced_map_plots_stars_and_routes() {
     map.pick(plots[0].code, plots[0].position, plots[0].kind);
     let selected = map.selected.as_ref().unwrap();
     assert!(plots.iter().any(|plot| plot.code == selected.code));
+    // Sol's distance is from the view's centre (here the home system's x and y).
+    let sol = ffe_rs::enhanced_map::SOL_POSITION;
     assert_eq!(
         map.sol().2,
-        ffe_core::sector::distance(home, ffe_rs::enhanced_map::SOL_POSITION)
+        ffe_core::sector::distance([home[0], home[1], sol[2]], sol)
     );
     assert!(map.range_radius() > 0);
     // A two-step route measures two legs.

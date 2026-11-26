@@ -129,6 +129,19 @@ impl EnhancedMap {
         });
     }
 
+    /// The star with system `code` (sector x in bits 0..12, y in 13..25, its number in
+    /// the sector in 26..31), for the pages of a star that is not on view.
+    pub fn star(&self, tables: &SectorTables, code: u32) -> Option<Selected> {
+        let (x, y) = ((code & 0x1fff) as u16, ((code >> 13) & 0x1fff) as u16);
+        let stars = tables.stars(x, y);
+        let star = stars.get((code >> 26) as usize)?;
+        Some(Selected {
+            position: sector::position(x, y, &star.vector),
+            code,
+            kind: star.kind,
+        })
+    }
+
     /// Scale the zoom by `factor` (over 1 zooms in).
     pub fn zoom_by(&mut self, factor: f64) {
         self.zoom = (self.zoom * factor).clamp(MIN_ZOOM, MAX_ZOOM);
@@ -194,11 +207,12 @@ impl EnhancedMap {
     }
 
     /// Sol's projected position (possibly off-screen) and its distance from the
-    /// player's system, in the drive's units. The screen draws an edge arrow
-    /// when the position is off-view.
+    /// view's centre, in the drive's units, as the "You" pointer measures its own.
+    /// The screen draws an edge arrow, with that distance, when it is off view.
     pub fn sol(&self) -> (i32, i32, i32) {
         let (x, y, _) = self.project(SOL_POSITION);
-        (x, y, sector::distance(self.home, SOL_POSITION))
+        let centre = [self.centre[0], self.centre[1], SOL_POSITION[2]];
+        (x, y, sector::distance(centre, SOL_POSITION))
     }
 
     /// The drive's range as a screen radius (the reach circle about the player's
@@ -718,8 +732,13 @@ pub struct SceneContext<'a> {
     pub mouse: Option<(i32, i32)>,
 }
 
-/// The controls line along the top of the view.
-pub const HINT: &str = "Click star: route  H: jump  Arrows: pan  Hover: info";
+/// The controls along the top of the view (the screen fits them onto lines).
+pub const HINT: [&str; 4] = [
+    "Click: Add / Remove from route",
+    "Arrows / Right Click Drag: Pan",
+    "Hover: Info",
+    "I: System map",
+];
 
 /// The hover line's colours for a populated and an unpopulated system.
 pub const POPULATED: u8 = 0x11;
@@ -839,7 +858,6 @@ pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::En
     crate::screen::EnhancedGalaxy {
         dots,
         labels,
-        selected: selected_plot.map(|plot| (plot.x, plot.y, plot.size)),
         hovered: hovered_plot.map(|plot| (plot.x, plot.y, plot.size)),
         route,
         leg_ok,
@@ -854,7 +872,7 @@ pub fn scene(map: &mut EnhancedMap, ctx: &SceneContext<'_>) -> crate::screen::En
         route_summary,
         hover,
         legend,
-        hint: HINT.to_owned(),
+        hint: HINT.to_vec(),
         page: None,
     }
 }
@@ -1047,13 +1065,20 @@ mod tests {
     }
 
     #[test]
-    fn sol_is_at_its_sector_and_reports_the_home_distance() {
+    fn sol_is_at_its_sector_and_reports_the_distance_from_the_view_centre() {
         let mut map = EnhancedMap::new([0, 0, 0], 0);
         map.recentre();
         let (x, y, distance) = map.sol();
         let at = map.project(SOL_POSITION);
         assert_eq!((x, y), (at.0, at.1));
-        assert_eq!(distance, sector::distance([0, 0, 0], SOL_POSITION));
+        assert_eq!(
+            distance,
+            sector::distance([0, 0, SOL_POSITION[2]], SOL_POSITION)
+        );
+        // Panning the view onto Sol: it is no distance from the centre, whatever
+        // the player's own system.
+        map.centre = [SOL_POSITION[0], SOL_POSITION[1]];
+        assert_eq!(map.sol().2, 0);
     }
 
     #[test]

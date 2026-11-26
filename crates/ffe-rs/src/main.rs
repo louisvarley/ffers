@@ -1490,6 +1490,10 @@ fn run() -> Result<(), String> {
     // The page the map's F7-F10 icons show over the map (F842/F843): the body
     // diagram and the system's texts, built when the key is pressed.
     let mut map_page: Option<ffe_rs::map_pages::Page> = None;
+    // The enhanced map's pages (F7, F9, F10 and a body's facts) show the
+    // current system; `I` over a star shows that star's instead until the
+    // pages are left (`enhancement-12`).
+    let mut page_star: Option<ffe_rs::galaxy_map::Selected> = None;
     // Picture mode's zoom in sectors to a pixel (`DATA_008966`, 1 to 255).
     let mut sky_zoom = 1i32;
     // The original's 3D system map (module 5, `docs/notes/system-map.md`): the
@@ -3778,6 +3782,8 @@ fn run() -> Result<(), String> {
                 }
                 let sysmap_open = system_map.is_some();
                 let mut hyperspace = false;
+                // `I` over a star on the enhanced map: its details page (F7's).
+                let mut star_details = false;
                 if let Some(map) = galaxy.as_mut().filter(|_| !sysmap_open) {
                     let held = |key| inp.is_key_down(key);
                     let slow = held(Key::LeftShift) || held(Key::RightShift);
@@ -3920,9 +3926,10 @@ fn run() -> Result<(), String> {
                     // under the pointer, or the one last clicked.
                     let mut clicked: Option<(u32, [i32; 3], u16)> = None;
                     let mut under_pointer: Option<(u32, [i32; 3], u16)> = None;
+                    // A page covers the stars: they cannot be pointed at or clicked.
                     if let (Some(tables), Some((x, y))) = (
                         sector_tables.as_ref(),
-                        point.filter(|_| active && console_click.is_none()),
+                        point.filter(|_| active && console_click.is_none() && map_page.is_none()),
                     ) {
                         if y < ffe_rs::enhanced_map::VIEW_H {
                             let plots = map.plots(tables);
@@ -3933,7 +3940,23 @@ fn run() -> Result<(), String> {
                     if mouse_edge && !inp.get_mouse_down(MouseButton::Right) {
                         clicked = under_pointer;
                     }
-                    if pressed(Key::X) {
+                    if pressed(Key::I) {
+                        match under_pointer {
+                            Some((code, position, kind)) => {
+                                page_star = Some(ffe_rs::galaxy_map::Selected {
+                                    position,
+                                    code,
+                                    kind,
+                                });
+                                star_details = true;
+                            }
+                            None if map_page.is_none() => {
+                                message = "Point at a star to see its system map.".to_owned();
+                            }
+                            None => {}
+                        }
+                    }
+                    if pressed(Key::X) && map_page.is_none() {
                         match under_pointer.or_else(|| {
                             map.selected
                                 .as_ref()
@@ -4060,6 +4083,17 @@ fn run() -> Result<(), String> {
                     if let Some(action) = console_click.and_then(map_keys::click) {
                         actions.push(action);
                     }
+                    if star_details {
+                        actions.push(MapAction::Details);
+                    }
+                    // The 3D map's pages are of the star at its centre (F843). The
+                    // enhanced map has no such star: its pages are of the current
+                    // system, or of the one `I` was pressed over.
+                    let enhanced = galaxy.is_none() && enhanced_map.is_some();
+                    let current_star = enhanced_map
+                        .as_ref()
+                        .zip(sector_tables.as_ref())
+                        .and_then(|(map, tables)| map.star(tables, nav.current_system_code()));
                     let mut map_key = false;
                     for (offset, key) in [
                         Key::F5,
@@ -4082,6 +4116,21 @@ fn run() -> Result<(), String> {
                         }
                     }
                     for action in actions {
+                        // Any other screen than the star's own pages puts them back
+                        // on the current system.
+                        if enhanced
+                            && matches!(
+                                action,
+                                MapAction::Page | MapAction::Select | MapAction::Picture
+                            )
+                        {
+                            page_star = None;
+                        }
+                        let selected_star = if enhanced {
+                            page_star.clone().or_else(|| current_star.clone())
+                        } else {
+                            selected_star.clone()
+                        };
                         match action {
                             // In picture mode F11/F12 step its zoom (F845's `0xfb` and
                             // `0xfc`) and redraw the sky; otherwise they zoom the map.
@@ -4221,6 +4270,30 @@ fn run() -> Result<(), String> {
                             map.zoom_by(1.25f64.powi(-zoom_steps));
                         }
                     }
+                    // F843's `0x80..0xbc` on the enhanced map's pages: a click on a
+                    // body of the diagram shows its facts, as the 3D map's block does.
+                    let point = inp
+                        .get_unscaled_mouse_pos(MouseMode::Pass)
+                        .and_then(|(x, y)| {
+                            display::logical_point(&prefs.display, x, y, inp.get_size())
+                        });
+                    let star = page_star.clone().or_else(|| current_star.clone());
+                    if let (true, Some(page), Some(star), Some(viewer), Some((x, y))) =
+                        (enhanced, map_page.as_ref(), star, scene.as_ref(), point)
+                    {
+                        if active && mouse_edge && console_click.is_none() {
+                            if let Some(index) = ffe_rs::map_pages::body_at(page, x, y) {
+                                match ffe_rs::map_pages::body_info(&cache, viewer, &star, index) {
+                                    Ok(Some(info)) => map_page = Some(info),
+                                    Ok(None) => {}
+                                    Err(error) => message = format!("Map page error: {error}"),
+                                }
+                            }
+                        }
+                    }
+                }
+                if map_page.is_none() || enhanced_map.is_none() {
+                    page_star = None;
                 }
                 // F840/F832: the star nearest the map's centre is the jump
                 // destination. It is stored in the navigator (the original's

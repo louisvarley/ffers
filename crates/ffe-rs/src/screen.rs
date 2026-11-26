@@ -130,8 +130,6 @@ pub struct EnhancedGalaxy {
     pub dots: Vec<(i32, i32, i32, u8)>,
     /// System-name labels at screen points (inhabited systems and the selection).
     pub labels: Vec<(i32, i32, String)>,
-    /// The selected star: x, y, radius.
-    pub selected: Option<(i32, i32, i32)>,
     /// The star under the mouse: x, y, radius.
     pub hovered: Option<(i32, i32, i32)>,
     /// The route as projected points: the home first, then each waypoint.
@@ -162,8 +160,8 @@ pub struct EnhancedGalaxy {
     pub hover: Vec<(String, u8)>,
     /// What the dot colours mean: (colour, name).
     pub legend: Vec<(u8, &'static str)>,
-    /// The controls line along the top of the view.
-    pub hint: String,
+    /// The controls along the top of the view, each kept whole on its line.
+    pub hint: Vec<&'static str>,
     /// F7-F10's page (the system description, the sky, ...): drawn over the cabin in
     /// place of the map, as the original map's pages are.
     pub page: Option<crate::map_pages::Page>,
@@ -4374,9 +4372,26 @@ impl Screen {
             screen.text(x + 1, y + 1, value, 0);
             screen.text(x, y, value, colour);
         };
-        // Darken the strips the legend, the controls line and the notes sit on, so
-        // they read over the busiest part of the starfield.
-        self.dim_rect(0, 0, 320, 24, 45);
+        // The controls, packed onto as few lines as fit the view's width.
+        let mut hint_lines: Vec<String> = Vec::new();
+        for item in &scene.hint {
+            match hint_lines.last_mut() {
+                Some(line)
+                    if self
+                        .font
+                        .width(&format!("{line}   {item}"))
+                        .is_ok_and(|width| width <= 308) =>
+                {
+                    line.push_str("   ");
+                    line.push_str(item);
+                }
+                _ => hint_lines.push((*item).to_owned()),
+            }
+        }
+        let strip = 14 + 10 * hint_lines.len();
+        // Darken the strips the legend, the controls and the notes sit on, so they
+        // read over the busiest part of the starfield.
+        self.dim_rect(0, 0, 320, strip, 45);
         let notes = 1 + usize::from(scene.route_summary.is_some());
         let notes_top = 158 - 10 * notes - 2;
         self.dim_rect(0, notes_top, 200, 158, 45);
@@ -4419,13 +4434,9 @@ impl Screen {
             let amber = self.palette[0x5f];
             self.fill_value(&[(*x, *y - 5), (*x - 4, *y + 3), (*x + 4, *y + 3)], amber);
         }
-        // The hovered star gets a thin white ring (it can be clicked), the
-        // selected one a yellow ring, both under their dots.
+        // The hovered star gets a thin white ring (it can be clicked), under its dot.
         if let Some((x, y, size)) = scene.hovered {
             self.circle(x, y, (size + 14).max(18), 15);
-        }
-        if let Some((x, y, size)) = scene.selected {
-            self.circle(x, y, (size + 8).max(12), 18);
         }
         // Stars: solid dots (a dot's `size` is its radius).
         for (x, y, size, colour) in &scene.dots {
@@ -4437,8 +4448,8 @@ impl Screen {
                 continue;
             }
             let (x, y) = ((*x + 3).max(0) as usize, (*y - 4).max(0) as usize);
-            // Not under the legend and controls line, nor the notes in the corner.
-            if y < 24 || (x < 200 && y + 8 > notes_top) {
+            // Not under the legend and controls, nor the notes in the corner.
+            if y < strip || (x < 200 && y + 8 > notes_top) {
                 continue;
             }
             self.text(x + 1, y + 1, name, 0);
@@ -4478,8 +4489,9 @@ impl Screen {
             home_label = Some((lx, ly, width));
             shadowed(self, lx as usize, ly as usize, &label, em::HOME_COLOUR);
         }
-        // The Sol direction pointer (yellow); no distance text.
-        let (sx, sy, _) = scene.sol;
+        // The Sol direction pointer (yellow); off view it says how far Sol is from
+        // the player's system, as "You" says how far the view has moved.
+        let (sx, sy, sol_distance) = scene.sol;
         if (0..320).contains(&sx) && (0..VIEW_HEIGHT as i32).contains(&sy) {
             self.circle(sx, sy, 6, 18);
             self.text(
@@ -4493,7 +4505,8 @@ impl Screen {
             let (ex, ey) = em::edge_point((sx, sy));
             self.line((cx, cy), (ex, ey), 18);
             self.arrow_head((cx, cy), (ex, ey), 6, 18);
-            let width = self.font.width("Sol").unwrap_or(0) as i32;
+            let label = format!("Sol {}.{:02} ly", sol_distance / 100, sol_distance % 100);
+            let width = self.font.width(&label).unwrap_or(0) as i32;
             let lx = (ex - width / 2).clamp(2, 318 - width);
             let mut ly = (ey + if ey < cy { 6 } else { -12 }).clamp(2, 148);
             // The two lines can run the same way: stack the labels, not overprint them.
@@ -4502,7 +4515,7 @@ impl Screen {
                     ly = if hy >= 14 { hy - 10 } else { hy + 10 };
                 }
             }
-            shadowed(self, lx as usize, ly as usize, "Sol", 18);
+            shadowed(self, lx as usize, ly as usize, &label, 18);
         }
         // The colour legend (each name in its colour) and the controls line.
         let mut lx = 6usize;
@@ -4510,7 +4523,9 @@ impl Screen {
             shadowed(self, lx, 4, name, *colour);
             lx += self.font.width(name).unwrap_or(0) + 8;
         }
-        shadowed(self, 6, 14, &scene.hint, 15);
+        for (row, line) in hint_lines.iter().enumerate() {
+            shadowed(self, 6, 14 + 10 * row, line, 15);
+        }
         // The left text block, from the bottom up: the sector, then the route summary.
         let mut block: Vec<(&str, u8)> = vec![(scene.sector.as_str(), 15)];
         if let Some((route, colour)) = &scene.route_summary {
@@ -4523,7 +4538,7 @@ impl Screen {
         // when the star is over there, so the panel never covers it).
         if !scene.hover.is_empty() {
             const PANEL_W: usize = 118;
-            const PANEL_TOP: usize = 26;
+            let panel_top = strip + 2;
             const PANEL_BOTTOM: usize = 154;
             let on_left = scene
                 .hovered
@@ -4552,10 +4567,10 @@ impl Screen {
                 }
                 rows.push((line, *colour));
             }
-            let height = (rows.len() * 9 + 6).min(PANEL_BOTTOM - PANEL_TOP);
-            self.dim_rect(left, PANEL_TOP, left + PANEL_W, PANEL_TOP + height, 30);
+            let height = (rows.len() * 9 + 6).min(PANEL_BOTTOM - panel_top);
+            self.dim_rect(left, panel_top, left + PANEL_W, panel_top + height, 30);
             for (row, (line, colour)) in rows.iter().enumerate() {
-                let y = PANEL_TOP + 3 + 9 * row;
+                let y = panel_top + 3 + 9 * row;
                 if y + 8 > PANEL_BOTTOM {
                     break;
                 }
