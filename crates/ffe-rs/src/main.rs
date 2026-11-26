@@ -2401,7 +2401,7 @@ fn run() -> Result<(), String> {
                     // enhancement-12: the original plays its one sample at the start of
                     // a jump; a longer transit (a route, a far star) plays it again
                     // until the last second, so the sound lasts as long as the tunnel.
-                    if enhancements.enhanced_galaxy_map {
+                    if enhancements.enhanced_galaxy_map || enhancements.hyperspace_streaks {
                         hyperspace_sound_left -= elapsed;
                         let real_left = nav.transit.map_or(0.0, |t| t.real_seconds_left());
                         if hyperspace_sound_left <= 0.0 && real_left > 1.0 {
@@ -4456,8 +4456,20 @@ fn run() -> Result<(), String> {
                             Ok(jumped) => {
                                 // enhancement-12: a long jump or a whole route plays a
                                 // longer tunnel and sound, by the distance flown.
-                                if enhancements.enhanced_galaxy_map {
-                                    nav.stretch_transit(jumped.distance, legs_flown);
+                                // enhancement-15: the streaks need time to gather speed
+                                // and slow again, so they get at least six seconds.
+                                if enhancements.enhanced_galaxy_map
+                                    || enhancements.hyperspace_streaks
+                                {
+                                    let mut seconds = ffe_rs::navigation::enhanced_transit_seconds(
+                                        jumped.distance,
+                                        legs_flown,
+                                    );
+                                    if enhancements.hyperspace_streaks {
+                                        seconds =
+                                            seconds.max(ffe_rs::hyperspace_streaks::MIN_SECONDS);
+                                    }
+                                    nav.stretch_transit_to(seconds);
                                 }
                                 // F912: at the arrival point with no velocity
                                 // and no set speed; F1030 holds it there. The
@@ -11240,10 +11252,11 @@ fn run() -> Result<(), String> {
             }
             screen.draw(&inside, views, scene.as_ref(), prefs.modern, &message);
         } else {
-            screen.hyperspace = nav
-                .as_ref()
-                .and_then(|nav| nav.transit)
-                .map(|t| t.animation());
+            // enhancement-15 draws the streaks in place of F1066's tunnel.
+            let transit = nav.as_ref().and_then(|nav| nav.transit);
+            let streaks = enhancements.hyperspace_streaks;
+            screen.hyperspace = transit.filter(|_| !streaks).map(|t| t.animation());
+            screen.hyperspace_streaks = transit.filter(|_| streaks).map(|t| t.real_seconds());
             screen.draw(&state, views, scene.as_ref(), prefs.modern, &message);
         }
         if let Some(player) = &fmv_player {

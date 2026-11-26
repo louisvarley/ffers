@@ -23,6 +23,7 @@ pub mod galaxy_map;
 pub mod gameover;
 pub mod gamepad;
 pub mod hud;
+pub mod hyperspace_streaks;
 pub mod indexed;
 pub mod input;
 pub mod intro_text;

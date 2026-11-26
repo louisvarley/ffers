@@ -1003,7 +1003,7 @@ struct EnhancementGroup {
     items: &'static [Enhancement],
 }
 
-const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
+const ENHANCEMENT_GROUPS: [EnhancementGroup; 6] = [
     EnhancementGroup {
         heading: "Combat & missiles",
         items: &[
@@ -1105,6 +1105,16 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
                     route and fly it as one long jump, arrow-key or right-drag pan, wheel zoom, \
                     lines pointing home and to Sol, and hover info (populated or not, \
                     safe or dangerous).",
+        }],
+    },
+    EnhancementGroup {
+        heading: "Hyperspace",
+        items: &[Enhancement {
+            slot: 13,
+            title: "Streaking hyperspace",
+            about: "A jump shows the stars and dust streaking past instead of the original \
+                    tunnel: they gather speed slowly, rush by, then slow quickly as the new \
+                    system arrives. Every jump lasts at least six seconds.",
         }],
     },
 ];

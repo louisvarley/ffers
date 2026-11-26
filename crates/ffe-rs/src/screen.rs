@@ -735,6 +735,9 @@ pub struct Screen {
     /// F1066's hyperspace view: the transit's animation word (model 0xa5's
     /// global 0) while a jump is under way; the caller sets it each frame.
     pub hyperspace: Option<u16>,
+    /// `enhancement-15`: the transit's elapsed and whole real seconds, when the
+    /// streaking view replaces F1066's tunnel; the caller sets it each frame.
+    pub hyperspace_streaks: Option<(f64, f64)>,
     jitter: Jitter,
 }
 
@@ -1194,6 +1197,7 @@ impl Screen {
             intro_text: None,
             intro_error_reported: false,
             hyperspace: None,
+            hyperspace_streaks: None,
             jitter: Jitter::default(),
         })
     }
@@ -2877,6 +2881,15 @@ impl Screen {
             } else if self.market.is_some() {
                 self.draw_market();
             }
+        } else if let Some((elapsed, whole)) = self.hyperspace_streaks.take() {
+            // enhancement-15: the stars and dust streak past instead of the tunnel.
+            crate::hyperspace_streaks::draw(
+                &mut self.frame[..320 * VIEW_HEIGHT],
+                320,
+                VIEW_HEIGHT,
+                elapsed,
+                whole,
+            );
         } else if let (Some(word), Some(viewer)) = (self.hyperspace.take(), scene) {
             // F1066: the tunnel replaces the view while the ship is in mode 4.
             // F1575 requests (0, 0, 4) for the clear; model 0xa5 stands at F959's

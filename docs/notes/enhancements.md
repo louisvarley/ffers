@@ -17,8 +17,8 @@ in the commander save. The step-by-step recipe for adding a new one is
 
 ## The items
 
-The launcher groups these under four headers: **Combat & missiles**,
-**Autopilot**, **Mission fixes** and **Combat display**. The `enhancement-n`
+The launcher groups these under headers: **Combat & missiles**,
+**Autopilot**, **Mission fixes**, **Combat display**, **Galaxy map** and **Hyperspace**. The `enhancement-n`
 numbers are the original request numbers and are not the display order.
 
 ### Combat & missiles
@@ -148,12 +148,22 @@ EXP-046.
   one entry, as the original's F355(±1) does (the port's down arrow used to page
   a whole window, so a few clicks ran to the end of the market).
 
+### Hyperspace
+
+- `enhancement-15` — **Streaking hyperspace.** While a jump runs, the view shows the
+  stars and dust streaking past (in the manner of Elite Dangerous) instead of the
+  original's tunnel: they start as points, gather speed slowly, rush by in long
+  streaks round a dark, dusty centre with a pink wash to one side, then slow quickly
+  as the new system arrives, ending on a short flash. Every jump is given at least
+  six seconds for it (longer with the enhanced map's long routes), and the
+  hyperspace sound repeats to fill it. Off, the original tunnel and timing are kept.
+
 ## Implementation convention
 
 ### Keys
 
 The launcher's **Settings → Enhancements** tab shows one toggle per item, grouped
-under the four headers above. Each writes `enhancement.<name>=on|off` into
+under the headers above. Each writes `enhancement.<name>=on|off` into
 `saves/config.cfg` (never into a commander save). Writing a config never removes
 the other settings: the launcher loads `config.cfg` with the game's own reader and
 saves the whole file with its writer, so `bind.*`, display and preference pages
@@ -177,6 +187,7 @@ its own options on exit).
 | `enhancement-12` | `enhancement.enhanced_galaxy_map` | `enhanced_galaxy_map` | off |
 | `enhancement-13` | `enhancement.laser_sight` | `laser_sight` | off |
 | `enhancement-14` | (was `enhancement.list_scroll`) | always on since 2026-11-25; the line is ignored | n/a |
+| `enhancement-15` | `enhancement.hyperspace_streaks` | `hyperspace_streaks` | off |
 
 Values are `on|off` when written; `on|off|true|false|1|0` are accepted when
 read. A missing key keeps the default (off). An unknown `enhancement.*` name is
@@ -207,6 +218,7 @@ entry (`EXP-xxx`, `enhancement`) and a regression test.
 | `enhancement-11` `edge_indicator` | `targeter::edge_indicator`, `screen::Screen::edge_indicator` | no arrow pixels; F1100's text forms unchanged |
 | `enhancement-12` `enhanced_galaxy_map` | `enhanced_map` module, `screen::{EnhancedGalaxy, draw_enhanced_galaxy}`, `main.rs` map open/input/draw/route | the original 3D `GalaxyMap` path is unchanged; the flat map, route and Sol pointer are only built when the toggle is on |
 | `enhancement-13` `laser_sight` | `screen::{Screen::fixed_laser, first_person_view}`, `main.rs` | off keeps F1776's beam from the gun mount; on draws a fixed foot-to-reticle sight line in the front, rear and turret views only |
+| `enhancement-15` `hyperspace_streaks` | `hyperspace_streaks` module, `navigation::{Transit::real_seconds, Navigator::stretch_transit_to}`, `screen::Screen::hyperspace_streaks`, `main.rs` jump/sound/draw | F1066's tunnel (model 0xa5) and the original transit length; nothing of the streak field is drawn |
 | `enhancement-14` (always on since 2026-11-25) | `station::DockState::{scroll_by, arrow, wheel}`, `main.rs` docked-screen input | the wheel always scrolls station lists (it is no longer a toggle); the arrows are the original's one-row F355(±1) either way |
 
 `enhancement-10` also closes its list and drops the ship selected through it

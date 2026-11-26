@@ -1785,6 +1785,17 @@ impl Transit {
         self.remaining / HYPERSPACE_RATE * self.stretch.max(1.0)
     }
 
+    /// The real seconds the transit has run and takes in all, as stretched
+    /// (`enhancement-15`'s streaks are drawn from these).
+    pub fn real_seconds(&self) -> (f64, f64) {
+        let stretch = self.stretch.max(1.0);
+        let elapsed = (self.total - self.remaining).clamp(0.0, self.total.max(0.0));
+        (
+            elapsed / HYPERSPACE_RATE * stretch,
+            self.total / HYPERSPACE_RATE * stretch,
+        )
+    }
+
     /// F1066's animation word for model 0xa5: the elapsed share times 145, << 8.
     ///
     /// A long transit (see [`enhanced_transit_seconds`], or a route's legs added up) plays
@@ -8579,10 +8590,15 @@ impl Navigator {
     /// Slow the transit just made so it plays for [`enhanced_transit_seconds`] real seconds
     /// (never faster than the original's): the same game time passes, over a longer tunnel.
     pub fn stretch_transit(&mut self, distance: i32, legs: usize) {
+        self.stretch_transit_to(enhanced_transit_seconds(distance, legs));
+    }
+
+    /// Play the current transit over `seconds` of real time (never faster than the original).
+    pub fn stretch_transit_to(&mut self, seconds: f64) {
         if let Some(transit) = self.transit.as_mut() {
             let natural = transit.total / HYPERSPACE_RATE;
             if natural > 0.0 {
-                transit.stretch = (enhanced_transit_seconds(distance, legs) / natural).max(1.0);
+                transit.stretch = (seconds / natural).max(1.0);
             }
         }
     }
