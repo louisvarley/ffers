@@ -17,8 +17,9 @@ in the commander save. The step-by-step recipe for adding a new one is
 
 ## The items
 
-The launcher groups these under headers: **Combat & missiles**,
-**Autopilot**, **Mission fixes**, **Combat display**, **Galaxy map** and **Hyperspace**. The `enhancement-n`
+The launcher groups these under headers: **Combat enhancements** (the items in
+the Combat & missiles and Combat display sections below), **Autopilot**,
+**Mission fixes**, **Galaxy map** and **Hyperspace**. The `enhancement-n`
 numbers are the original request numbers and are not the display order.
 
 ### Combat & missiles
@@ -108,9 +109,10 @@ EXP-046.
   when it is off view), `Home`/`C` recentre, and multi-step routes. **A click on a
   star selects it and adds it to the route; a second click takes it off again**
   (`X` does the same for the selected star). **A star beyond one jump gets a plotted
-  course:** the computer finds the stars to hop through (the fewest jumps, then the
-  shortest, preferring inhabited and quieter stops; up to 8 jumps), adds them as
-  numbered stops and brings the whole course into view; clicking the star again takes
+  course:** the computer finds the most efficient stars to hop through (the least
+  fuel, then the fewest jumps, then the shortest, preferring inhabited and quieter
+  stops; as far as the fuel aboard allows, with a 40-jump guard on the search) and adds
+  them as numbered stops, leaving the view where it is; clicking the star again takes
   the stops it plotted off with it. The route is drawn as rings and a line from the current system through each
   waypoint, a leg the range or the fuel cannot cover in red, with a total
   distance and fuel line (red when it cannot be flown). **The arrow keys pan the
@@ -118,8 +120,10 @@ EXP-046.
   Page Up/Down and `+`/`-` zoom. **Hovering a star says** whether anyone lives
   there (a green "Populated" or a red "Unpopulated", with its faction) and, for a
   populated one, how dangerous it is to arrive in, then the fuel the jump needs from
-  where the route has got to ("Out of range: click to plot a course" when it is too far
-  for one jump); the console panel names the selected star's
+  where the route has got to; for a star beyond one jump it plots the course there and
+  then and says "Course: 3 jumps, 3t of fuel" in white, and "Out of range" in red
+  only when the fuel aboard cannot pay for it ("need 25t, have 20t") or no chain of
+  stars reaches it; the console panel names the selected star's
   danger too. `H` flies the whole
   route **as one jump**: every leg is checked first, the legs' jump times run
   together as a single transit, and the tunnel and the hyperspace sound last for
@@ -150,13 +154,28 @@ EXP-046.
 
 ### Hyperspace
 
-- `enhancement-15` — **Streaking hyperspace.** While a jump runs, the view shows the
+- `enhancement-15` — **Elite Dangerous Hyperspace** (the launcher's name; earlier
+  "Streaking hyperspace"). While a jump runs, the view shows the
   stars and dust streaking past (in the manner of Elite Dangerous) instead of the
-  original's tunnel: they start as points, gather speed slowly, rush by in long
-  streaks round a dark, dusty centre with a pink wash to one side, then slow quickly
-  as the new system arrives, ending on a short flash. Every jump is given at least
-  six seconds for it (longer with the enhanced map's long routes), and the
-  hyperspace sound repeats to fill it. Off, the original tunnel and timing are kept.
+  original's tunnel, over the player's space colour: the view that was showing (its
+  stars, nebula and bodies) stretches into streaks and rushes outwards as the speed
+  gathers over 2.2 s, with more stars fading in among them, while space brightens round
+  a black hole in the middle; through the cruise the hole grows a little and the
+  brightness and streaks dim; over the last 2.2 s they slow, and a bright flash brings
+  the new system, whose stars and nebula draw in from the edges and settle over 2 s as
+  the flash clears and the field fades (the departure in reverse). H first charges the
+  drive for 5 s, with "CHARGING" over a red `XXX.XXX` countdown (H again cancels); once
+  the jump is up to speed, "ARRIVAL IN" counts down to the exit. The jump plays for
+  7 s plus 0.35 s a light year (half a second more a leg on a route), between 9 and
+  45 s; the game time the jump takes is unchanged. Its sound is the
+  owner's three clips (`hyperspace_sound`): the ramp up plays as the charge starts (its
+  first 5 s are the charge's lead-in, then its rise is the 2.2 s speed-up; a cancelled
+  charge stops it), the ramp down is timed to end with the jump (its fall is
+  the 2.2 s slow-down), and the drone fills the gap, fading in over the last second of
+  the ramp up and out over the first second of the ramp down. The clips are the owner's
+  own WAV files, embedded in the game (`crates/ffe-rs/assets/hyperspace/`); should one
+  fail to decode, the original sample repeats as before. Off, the original tunnel, sound
+  and timing are kept.
 
 ## Implementation convention
 

@@ -68,6 +68,17 @@ pub fn new_commander(
     OriginalFlight::new_commander(cache, nav)
 }
 
+/// The navigation computer's general-equipment bit (bit 5, 0 t). F998 fits it only in the
+/// default (Hope) start; the owner asked for every start to have one (EXP-056), so the
+/// Ross, Mars and Lave words below are the source's with this bit added.
+pub const NAVIGATION_COMPUTER: u32 = 1 << 5;
+/// The automatic pilot's general-equipment bit (bit 21) and its mass. F998 fits it at Hope
+/// and Ross 154 only; the owner asked for every start to have one (EXP-056), so the Mars
+/// and Lave words add it and their holds lose its tonne as the source's do for the
+/// equipment they fit.
+pub const AUTOPILOT: u32 = 1 << 21;
+pub const AUTOPILOT_TONNES: i32 = 1;
+
 /// F998's four delivered setups; 4/5 take its default arm.
 #[derive(Debug, Clone, Copy)]
 pub struct StartSpec {
@@ -107,7 +118,7 @@ impl StartSpec {
                 cash: 1000,
                 port: 0x6e,
                 player: 107,
-                general: 0x40240000,
+                general: 0x40240000 | NAVIGATION_COMPUTER,
                 ..common
             },
             2 => Self {
@@ -115,9 +126,9 @@ impl StartSpec {
                 cash: 1000,
                 port: 0x5f,
                 player: 61,
-                hold_loss: 12,
+                hold_loss: 12 + AUTOPILOT_TONNES,
                 drive: 1,
-                general: 0x40000000,
+                general: 0x40000000 | NAVIGATION_COMPUTER | AUTOPILOT,
                 laser: 0xa0,
                 fuel: 0,
                 energy: 0x40000000,
@@ -129,9 +140,9 @@ impl StartSpec {
                 port: 0x70,
                 player: 111,
                 mode: 0x2a,
-                hold_loss: 31,
+                hold_loss: 31 + AUTOPILOT_TONNES,
                 drive: 3,
-                general: 0x40000,
+                general: 0x40000 | NAVIGATION_COMPUTER | AUTOPILOT,
                 missiles: 4,
                 fuel: 4,
                 energy: 0x40000000,

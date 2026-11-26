@@ -79,6 +79,18 @@ pub struct EnhancedMap {
     pub selected: Option<Selected>,
     /// The `X` route, in the order it was marked.
     pub route: Vec<Waypoint>,
+    /// The last course plotted, so pointing at a far star plots it once rather than every
+    /// frame, and the click after it reuses it.
+    course: std::cell::RefCell<Option<CourseMemo>>,
+}
+
+/// A plotted course and what it was plotted for.
+#[derive(Debug, Clone)]
+struct CourseMemo {
+    from: u32,
+    to: u32,
+    reach: i32,
+    result: Result<Vec<course::Stop>, course::CourseError>,
 }
 
 impl EnhancedMap {
@@ -92,7 +104,42 @@ impl EnhancedMap {
             reach,
             selected: None,
             route: Vec::new(),
+            course: std::cell::RefCell::default(),
         }
+    }
+
+    /// The most efficient course from where the route has got to to `star` (see
+    /// [`course::plot_in_galaxy`]), remembered for the next call with the same ends.
+    pub fn course_to(
+        &self,
+        star: course::Stop,
+        plan: &PlanContext<'_>,
+    ) -> Result<Vec<course::Stop>, course::CourseError> {
+        let (from_code, from_position) = self.route_end();
+        if let Some(memo) = self.course.borrow().as_ref() {
+            if (memo.from, memo.to, memo.reach) == (from_code, star.code, self.reach) {
+                return memo.result.clone();
+            }
+        }
+        let from = course::Stop {
+            code: from_code,
+            position: from_position,
+        };
+        let result = course::plot_in_galaxy(
+            plan.sectors,
+            plan.systems,
+            from,
+            star,
+            self.reach,
+            plan.fuel,
+        );
+        *self.course.borrow_mut() = Some(CourseMemo {
+            from: from_code,
+            to: star.code,
+            reach: self.reach,
+            result: result.clone(),
+        });
+        result
     }
 
     /// `Home`/`C`: back to the player's system, level, at the opening zoom.
@@ -416,11 +463,7 @@ impl EnhancedMap {
         if removed > 0 {
             return Clicked::Removed(removed);
         }
-        let (from_code, from_position) = self.route_end();
-        let from = course::Stop {
-            code: from_code,
-            position: from_position,
-        };
+        let from_position = self.route_end().1;
         if self.reach <= 0 || sector::distance(from_position, star.position) <= self.reach {
             self.route.push(Waypoint {
                 code: star.code,
@@ -429,7 +472,7 @@ impl EnhancedMap {
             });
             return Clicked::Added;
         }
-        match course::plot_in_galaxy(plan.sectors, plan.systems, from, star, self.reach) {
+        match self.course_to(star, plan) {
             Ok(stops) => {
                 let last = stops.len() - 1;
                 for (index, stop) in stops.iter().enumerate() {
@@ -477,6 +520,9 @@ pub fn course_problem(problem: &RouteProblem, total: i32, have: i32) -> String {
 pub struct PlanContext<'a> {
     pub sectors: &'a SectorTables<'a>,
     pub systems: Option<&'a ffe_core::galaxy::Tables<'a>>,
+    /// The tonnes of fuel the drive burns on a jump of a distance (F899), whatever the
+    /// hold carries; `None` counts a tonne a jump.
+    pub fuel: &'a dyn Fn(i32) -> Option<i32>,
 }
 
 /// What [`EnhancedMap::click_star`] did.
@@ -727,6 +773,9 @@ pub struct SceneContext<'a> {
     pub check_route: &'a RouteChecker<'a>,
     /// Tonnes of fuel in the hold.
     pub drive_fuel: i32,
+    /// The tonnes a jump of a distance burns, whatever the hold carries (see
+    /// [`PlanContext::fuel`]).
+    pub leg_fuel: &'a dyn Fn(i32) -> Option<i32>,
     pub date: String,
     /// The mouse, in view coordinates, when it is over the screen.
     pub mouse: Option<(i32, i32)>,
@@ -982,7 +1031,7 @@ fn jump_line(
     }
     let report = (ctx.report_for)(leg)?;
     if report.result < 0 && report.fuel_needed < 0 {
-        return Some(("Out of range: click to plot a course".to_owned(), PROBLEM));
+        return Some(course_line(plot, map, route, ctx));
     }
     if report.result < 0 {
         return Some((fuel_line(&report), PROBLEM));
@@ -994,6 +1043,56 @@ fn jump_line(
         return Some((format!("Insufficient Fuel ({needed}t required)"), PROBLEM));
     }
     Some((fuel_line(&report), 15))
+}
+
+/// The line for a star beyond one jump: the most efficient course to it and the fuel it
+/// burns, in white when the hold can pay for the route with it on the end, else why not
+/// ("Out of range", in red, only when the fuel or the drive cannot get there).
+fn course_line(
+    plot: &Plot,
+    map: &EnhancedMap,
+    route: &[(u32, [i32; 3])],
+    ctx: &SceneContext<'_>,
+) -> (String, u8) {
+    let plan = PlanContext {
+        sectors: ctx.sectors,
+        systems: ctx.systems,
+        fuel: ctx.leg_fuel,
+    };
+    let star = course::Stop {
+        code: plot.code,
+        position: plot.position,
+    };
+    let Ok(stops) = map.course_to(star, &plan) else {
+        return ("Out of range: no course".to_owned(), PROBLEM);
+    };
+    let mut trial = route.to_vec();
+    trial.extend(stops.iter().map(|stop| (stop.code, stop.position)));
+    // What this course burns from where the route has got to, and the whole route with it.
+    let fuel_from = |start: [i32; 3], legs: &[(u32, [i32; 3])]| -> i32 {
+        let mut at = start;
+        legs.iter()
+            .map(|(_, position)| {
+                let tonnes = (ctx.leg_fuel)(sector::distance(at, *position)).unwrap_or(0);
+                at = *position;
+                tonnes
+            })
+            .sum()
+    };
+    let course_fuel = fuel_from(map.route_end().1, &trial[route.len()..]);
+    let jumps = stops.len();
+    match (ctx.check_route)(&trial) {
+        Ok(_) => (format!("Course: {jumps} jumps, {course_fuel}t of fuel"), 15),
+        Err(RouteProblem::Fuel { .. }) => (
+            format!(
+                "Out of range: need {}t, have {}t",
+                fuel_from(map.home, &trial),
+                ctx.drive_fuel
+            ),
+            PROBLEM,
+        ),
+        Err(_) => ("Out of range".to_owned(), PROBLEM),
+    }
 }
 
 /// Why a star was not added to the route, when the hold cannot pay for the course to it.

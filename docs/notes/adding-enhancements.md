@@ -76,6 +76,8 @@ Enhancement {
     about: "Replaces the 3D star map with a flat, clearer map: multi-step X \
             routes, hover station info, SOL indicator, middle-mouse zoom and \
             right-drag pan.",
+    // An optional line shown in bold under the description, or `None`.
+    note: Some("Recommended to use alongside Elite Dangerous Hyperspace."),
 },
 ```
 

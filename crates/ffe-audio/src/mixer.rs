@@ -30,6 +30,12 @@ pub const SAMPLE_RATE: u32 = 22_050;
 
 /// `NUMCHANNELS` from `w32sound.cpp`.
 pub const VOICE_COUNT: usize = 16;
+/// Layer streams: sounds the game fades in and out by itself (the streaking hyperspace's
+/// ramp up, drone and ramp down).
+pub const LAYER_COUNT: usize = 3;
+/// How far a layer's gain moves towards its target each output frame: a fade set once a
+/// game frame glides over about 20 ms instead of stepping.
+const LAYER_GLIDE: f64 = 0.002;
 
 /// The sample file names in `FX/`, lower-case as the cache stores them.
 pub const EFFECT_NAMES: [&str; 23] = [
@@ -530,13 +536,26 @@ struct Stream {
     gain: f64,
 }
 
-/// The 16-voice software mixer, plus independent music and video stream voices.
+/// A layer stream: a stream whose gain the caller moves (it glides to `target`) and that
+/// may repeat.
+#[derive(Debug)]
+struct Layer {
+    pcm: Arc<Vec<i16>>,
+    position: usize,
+    gain: f64,
+    target: f64,
+    looping: bool,
+}
+
+/// The 16-voice software mixer, plus independent music and video stream voices and the
+/// [`LAYER_COUNT`] layer streams.
 #[derive(Debug)]
 pub struct Mixer {
     effects: Arc<EffectLibrary>,
     voices: [Option<Voice>; VOICE_COUNT],
     video_stream: Option<Stream>,
     music_stream: Option<Stream>,
+    layers: [Option<Layer>; LAYER_COUNT],
 }
 
 impl Mixer {
@@ -546,7 +565,42 @@ impl Mixer {
             voices: std::array::from_fn(|_| None),
             video_stream: None,
             music_stream: None,
+            layers: std::array::from_fn(|_| None),
         }
+    }
+
+    /// Start layer `slot` playing `pcm` (mono, [`SAMPLE_RATE`]) from its start at linear
+    /// `gain`, replacing what the layer held. `looping` repeats it until stopped.
+    pub fn play_layer(&mut self, slot: usize, pcm: Arc<Vec<i16>>, gain: f64, looping: bool) {
+        let Some(layer) = self.layers.get_mut(slot) else {
+            return;
+        };
+        let gain = gain.max(0.0);
+        *layer = (!pcm.is_empty()).then_some(Layer {
+            pcm,
+            position: 0,
+            gain,
+            target: gain,
+            looping,
+        });
+    }
+
+    /// Fade layer `slot` towards linear `gain`.
+    pub fn set_layer_gain(&mut self, slot: usize, gain: f64) {
+        if let Some(Some(layer)) = self.layers.get_mut(slot) {
+            layer.target = gain.max(0.0);
+        }
+    }
+
+    pub fn stop_layer(&mut self, slot: usize) {
+        if let Some(layer) = self.layers.get_mut(slot) {
+            *layer = None;
+        }
+    }
+
+    /// Whether layer `slot` is still playing.
+    pub fn layer_active(&self, slot: usize) -> bool {
+        self.layers.get(slot).is_some_and(Option::is_some)
     }
 
     /// Play `pcm` (mono, [`SAMPLE_RATE`]) from its start at linear level
@@ -672,6 +726,7 @@ impl Mixer {
     pub fn stop_all(&mut self) {
         self.voices = std::array::from_fn(|_| None);
         self.video_stream = None;
+        self.layers = std::array::from_fn(|_| None);
     }
 
     pub fn active_voices(&self) -> usize {
@@ -736,6 +791,21 @@ impl Mixer {
                 stream.position += 1;
                 if stream.position >= stream.pcm.len() {
                     self.music_stream = None;
+                }
+            }
+            for entry in &mut self.layers {
+                let Some(layer) = entry.as_mut() else {
+                    continue;
+                };
+                layer.gain += (layer.target - layer.gain) * LAYER_GLIDE;
+                sum += f64::from(layer.pcm[layer.position]) * layer.gain;
+                layer.position += 1;
+                if layer.position >= layer.pcm.len() {
+                    if layer.looping {
+                        layer.position = 0;
+                    } else {
+                        *entry = None;
+                    }
                 }
             }
             *slot = sum.clamp(f64::from(i16::MIN), f64::from(i16::MAX)) as i16;

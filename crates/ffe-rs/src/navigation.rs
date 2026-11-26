@@ -8219,6 +8219,14 @@ impl Navigator {
         .ok()
     }
 
+    /// The tonnes of fuel a jump of `distance` burns, whatever the hold carries; `None`
+    /// when the drive cannot make it in one jump.
+    pub fn leg_fuel(&self, distance: i32) -> Option<i32> {
+        self.report_for_fuel(distance, i32::MAX / 2)
+            .filter(|report| report.fuel_needed >= 0)
+            .map(|report| report.fuel_needed)
+    }
+
     /// The drive's range for the player's ship (what F900 leaves in `DATA_008907`).
     pub fn reach(&self) -> Option<i32> {
         let drive = self.drive?;

@@ -2,10 +2,12 @@
 //! star beyond one jump's range, find the stars to hop through.
 //!
 //! The drive's range limits one jump, so a far star takes several. The plotter finds the
-//! course with the fewest jumps (each costs fuel, time and a one-in-128 chance of a
-//! mis-jump), then the shortest in total distance, and prefers inhabited stops (where fuel
-//! can be bought) and quieter ones (fewer pirate patrols) among courses that are otherwise
-//! equal. It is an A* search over the galaxy's stars, so the search is generic over a
+//! most efficient course: the least fuel (F899 burns about the distance times the ship's
+//! mass, plus a tonne, for each jump), then the fewest jumps (each costs time and a
+//! one-in-128 chance of a mis-jump), then the shortest in total distance, and prefers
+//! inhabited stops (where fuel can be bought) and quieter ones (fewer pirate patrols)
+//! among courses that are otherwise equal. How far it may go is the hold's business: the
+//! caller compares the course's fuel with what is carried. It is an A* search over the galaxy's stars, so the search is generic over a
 //! `near` function that lists the stars one jump from a star; [`plot_in_galaxy`] supplies the
 //! real sector tables, and the tests supply a line of synthetic stars.
 
@@ -45,13 +47,22 @@ impl std::fmt::Display for CourseError {
     }
 }
 
-/// The most jumps a plotted course may have.
-pub const MAX_HOPS: usize = 8;
-/// A cost of one jump; everything else (distance, penalties) is far smaller, so the
-/// fewest jumps always wins.
+/// The most jumps a plotted course may have (a guard on the search; the fuel in the hold
+/// is the real limit).
+pub const MAX_HOPS: usize = 40;
+/// A tonne of fuel; everything else is far smaller, so the least fuel always wins.
+const TONNE: i64 = 1_000_000_000;
+/// A cost of one jump; distance and penalties are far smaller, so among courses of equal
+/// fuel the fewest jumps wins.
 const HOP: i64 = 1_000_000;
 /// The stars a search looks at before it gives up.
-const MAX_EXPANSIONS: usize = 30_000;
+const MAX_EXPANSIONS: usize = 60_000;
+
+/// The tonnes of fuel one leg of `distance` burns, as the course weighs it: `fuel` (the
+/// drive's F899 figure) when it knows, else one tonne a jump.
+fn leg_tonnes(fuel: &dyn Fn(i32) -> Option<i32>, distance: i32) -> i64 {
+    fuel(distance).map_or(1, |tonnes| i64::from(tonnes.max(1)))
+}
 
 /// The jump count a straight line to `to` needs at least.
 pub fn jumps_needed(from: [i32; 3], to: [i32; 3], reach: i32) -> usize {
@@ -66,13 +77,15 @@ pub fn jumps_needed(from: [i32; 3], to: [i32; 3], reach: i32) -> usize {
 
 /// Plot the stops from `from` (not included) to `to` (the last). `reach` is the drive's range
 /// in the distance units of `sector::distance`; `near` lists the stars within one jump of
-/// a star with each one's penalty (small: a preference between equal courses).
+/// a star with each one's penalty (small: a preference between equal courses); `fuel` is
+/// the tonnes a jump of a distance burns (`None`: count a tonne a jump).
 pub fn plot(
     from: Stop,
     to: Stop,
     reach: i32,
     max_hops: usize,
     near: &mut dyn FnMut(&Stop) -> Vec<(Stop, i64)>,
+    fuel: &dyn Fn(i32) -> Option<i32>,
 ) -> Result<Vec<Stop>, CourseError> {
     if from.code == to.code {
         return Ok(Vec::new());
@@ -87,11 +100,12 @@ pub fn plot(
     if sector::distance(from.position, to.position) <= reach {
         return Ok(vec![to]);
     }
+    // Every jump still needed burns at least a tonne, so this never overestimates.
     let heuristic = |star: &Stop| {
         if star.code == to.code {
             0
         } else {
-            jumps_needed(star.position, to.position, reach) as i64 * HOP
+            jumps_needed(star.position, to.position, reach) as i64 * (TONNE + HOP)
         }
     };
     // code -> (cost so far, hops, the star it was reached from)
@@ -134,7 +148,8 @@ pub fn plot(
             }
             // A penalty only counts for a stop on the way, not for the star asked for.
             let penalty = if star.code == to.code { 0 } else { penalty };
-            let next = cost + HOP + leg + penalty;
+            let tonnes = leg_tonnes(fuel, leg as i32);
+            let next = cost + tonnes * TONNE + HOP + leg + penalty;
             if best.get(&star.code).is_none_or(|&(old, _, _)| next < old) {
                 best.insert(star.code, (next, hops + 1, code));
                 stops.insert(star.code, star);
@@ -225,16 +240,24 @@ impl<'a> Galaxy<'a> {
     }
 }
 
-/// Plot a course across the real galaxy.
+/// Plot a course across the real galaxy; `fuel` is the drive's tonnes for a jump.
 pub fn plot_in_galaxy(
     sectors: &SectorTables<'_>,
     systems: Option<&ffe_core::galaxy::Tables<'_>>,
     from: Stop,
     to: Stop,
     reach: i32,
+    fuel: &dyn Fn(i32) -> Option<i32>,
 ) -> Result<Vec<Stop>, CourseError> {
     let mut galaxy = Galaxy::new(sectors, systems, reach);
-    plot(from, to, reach, MAX_HOPS, &mut |here| galaxy.near(here))
+    plot(
+        from,
+        to,
+        reach,
+        MAX_HOPS,
+        &mut |here| galaxy.near(here),
+        fuel,
+    )
 }
 
 #[cfg(test)]
@@ -275,6 +298,7 @@ mod tests {
             reach,
             8,
             &mut near_of(stars.clone(), HashMap::new()),
+            &|_| None,
         )
         .unwrap();
         assert_eq!(course, vec![stars[2]]);
@@ -284,7 +308,8 @@ mod tests {
                 stars[1],
                 reach,
                 8,
-                &mut near_of(stars.clone(), HashMap::new())
+                &mut near_of(stars.clone(), HashMap::new()),
+                &|_| None,
             )
             .unwrap(),
             vec![]
@@ -304,6 +329,7 @@ mod tests {
             reach,
             8,
             &mut near_of(stars.clone(), HashMap::new()),
+            &|_| None,
         )
         .unwrap();
         // 9.5 sectors at 1.5 a jump: at least 7 jumps.
@@ -337,6 +363,7 @@ mod tests {
             reach,
             8,
             &mut near_of(stars.clone(), HashMap::new()),
+            &|_| None,
         );
         // Sixteen sectors across at one a jump is more than the limit...
         assert!(
@@ -350,6 +377,7 @@ mod tests {
             reach,
             40,
             &mut near_of(stars.clone(), HashMap::new()),
+            &|_| None,
         );
         assert_eq!(result, Err(CourseError::NoCourse));
     }
@@ -364,6 +392,7 @@ mod tests {
             reach,
             8,
             &mut near_of(stars.clone(), HashMap::new()),
+            &|_| None,
         )
         .unwrap_err();
         assert_eq!(
@@ -374,6 +403,56 @@ mod tests {
             }
         );
         assert!(error.to_string().contains("Too far"));
+    }
+
+    #[test]
+    fn the_course_that_burns_least_fuel_wins_over_a_shorter_one() {
+        // Two-jump courses through A (two legs just over a sector) or B (half a sector,
+        // then a sector and a half). Through A is a little shorter, but F899 rounds each
+        // leg down and adds a tonne: A burns 2 + 2 t, B 1 + 2 t.
+        let unit = sector::distance([0, 0, 0], [0x1_0000, 0, 0]);
+        let reach = unit * 8 / 5;
+        let stars = vec![
+            Stop {
+                code: 1,
+                position: [0, 0, 0],
+            },
+            Stop {
+                code: 10,
+                position: [0x1_0000, 0x0800, 0],
+            },
+            Stop {
+                code: 11,
+                position: [0x8000, -0x1000, 0],
+            },
+            Stop {
+                code: 2,
+                position: [0x2_0000, 0, 0],
+            },
+        ];
+        let through = |course: Vec<Stop>| course.iter().map(|s| s.code).collect::<Vec<_>>();
+        let fuel = move |distance: i32| Some(distance / unit + 1);
+        let course = plot(
+            stars[0],
+            stars[3],
+            reach,
+            8,
+            &mut near_of(stars.clone(), HashMap::new()),
+            &fuel,
+        )
+        .unwrap();
+        assert_eq!(through(course), [11, 2]);
+        // Counting a tonne a jump, the shorter course through A wins.
+        let course = plot(
+            stars[0],
+            stars[3],
+            reach,
+            8,
+            &mut near_of(stars, HashMap::new()),
+            &|_| None,
+        )
+        .unwrap();
+        assert_eq!(through(course), [10, 2]);
     }
 
     #[test]
@@ -407,6 +486,7 @@ mod tests {
             reach,
             8,
             &mut near_of(stars.clone(), penalties),
+            &|_| None,
         )
         .unwrap();
         assert_eq!(course.iter().map(|s| s.code).collect::<Vec<_>>(), [11, 2]);
@@ -417,6 +497,7 @@ mod tests {
             reach,
             8,
             &mut near_of(stars, HashMap::new()),
+            &|_| None,
         )
         .unwrap();
         assert_eq!(course.len(), 2);

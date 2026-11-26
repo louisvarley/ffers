@@ -59,6 +59,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
+/// `enhancement-12`'s marked route: each leg's system code and position.
+type RouteLegs = Vec<(u32, [i32; 3])>;
+
 /// The frame's F271 writes, in order. `main` only puts source-faithful game
 /// events here; port-only notices stay in `message` and are never shown.
 #[derive(Default)]
@@ -817,16 +820,24 @@ fn run_load_picker(
 ) -> Result<Option<PathBuf>, String> {
     let paths = saves::all_saves(save_dir).unwrap_or_default();
     let mut selected = 0usize;
-    let mut detail = "Up/Down, Enter to load; Esc to go back".to_owned();
+    // The first save on the page: kept apart from the selection so that pointing
+    // at a row does not scroll the list under the pointer.
+    let mut first = 0usize;
+    let mut detail = "Click a save to load it (or Up/Down, Enter); Esc to go back".to_owned();
     let mut last = Instant::now();
+    // A click counts on the button's down edge only, so the press that opened
+    // the picker (or a held button) never loads a save by itself.
+    let mut mouse_was_down = true;
+    let mut last_pointer = None;
     let _ = (scene, tics);
     while window.is_open() && !session.should_exit() {
-        let first = selected.saturating_sub(10);
+        let page = ffe_rs::screen::PREF_LIST_ROWS;
+        first = first.min(selected).max((selected + 1).saturating_sub(page));
         let rows: Vec<_> = paths
             .iter()
             .enumerate()
             .skip(first)
-            .take(11)
+            .take(page)
             .map(|(i, path)| {
                 (
                     path.file_name()
@@ -855,16 +866,50 @@ fn run_load_picker(
         let dt = last.elapsed().as_secs_f64().min(0.1);
         last = Instant::now();
         let inp = session.frame(window, dt);
+        let last_save = paths.len().saturating_sub(1);
+        // The pointer moves the selection to the save under it; the wheel scrolls.
+        let pointer = inp
+            .get_unscaled_mouse_pos(MouseMode::Pass)
+            .and_then(|(x, y)| display::logical_point(display, x, y, inp.get_size()));
+        let row = pointer.and_then(|(x, y)| {
+            Screen::pref_list_row(x, y, paths.len().saturating_sub(first)).map(|row| first + row)
+        });
+        // Only a moved pointer takes the selection, so a resting pointer does
+        // not undo the arrow keys.
+        if pointer != last_pointer {
+            if let Some(row) = row {
+                selected = row;
+            }
+        }
+        last_pointer = pointer;
+        if let Some((_, wheel)) = inp.get_scroll_wheel() {
+            if wheel > 0.0 {
+                selected = selected.saturating_sub(1);
+            } else if wheel < 0.0 {
+                selected = (selected + 1).min(last_save);
+            }
+        }
+        let mouse_down = inp.get_mouse_down(MouseButton::Left);
+        let clicked = mouse_down && !mouse_was_down;
+        mouse_was_down = mouse_down;
+        // A click loads the save it is on, whatever the arrows had selected.
+        if let (true, Some(row)) = (clicked, row) {
+            selected = row;
+        }
+        let mut load = clicked && row.is_some();
         for key in inp.get_keys_pressed(KeyRepeat::No) {
             match key {
                 Key::Escape => return Ok(None),
                 Key::Up => selected = selected.saturating_sub(1),
-                Key::Down => selected = (selected + 1).min(paths.len().saturating_sub(1)),
-                Key::Enter if !paths.is_empty() => match saves::load_game(&paths[selected]) {
-                    Ok(_) => return Ok(Some(paths[selected].clone())),
-                    Err(error) => detail = format!("Cannot load: {error}"),
-                },
+                Key::Down => selected = (selected + 1).min(last_save),
+                Key::Enter => load = true,
                 _ => {}
+            }
+        }
+        if let (true, Some(path)) = (load, paths.get(selected)) {
+            match saves::load_game(path) {
+                Ok(_) => return Ok(Some(path.clone())),
+                Err(error) => detail = format!("Cannot load: {error}"),
             }
         }
     }
@@ -1548,6 +1593,27 @@ fn run() -> Result<(), String> {
     // outlasts the one sample).
     let mut route_legs: Vec<(u32, [i32; 3])> = Vec::new();
     let mut hyperspace_sound_left = 0.0f64;
+    // enhancement-15: whether last frame drew a streaking jump, and when the last one
+    // arrived (the new view streaks in for `ARRIVAL_SECONDS` after it).
+    let mut streak_transit = false;
+    let mut streak_arrived: Option<std::time::Instant> = None;
+    let mut streak_whole = 0.0f64;
+    // enhancement-15: H charges the drive for `CHARGE_SECONDS` before the jump: when it
+    // began, and the marked route's legs to fly then.
+    let mut jump_charge: Option<(std::time::Instant, RouteLegs)> = None;
+    // enhancement-15: the owner's ramp-up, drone and ramp-down clips, embedded; should they
+    // fail to decode, the original sample plays.
+    let mut streak_sound = ffe_rs::hyperspace_sound::HyperspaceSound::new(
+        enhancements
+            .hyperspace_streaks
+            .then(ffe_rs::hyperspace_sound::Clips::embedded)
+            .and_then(|clips| {
+                clips
+                    .map_err(|error| eprintln!("hyperspace sounds: {error}"))
+                    .ok()
+            }),
+    );
+    let new_hyperspace_sound = streak_sound.ready();
     // F2's status/equipment page (`F1120`, `DATA_008871 & 8`).
     let mut status_page = false;
     // F5's console icon (action 0xf5): the parked ship's engines/equipment page. Off by
@@ -2401,7 +2467,9 @@ fn run() -> Result<(), String> {
                     // enhancement-12: the original plays its one sample at the start of
                     // a jump; a longer transit (a route, a far star) plays it again
                     // until the last second, so the sound lasts as long as the tunnel.
-                    if enhancements.enhanced_galaxy_map || enhancements.hyperspace_streaks {
+                    if (enhancements.enhanced_galaxy_map || enhancements.hyperspace_streaks)
+                        && !new_hyperspace_sound
+                    {
                         hyperspace_sound_left -= elapsed;
                         let real_left = nav.transit.map_or(0.0, |t| t.real_seconds_left());
                         if hyperspace_sound_left <= 0.0 && real_left > 1.0 {
@@ -2596,6 +2664,15 @@ fn run() -> Result<(), String> {
                 }
             }
         }
+        // enhancement-15: the ramp-up, drone and ramp-down clips follow the transit's clock.
+        streak_sound.update(
+            sound.audio_mut(),
+            jump_charge.is_some() && enhancements.hyperspace_streaks,
+            nav.as_ref()
+                .and_then(|nav| nav.transit)
+                .filter(|_| enhancements.hyperspace_streaks)
+                .map(|transit| transit.real_seconds()),
+        );
         // F1094: the jump time has run out. Mode 0 again at 1x (F217), the ship
         // moving at 0x71b7 along the system's z axis; the system's traffic
         // arrives with it, and F1094 leaves the exit cloud (model 0x9a, AI
@@ -3084,6 +3161,10 @@ fn run() -> Result<(), String> {
         // The console's screen buttons replace the open map screen: F1, F2, F4
         // (and F5-F12 off the galaxy page) close it and show their own screen,
         // and the map buttons close whichever screen is over the flight view.
+        // `map_left` keeps the F1 (or views button) that closes a map from also
+        // cycling the view this frame, as `status_left` does for the status screen:
+        // F1 returns to the view that was showing.
+        let mut map_left = false;
         if active
             && state.mode == ffe_rs::flight::Mode::Flight
             && model_lab.is_none()
@@ -3098,6 +3179,7 @@ fn run() -> Result<(), String> {
                 || pressed(Key::F4)
                 || console_click.is_some_and(|click| map_keys::click_leaves_map(click, map_owned));
             if map_open && other_screen {
+                map_left = pressed(Key::F1) || console_click == Some(Click::CycleView);
                 if let Some(nav) = nav.as_mut() {
                     nav.view = NavView::Closed;
                     // Parked under the system each was made for (its own `home`), not the
@@ -3979,9 +4061,11 @@ fn run() -> Result<(), String> {
                                 .map(|name| name.iter().map(|b| char::from(*b)).collect())
                         };
                         map.pick(code, position, kind);
+                        let leg_fuel = |distance| nav.leg_fuel(distance);
                         let plan = ffe_rs::enhanced_map::PlanContext {
                             sectors: tables,
                             systems: system_details.as_ref(),
+                            fuel: &leg_fuel,
                         };
                         let result = map.click_star(ffe_rs::course::Stop { code, position }, &plan);
                         message = result.message(
@@ -4011,11 +4095,6 @@ fn run() -> Result<(), String> {
                                 nav.route_fuel_needed(&route).unwrap_or(0),
                                 nav.drive.map_or(0, |drive| drive.fuel),
                             );
-                        } else {
-                            // A plotted course often runs off the view: bring all of it in.
-                            if matches!(result, ffe_rs::enhanced_map::Clicked::Plotted(_)) {
-                                map.fit_route();
-                            }
                         }
                         // Say at once when the route as it now stands cannot be flown, and why.
                         let route: Vec<(u32, [i32; 3])> =
@@ -4413,6 +4492,31 @@ fn run() -> Result<(), String> {
                     }
                     engage = enter && matches!(nav.view, NavView::System | NavView::Places);
                 }
+                // enhancement-15: H charges the drive first (Elite Dangerous's frame shift
+                // charge). The jump itself starts when the charge is done; H again cancels.
+                if enhancements.hyperspace_streaks {
+                    if nav.transit.is_some() || state.mode != ffe_rs::flight::Mode::Flight {
+                        jump_charge = None;
+                    } else if hyperspace {
+                        hyperspace = false;
+                        held_controls.disarm(&keys_down);
+                        if jump_charge.take().is_some() {
+                            route_legs.clear();
+                            message = "Jump cancelled.".to_owned();
+                        } else {
+                            jump_charge =
+                                Some((std::time::Instant::now(), std::mem::take(&mut route_legs)));
+                            message = "Hyperdrive charging.".to_owned();
+                        }
+                    } else if jump_charge.as_ref().is_some_and(|(at, _)| {
+                        at.elapsed().as_secs_f64() >= ffe_rs::hyperspace_streaks::CHARGE_SECONDS
+                    }) {
+                        if let Some((_, legs)) = jump_charge.take() {
+                            route_legs = legs;
+                            hyperspace = true;
+                        }
+                    }
+                }
                 if hyperspace || engage {
                     held_controls.disarm(&keys_down);
                     if original.is_none() {
@@ -4458,18 +4562,22 @@ fn run() -> Result<(), String> {
                                 // longer tunnel and sound, by the distance flown.
                                 // enhancement-15: the streaks need time to gather speed
                                 // and slow again, so they get at least six seconds.
-                                if enhancements.enhanced_galaxy_map
-                                    || enhancements.hyperspace_streaks
-                                {
-                                    let mut seconds = ffe_rs::navigation::enhanced_transit_seconds(
-                                        jumped.distance,
-                                        legs_flown,
+                                // enhancement-15 plays by the distance flown too, with
+                                // room for the streaks' and sounds' ramps.
+                                if enhancements.hyperspace_streaks {
+                                    nav.stretch_transit_to(
+                                        ffe_rs::hyperspace_streaks::transit_seconds(
+                                            jumped.distance,
+                                            legs_flown,
+                                        ),
                                     );
-                                    if enhancements.hyperspace_streaks {
-                                        seconds =
-                                            seconds.max(ffe_rs::hyperspace_streaks::MIN_SECONDS);
-                                    }
-                                    nav.stretch_transit_to(seconds);
+                                } else if enhancements.enhanced_galaxy_map {
+                                    nav.stretch_transit_to(
+                                        ffe_rs::navigation::enhanced_transit_seconds(
+                                            jumped.distance,
+                                            legs_flown,
+                                        ),
+                                    );
                                 }
                                 // F912: at the arrival point with no velocity
                                 // and no set speed; F1030 holds it there. The
@@ -4485,8 +4593,10 @@ fn run() -> Result<(), String> {
                                     nav.drive,
                                     jumped.fuel,
                                 );
-                                // F908's sample `0x21`.
-                                sound.play(Cue::Hyperspace);
+                                // F908's sample `0x21` (enhancement-15's clips replace it).
+                                if !new_hyperspace_sound {
+                                    sound.play(Cue::Hyperspace);
+                                }
                                 hyperspace_sound_left = HYPERSPACE_SAMPLE_SECONDS;
                                 let lost = apply_misjump(
                                     &jumped,
@@ -5401,7 +5511,7 @@ fn run() -> Result<(), String> {
                         _ => None,
                     });
                     let turret = ViewMode::turret(gun_mounts, views.turret.pitch);
-                    let clicked = if map_page_open || status_keys {
+                    let clicked = if map_page_open || status_keys || map_left {
                         None
                     } else {
                         clicked
@@ -5422,8 +5532,9 @@ fn run() -> Result<(), String> {
                     .into_iter()
                     .find(|key| pressed(*key))
                     // F1 and F6..F12 belong to the status screen while it
-                    // is up (F292).
-                    .filter(|_| !status_keys)
+                    // is up (F292), and F6..F12 to an open map page (F840);
+                    // the F1 that closes a map only closes it.
+                    .filter(|_| !status_keys && !map_page_open && !map_left)
                     .and_then(input::view_command)
                     // The console's missile-view button is F10's action 0xfb.
                     .or_else(|| {
@@ -9952,6 +10063,7 @@ fn run() -> Result<(), String> {
                 report_for: &|distance| nav.report_for(distance),
                 check_route: &|route| nav.check_route(route),
                 drive_fuel: nav.drive.map_or(0, |drive| drive.fuel),
+                leg_fuel: &|distance| nav.leg_fuel(distance),
                 date: nav.date_text(),
                 mouse,
             };
@@ -11257,6 +11369,33 @@ fn run() -> Result<(), String> {
             let streaks = enhancements.hyperspace_streaks;
             screen.hyperspace = transit.filter(|_| !streaks).map(|t| t.animation());
             screen.hyperspace_streaks = transit.filter(|_| streaks).map(|t| t.real_seconds());
+            // The jump's end starts the arrival's streaks; they run on real time.
+            let now = std::time::Instant::now();
+            let in_transit = screen.hyperspace_streaks.is_some();
+            if streak_transit && !in_transit {
+                streak_arrived = Some(now);
+            } else if let Some((_, whole)) = screen.hyperspace_streaks {
+                streak_arrived = None;
+                streak_whole = whole;
+            }
+            streak_transit = in_transit;
+            screen.hyperspace_arrival = streak_arrived
+                .map(|at| (now.duration_since(at).as_secs_f64(), streak_whole))
+                .filter(|(since, _)| *since < ffe_rs::hyperspace_streaks::ARRIVAL_SECONDS);
+            if screen.hyperspace_arrival.is_none() {
+                streak_arrived = None;
+            }
+            // A charge ends with the flight it began in: docked, dead or already jumping.
+            if state.mode != ffe_rs::flight::Mode::Flight
+                || state.death.is_some()
+                || in_transit
+                || !streaks
+            {
+                jump_charge = None;
+            }
+            screen.hyperspace_charge = jump_charge.as_ref().map(|(at, _)| {
+                ffe_rs::hyperspace_streaks::CHARGE_SECONDS - now.duration_since(*at).as_secs_f64()
+            });
             screen.draw(&state, views, scene.as_ref(), prefs.modern, &message);
         }
         if let Some(player) = &fmv_player {

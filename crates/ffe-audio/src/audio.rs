@@ -102,6 +102,23 @@ pub trait Audio {
 
     /// Stop a video's soundtrack.
     fn stop_stream(&mut self) {}
+
+    /// Play mono PCM at the mixing rate on layer `slot` (see `Mixer::play_layer`) at the
+    /// effects level `volume` (`0..=63`) times `fade` (0 to 1). The default ignores it.
+    fn play_layer(
+        &mut self,
+        _slot: usize,
+        _pcm: std::sync::Arc<Vec<i16>>,
+        _volume: u8,
+        _fade: f64,
+        _looping: bool,
+    ) {
+    }
+
+    /// Fade layer `slot` to `volume` times `fade`.
+    fn set_layer_fade(&mut self, _slot: usize, _volume: u8, _fade: f64) {}
+
+    fn stop_layer(&mut self, _slot: usize) {}
 }
 
 /// The concrete player. It owns a [`MusicLibrary`], a MIDI sink, an effects sink,
@@ -392,6 +409,35 @@ impl Audio for AudioEngine {
 
     fn stop_stream(&mut self) {
         self.samples.stop_stream();
+    }
+
+    fn play_layer(
+        &mut self,
+        slot: usize,
+        pcm: std::sync::Arc<Vec<i16>>,
+        volume: u8,
+        fade: f64,
+        looping: bool,
+    ) {
+        if !self.settings.effects_on {
+            return;
+        }
+        let gain =
+            crate::mixer::level_gain(self.settings.effect_level(volume)) * fade.clamp(0.0, 1.0);
+        self.samples.play_layer(slot, pcm, gain, looping);
+    }
+
+    fn set_layer_fade(&mut self, slot: usize, volume: u8, fade: f64) {
+        let gain = if self.settings.effects_on {
+            crate::mixer::level_gain(self.settings.effect_level(volume)) * fade.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        self.samples.set_layer_gain(slot, gain);
+    }
+
+    fn stop_layer(&mut self, slot: usize) {
+        self.samples.stop_layer(slot);
     }
 
     fn tick(&mut self, elapsed: Duration) {

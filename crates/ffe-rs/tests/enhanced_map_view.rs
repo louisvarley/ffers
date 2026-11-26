@@ -63,6 +63,7 @@ fn draw(world: &World, map: &mut EnhancedMap, mouse: Option<(i32, i32)>, name: &
         report_for: &|distance| world.nav.report_for(distance),
         check_route: &|route| world.nav.check_route(route),
         drive_fuel: world.nav.drive.map_or(0, |drive| drive.fuel),
+        leg_fuel: &|distance| world.nav.leg_fuel(distance),
         date: world.nav.date_text(),
         mouse,
     };
@@ -151,6 +152,7 @@ fn the_enhanced_map_draws_its_states() {
                 report_for: &|distance| world.nav.report_for(distance),
                 check_route: &|route| world.nav.check_route(route),
                 drive_fuel: 12,
+                leg_fuel: &|distance| world.nav.leg_fuel(distance),
                 date: String::new(),
                 mouse: Some((plot.x, plot.y)),
             };
@@ -168,6 +170,7 @@ fn the_enhanced_map_draws_its_states() {
             last.starts_with("Fuel Required")
                 || last.starts_with("Insufficient Fuel")
                 || last.starts_with("Out of range")
+                || last.starts_with("Course:")
                 || own_system
                 || on_route,
             "{lines:?}"
@@ -243,6 +246,7 @@ fn the_enhanced_map_draws_its_states() {
             report_for: &|distance| dry.nav.report_for(distance),
             check_route: &|route| dry.nav.check_route(route),
             drive_fuel: 0,
+            leg_fuel: &|distance| world.nav.leg_fuel(distance),
             date: String::new(),
             mouse: Some((target.x, target.y)),
         },
@@ -546,6 +550,7 @@ fn a_far_star_is_reached_through_a_plotted_course() {
     let plan = PlanContext {
         sectors: &sectors,
         systems: Some(&systems),
+        fuel: &|_| None,
     };
     let Clicked::Plotted(stops) = map.click_star(far, &plan) else {
         panic!("a course should be plotted to {far:?}");
@@ -617,11 +622,12 @@ fn an_unreachable_or_unflyable_course_says_why() {
     let plan = PlanContext {
         sectors: &sectors,
         systems: None,
+        fuel: &|_| None,
     };
-    // Far beyond eight jumps.
+    // Far beyond the plotter's jump guard (`course::MAX_HOPS`).
     let faraway = ffe_rs::course::Stop {
         code: 77,
-        position: [map.home[0] + 0x40_0000, map.home[1], map.home[2]],
+        position: [map.home[0] + 0x200_0000, map.home[1], map.home[2]],
     };
     let Clicked::NoCourse(error) = map.click_star(faraway, &plan) else {
         panic!("too far to plot");
@@ -675,6 +681,7 @@ fn a_plotted_course_draws() {
     let plan = PlanContext {
         sectors: &sectors,
         systems: Some(&systems),
+        fuel: &|_| None,
     };
     assert!(matches!(map.click_star(far, &plan), Clicked::Plotted(_)));
     map.fit_route();
@@ -697,6 +704,7 @@ fn a_plotted_course_draws() {
         report_for: &|distance| world.nav.report_for(distance),
         check_route: &|route| world.nav.check_route(route),
         drive_fuel: 12,
+        leg_fuel: &|distance| world.nav.leg_fuel(distance),
         date: String::new(),
         mouse: None,
     };

@@ -29,6 +29,10 @@ pub trait SampleSink: Send {
     fn play_music_stream(&mut self, _pcm: Arc<Vec<i16>>, _volume: u8) {}
     fn stop_music_stream(&mut self) {}
     fn set_music_stream_volume(&mut self, _volume: u8) {}
+    /// Layer streams the game fades itself (see `Mixer::play_layer`); `gain` is linear.
+    fn play_layer(&mut self, _slot: usize, _pcm: Arc<Vec<i16>>, _gain: f64, _looping: bool) {}
+    fn set_layer_gain(&mut self, _slot: usize, _gain: f64) {}
+    fn stop_layer(&mut self, _slot: usize) {}
 }
 
 /// A recorded effect call, for tests and for the diagnostics pane.
@@ -237,6 +241,18 @@ impl SampleSink for MixerSampleSink {
 
     fn set_music_stream_volume(&mut self, volume: u8) {
         lock(&self.mixer).set_music_stream_volume(volume);
+    }
+
+    fn play_layer(&mut self, slot: usize, pcm: Arc<Vec<i16>>, gain: f64, looping: bool) {
+        lock(&self.mixer).play_layer(slot, pcm, gain, looping);
+    }
+
+    fn set_layer_gain(&mut self, slot: usize, gain: f64) {
+        lock(&self.mixer).set_layer_gain(slot, gain);
+    }
+
+    fn stop_layer(&mut self, slot: usize) {
+        lock(&self.mixer).stop_layer(slot);
     }
 }
 

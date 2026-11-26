@@ -23,6 +23,8 @@ use std::io::Cursor;
 pub const WIDTH: usize = 640;
 pub const HEIGHT: usize = 480;
 const VIEW_HEIGHT: usize = 158;
+/// The rows [`Screen::draw_pref_list`] has room for above its footer.
+pub const PREF_LIST_ROWS: usize = 11;
 
 /// A star, planet or moon seen as a lit disc: flight-space centre and radius, the
 /// unit direction toward the light, and the palette indices (lit, dark).
@@ -738,6 +740,16 @@ pub struct Screen {
     /// `enhancement-15`: the transit's elapsed and whole real seconds, when the
     /// streaking view replaces F1066's tunnel; the caller sets it each frame.
     pub hyperspace_streaks: Option<(f64, f64)>,
+    /// `enhancement-15`: real seconds since a streaking jump arrived and the jump's whole
+    /// length, while the new view streaks into place
+    /// ([`crate::hyperspace_streaks::ARRIVAL_SECONDS`]); the caller sets it each frame.
+    pub hyperspace_arrival: Option<(f64, f64)>,
+    /// `enhancement-15`: real seconds left while the drive charges after H; the caller sets
+    /// it each frame.
+    pub hyperspace_charge: Option<f64>,
+    /// The last flight view drawn (its scene, before the HUD): the streaking jump starts
+    /// from it.
+    last_view: Option<Vec<u32>>,
     jitter: Jitter,
 }
 
@@ -1198,6 +1210,9 @@ impl Screen {
             intro_error_reported: false,
             hyperspace: None,
             hyperspace_streaks: None,
+            hyperspace_arrival: None,
+            hyperspace_charge: None,
+            last_view: None,
             jitter: Jitter::default(),
         })
     }
@@ -1875,6 +1890,35 @@ impl Screen {
                 cursor += glyph.advance as i32;
             }
         }
+    }
+
+    /// `enhancement-15`'s jump countdown: `label` over `seconds` as `XXX.XXX`, both in the
+    /// game's font in glowing red, centred low in the view below the gunsight.
+    fn draw_jump_countdown(&mut self, label: &str, seconds: f64) {
+        /// The label's top row; the digits' is a line below.
+        const TOP: i32 = 126;
+        const LINE: i32 = 10;
+        let text = crate::hyperspace_streaks::countdown_text(seconds);
+        let mut ink = Vec::new();
+        for (line, y) in [(label, TOP), (text.as_str(), TOP + LINE)] {
+            let mut cursor = 160 - self.text_width(line) as i32 / 2;
+            for code in line.bytes() {
+                if let Some(glyph) = self.font.glyph(code) {
+                    ink.extend(
+                        glyph
+                            .pixels()
+                            .map(|(col, row)| (cursor + col as i32, y + row as i32)),
+                    );
+                    cursor += glyph.advance as i32;
+                }
+            }
+        }
+        crate::hyperspace_streaks::glow_ink(
+            &mut self.frame[..320 * VIEW_HEIGHT],
+            320,
+            VIEW_HEIGHT,
+            &ink,
+        );
     }
 
     fn text_bytes(&mut self, x: usize, y: usize, message: &[u8], colour: u8) {
@@ -2889,7 +2933,14 @@ impl Screen {
                 VIEW_HEIGHT,
                 elapsed,
                 whole,
+                self.sky,
+                self.last_view.as_deref(),
             );
+            // Up to speed, the seconds to the arrival count down in red.
+            let profile = crate::hyperspace_streaks::Profile::new(whole);
+            if elapsed >= profile.accelerate {
+                self.draw_jump_countdown("ARRIVAL IN", whole - elapsed);
+            }
         } else if let (Some(word), Some(viewer)) = (self.hyperspace.take(), scene) {
             // F1066: the tunnel replaces the view while the ship is in mode 4.
             // F1575 requests (0, 0, 4) for the clear; model 0xa5 stands at F959's
@@ -2956,6 +3007,23 @@ impl Screen {
             if let Some(scene) = scene.filter(|_| !self.palette_build_per_object) {
                 scene.end_frame_palette();
             }
+            // enhancement-15: keep the scene for the next jump to streak away from, then
+            // streak the new system's view in after one.
+            let view_rows = &self.frame[..320 * VIEW_HEIGHT];
+            match self.last_view.as_mut() {
+                Some(last) => last.copy_from_slice(view_rows),
+                None => self.last_view = Some(view_rows.to_vec()),
+            }
+            if let Some((since, whole)) = self.hyperspace_arrival.take() {
+                crate::hyperspace_streaks::arrive(
+                    &mut self.frame[..320 * VIEW_HEIGHT],
+                    320,
+                    VIEW_HEIGHT,
+                    since,
+                    whole,
+                    self.surface_sky.unwrap_or(self.sky),
+                );
+            }
             // Text labels (`l`): the original's F989 walks the live objects and
             // F1108 draws each name at its screen position (colour 15).
             // F1099 draws the labels (F1108) only outside view 6, where F1109's
@@ -2996,6 +3064,10 @@ impl Screen {
             }
             if self.npc_button {
                 self.draw_npc_button();
+            }
+            // enhancement-15: the drive charging after H.
+            if let Some(left) = self.hyperspace_charge.take().filter(|_| !dying) {
+                self.draw_jump_countdown("CHARGING", left);
             }
         }
         // The original HUD now owns the top rows and the lower left: the port's
@@ -3279,6 +3351,17 @@ impl Screen {
         }
         self.shadow_text(32, 140, footer, 16);
         self.present();
+    }
+
+    /// The row of [`Self::draw_pref_list`] under the logical point (`x`, `y`),
+    /// counted from the first row drawn: the icon, the name and the gap to the
+    /// next row all belong to it.
+    pub fn pref_list_row(x: i32, y: i32, rows: usize) -> Option<usize> {
+        if !(20..=300).contains(&x) || y < 27 {
+            return None;
+        }
+        let row = ((y - 27) / 10) as usize;
+        (row < rows.min(PREF_LIST_ROWS)).then_some(row)
     }
 
     /// The save menu's name entry: the preference list's page with one text
@@ -5411,5 +5494,25 @@ mod laser_sight_tests {
         }
         assert_eq!(seen[5], 0x00f000);
         assert_eq!(ray_colour(&[Shape::Point((0, 0), [1, 2, 3])]), None);
+    }
+}
+
+#[cfg(test)]
+mod pref_list_tests {
+    use super::*;
+
+    #[test]
+    fn a_point_on_a_listed_save_names_its_row() {
+        // Row n's text is drawn at y = 28 + 10n; its icon at x = 32, the name from 48.
+        assert_eq!(Screen::pref_list_row(50, 30, 5), Some(0));
+        assert_eq!(Screen::pref_list_row(33, 47, 5), Some(2));
+        assert_eq!(Screen::pref_list_row(200, 128, 20), Some(10));
+        // Below the last save, past the page, above the list or off its sides.
+        assert_eq!(Screen::pref_list_row(50, 70, 3), None);
+        assert_eq!(Screen::pref_list_row(50, 140, 20), None);
+        assert_eq!(Screen::pref_list_row(50, 20, 5), None);
+        assert_eq!(Screen::pref_list_row(10, 30, 5), None);
+        assert_eq!(Screen::pref_list_row(310, 30, 5), None);
+        assert_eq!(Screen::pref_list_row(50, 30, 0), None);
     }
 }

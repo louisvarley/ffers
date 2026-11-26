@@ -937,7 +937,7 @@ impl App {
                     .enhancements
                     .slot(item.slot)
                     .expect("one toggle per listed enhancement");
-                option_row(ui, item.title, item.about, |ui| {
+                noted_option_row(ui, item.title, item.about, item.note, |ui| {
                     toggle(ui, value);
                 });
             }
@@ -994,6 +994,8 @@ struct Enhancement {
     slot: usize,
     title: &'static str,
     about: &'static str,
+    /// A line shown in bold under the description.
+    note: Option<&'static str>,
 }
 
 /// A titled group of related enhancements, in display order; the headers follow
@@ -1003,31 +1005,35 @@ struct EnhancementGroup {
     items: &'static [Enhancement],
 }
 
-const ENHANCEMENT_GROUPS: [EnhancementGroup; 6] = [
+const ENHANCEMENT_GROUPS: [EnhancementGroup; 5] = [
     EnhancementGroup {
-        heading: "Combat & missiles",
+        heading: "Combat enhancements",
         items: &[
             Enhancement {
                 slot: 0,
                 title: "Turrets turn while time is paused",
                 about: "Turrets keep tracking their target while time is paused.",
+                note: None,
             },
             Enhancement {
                 slot: 1,
                 title: "Missiles ignore their launcher on launch",
                 about: "A missile's collision ray ignores the ship that fired it, so it never \
                         hits its own launcher as it leaves.",
+                note: None,
             },
             Enhancement {
                 slot: 5,
                 title: "Missiles use swept collision",
                 about: "A missile's collision is tested along its whole path for the frame, so \
                         a fast missile cannot step past a thin target between two checks.",
+                note: None,
             },
             Enhancement {
                 slot: 7,
                 title: "ECM can disable NN500 missiles",
                 about: "The ECM can stop NN500-series missiles as well as the standard models.",
+                note: None,
             },
             Enhancement {
                 slot: 12,
@@ -1036,6 +1042,28 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 6] = [
                         clean line from the bottom of the view to the reticle, like the \
                         default Saker, instead of the beam from the gun mount. Third-person \
                         is unchanged.",
+                note: None,
+            },
+            Enhancement {
+                slot: 8,
+                title: "NPC relative speed",
+                about: "The selected NPC's hull and shield display also shows its speed relative \
+                        to the player.",
+                note: None,
+            },
+            Enhancement {
+                slot: 9,
+                title: "Combat Targeting Computer",
+                about: "Adds new dashboard button for seeing local ships and auto targeting \
+                        them.",
+                note: None,
+            },
+            Enhancement {
+                slot: 10,
+                title: "Edge target indicator",
+                about: "An arrow or bar shows the direction to the selected target when it is \
+                        out of view.",
+                note: None,
             },
         ],
     },
@@ -1047,6 +1075,7 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 6] = [
                 title: "Autopilot offsets its waypoint",
                 about: "Before each leg the autopilot tests the path against nearby bodies and \
                         adds an offset waypoint when the direct path would hit one.",
+                note: None,
             },
             Enhancement {
                 slot: 3,
@@ -1054,12 +1083,14 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 6] = [
                 about: "The braking point is calculated from the weaker retro thrust minus the \
                         local gravity, independently of the time step, so approaches do not \
                         crash.",
+                note: None,
             },
             Enhancement {
                 slot: 4,
                 title: "Autopilot avoids every nearby body",
                 about: "The autopilot tests collisions against every body in range, not just the \
                         current reference body.",
+                note: None,
             },
         ],
     },
@@ -1071,50 +1102,28 @@ const ENHANCEMENT_GROUPS: [EnhancementGroup; 6] = [
             about: "Mission corrections from the known-issues list: assassination kill credit, \
                     hitch-hiker completion, early medals, the hidden Alioth deadline, blocked \
                     docking bays, and mission dialogues under accelerated time.",
+            note: None,
         }],
-    },
-    EnhancementGroup {
-        heading: "Combat display",
-        items: &[
-            Enhancement {
-                slot: 8,
-                title: "NPC relative speed",
-                about: "The selected NPC's hull and shield display also shows its speed relative \
-                        to the player.",
-            },
-            Enhancement {
-                slot: 9,
-                title: "Combat Targeting Computer",
-                about: "Adds new dashboard button for seeing local ships and auto targeting \
-                        them.",
-            },
-            Enhancement {
-                slot: 10,
-                title: "Edge target indicator",
-                about: "An arrow or bar shows the direction to the selected target when it is \
-                        out of view.",
-            },
-        ],
     },
     EnhancementGroup {
         heading: "Galaxy map",
         items: &[Enhancement {
             slot: 11,
             title: "Enhanced galaxy map",
-            about: "Replaces the 3D star map with a flat, clearer one: click stars to build a \
-                    route and fly it as one long jump, arrow-key or right-drag pan, wheel zoom, \
-                    lines pointing home and to Sol, and hover info (populated or not, \
-                    safe or dangerous).",
+            about: "Replaces the legacy galaxy map with a modern drop-in, clearer and easier to \
+                    navigate, with multi-jump route planning, system information, and markers \
+                    for the distance to Sol and your current location.",
+            note: Some("Recommended to use alongside Elite Dangerous Hyperspace."),
         }],
     },
     EnhancementGroup {
         heading: "Hyperspace",
         items: &[Enhancement {
             slot: 13,
-            title: "Streaking hyperspace",
-            about: "A jump shows the stars and dust streaking past instead of the original \
-                    tunnel: they gather speed slowly, rush by, then slow quickly as the new \
-                    system arrives. Every jump lasts at least six seconds.",
+            title: "Elite Dangerous Hyperspace",
+            about: "A modern hyperspace using streaking stars and new sounds, inspired by \
+                    Elite Dangerous.",
+            note: None,
         }],
     },
 ];
@@ -1294,6 +1303,17 @@ fn section(ui: &mut egui::Ui, text: &str) {
 }
 
 fn option_row(ui: &mut egui::Ui, title: &str, about: &str, control: impl FnOnce(&mut egui::Ui)) {
+    noted_option_row(ui, title, about, None, control);
+}
+
+/// An option row with an optional bold `note` under its description.
+fn noted_option_row(
+    ui: &mut egui::Ui,
+    title: &str,
+    about: &str,
+    note: Option<&str>,
+    control: impl FnOnce(&mut egui::Ui),
+) {
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             ui.set_width((ui.available_width() - 420.0).max(300.0));
@@ -1303,6 +1323,13 @@ fn option_row(ui: &mut egui::Ui, title: &str, about: &str, control: impl FnOnce(
                     .color(CREAM),
             );
             ui.label(RichText::new(about).color(DIM).italics());
+            if let Some(note) = note {
+                ui.label(
+                    RichText::new(note)
+                        .font(draw::font(15.0, draw::BOLD))
+                        .color(CREAM),
+                );
+            }
         });
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), control);
     });

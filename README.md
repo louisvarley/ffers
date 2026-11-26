@@ -89,20 +89,25 @@ under **Settings > Enhancements**. They never change your saves.
 
 | Group | Enhancement | What it does |
 |---|---|---|
-| Combat & missiles | Turrets turn while time is paused | Turrets keep tracking their target while time is paused. |
+| Combat enhancements | Turrets turn while time is paused | Turrets keep tracking their target while time is paused. |
 | | Missiles ignore their launcher on launch | A missile no longer hits the ship that fired it. |
 | | Missiles use swept collision | A fast missile cannot step past a thin target. |
 | | ECM can disable NN500 missiles | The ECM stops NN500-series missiles as well as the standard models. |
+| | Fixed laser sight (first-person) | First-person views draw the laser as a clean line from the bottom of the view to the reticle. |
+| | NPC relative speed | The selected ship's readout also shows its speed relative to you. |
+| | Combat Targeting Computer | A dashboard button listing every ship within 50 km; click one to target it. |
+| | Edge target indicator | An arrow at the screen edge points to an off-screen target. |
 | Autopilot | Autopilot offsets its waypoint | Adds a waypoint when the direct path would hit a nearby body. |
 | | Autopilot braking uses retro thrust and gravity | Approaches no longer crash. |
 | | Autopilot avoids every nearby body | Collisions are tested against every body in range. |
 | Missions | Mission fixes | Assassination kill credit, hitch-hiker completion, early medals, the hidden Alioth deadline, blocked docking bays, and dialogues under accelerated time. |
-| Combat display | NPC relative speed | The selected ship's readout also shows its speed relative to you. |
-| | Combat Targeting Computer | A dashboard button listing every ship within 50 km; click one to target it. |
-| | Edge target indicator | An arrow at the screen edge points to an off-screen target. |
+| Galaxy map | Enhanced galaxy map | Replaces the legacy galaxy map with a modern drop-in, clearer and easier to navigate, with multi-jump route planning, system information, and markers for the distance to Sol and your current location. **Recommended to use alongside Elite Dangerous Hyperspace.** |
+| Hyperspace | Elite Dangerous Hyperspace | A modern hyperspace using streaking stars and new sounds, inspired by Elite Dangerous. |
 
-The full definitions are in [docs/notes/enhancements.md](docs/notes/enhancements.md). Several
-missions the original shipped broken are always fixed; see
+The full definitions are in [docs/notes/enhancements.md](docs/notes/enhancements.md). Every
+starting location now comes with a navigation computer and an automatic pilot (the original
+fitted both only at Hope, and the autopilot also at Ross 154),
+and several missions the original shipped broken are always fixed; see
 [docs/notes/broken-missions.md](docs/notes/broken-missions.md) and
 [docs/DEVIATIONS.md](docs/DEVIATIONS.md).
 
