@@ -280,12 +280,15 @@ pub fn inspect_game(root: &Path) -> Result<Inspection, String> {
     };
     // Elite Club's original batch file renames FIRSTENC.DAT at launch.
     // Inspect it in place; never modify a player's installation.
-    let executable_name = if find_child(root, "FIRSTENC.EXE")?.is_some() {
-        "FIRSTENC.EXE"
-    } else if find_child(root, "FIRSTENC.DAT")?.is_some() {
-        "FIRSTENC.DAT"
-    } else {
-        "FIRSTENC.EXE"
+    // Only an absent FIRSTENC.EXE selects the .DAT name; a lookup error (such
+    // as two names differing only in case) is reported as a diagnostic by
+    // `read_required` below rather than aborting the whole inspection.
+    let executable_name = match (
+        find_child(root, "FIRSTENC.EXE"),
+        find_child(root, "FIRSTENC.DAT"),
+    ) {
+        (Ok(None), Ok(Some(_))) => "FIRSTENC.DAT",
+        _ => "FIRSTENC.EXE",
     };
     if let Some(bytes) = read_required(
         &mut report,
